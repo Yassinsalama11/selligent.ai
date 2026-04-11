@@ -1,0 +1,11 @@
+{
+  "name": "airos-widget",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/widget.js --bundle --minify --outfile=dist/airos-widget.min.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}

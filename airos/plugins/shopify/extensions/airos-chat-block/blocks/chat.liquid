@@ -1,0 +1,42 @@
+{% comment %}
+  AIROS Chat Widget — Theme App Extension
+  Injects the live chat script into every Shopify storefront page.
+{% endcomment %}
+
+<script>
+(function(){
+  var tenantId = {{ shop.metafields.airos.tenant_id | json }};
+  if (!tenantId) return;
+  var s = document.createElement('script');
+  s.src = 'https://cdn.airos.io/widget.js';
+  s.setAttribute('data-tenant', tenantId);
+  s.setAttribute('data-color', {{ block.settings.color | json }});
+  s.async = true;
+  document.head.appendChild(s);
+})();
+</script>
+
+{% schema %}
+{
+  "name": "AIROS Chat",
+  "target": "body",
+  "settings": [
+    {
+      "type": "color",
+      "id": "color",
+      "label": "Widget color",
+      "default": "#2563EB"
+    },
+    {
+      "type": "select",
+      "id": "position",
+      "label": "Position",
+      "options": [
+        { "value": "bottom-right", "label": "Bottom right" },
+        { "value": "bottom-left",  "label": "Bottom left"  }
+      ],
+      "default": "bottom-right"
+    }
+  ]
+}
+{% endschema %}

@@ -1,0 +1,31 @@
+name = "AIROS Chat & Sync"
+client_id = "YOUR_SHOPIFY_CLIENT_ID"
+application_url = "https://app.airos.io/shopify"
+embedded = true
+
+[access_scopes]
+scopes = "read_products,read_shipping,read_price_rules,read_discounts"
+
+[auth]
+redirect_urls = [
+  "https://app.airos.io/shopify/auth/callback",
+  "https://app.airos.io/shopify/auth/offline/callback"
+]
+
+[webhooks]
+api_version = "2024-01"
+
+  [[webhooks.subscriptions]]
+  topics = ["products/create", "products/update", "products/delete"]
+  uri    = "/shopify/webhooks/products"
+
+  [[webhooks.subscriptions]]
+  topics = ["discount_codes/create", "discount_codes/update"]
+  uri    = "/shopify/webhooks/discounts"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/uninstalled"]
+  uri    = "/shopify/webhooks/uninstall"
+
+[pos]
+embedded = false
