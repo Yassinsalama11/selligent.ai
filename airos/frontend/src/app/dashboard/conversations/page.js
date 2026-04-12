@@ -647,25 +647,26 @@ export default function ConversationsPage() {
         .then(ai => {
           dispatch({ type: 'SET_AI_TYPING', convId, value: false });
 
-          if (!ai) {
-            log.ai('⚠ no frontend AI result — check API key in Settings → AI Configuration');
+          if (!ai || !ai.suggested_reply) {
+            log.ai('⚠ no AI result — check API key in Settings → AI Configuration');
+            toast.error('AI did not return a reply. Check your API key in Settings.', { duration: 5000 });
             return;
           }
 
-          log.ai(`✅ intent=${ai.intent} score=${ai.lead_score} reply="${ai.suggested_reply?.slice(0, 50)}"`);
+          log.ai(`✅ intent=${ai.intent} score=${ai.lead_score} reply="${ai.suggested_reply.slice(0, 60)}"`);
           dispatch({ type: 'UPDATE_CONV', convId, fields: { intent: ai.intent, score: ai.lead_score } });
 
-          const cfg    = getAiConfig();
-          // _autoReply is a module-level map updated synchronously when the toggle is clicked.
-          // It is NOT subject to React's async useEffect update cycle, so it is always current.
-          const autoOn = _autoReply[convId] || cfg?.autoReply || false;
-          const isOpen = storeRef.current.activeId === convId;
-          const phone  = conversation.customerPhone || convId.replace('whatsapp:', '');
+          // BOT MODE: always send automatically — no toggle needed.
+          // If the agent has manually paused this conversation (_autoReply[convId] === false
+          // and it was explicitly set), skip auto-send and show suggestion instead.
+          const manuallyPaused = _autoReply[convId] === false;
+          const phone = conversation.customerPhone || convId.replace('whatsapp:', '');
 
-          log.ai(`autoOn=${autoOn} (perConv=${!!_autoReply[convId]} globalCfg=${!!cfg?.autoReply}) isOpen=${isOpen}`);
+          log.ai(`bot mode — manuallyPaused=${manuallyPaused} phone=${phone}`);
 
-          if (autoOn && ai.suggested_reply) {
-            log.ai('🤖 auto-reply sending…');
+          if (!manuallyPaused) {
+            // AUTO-SEND: bot replies every time
+            log.ai('🤖 bot sending reply…');
             const tempId = `ai_${Date.now()}`;
             const aiMsg = {
               id: tempId, direction: 'outbound', content: ai.suggested_reply,
@@ -684,27 +685,31 @@ export default function ConversationsPage() {
               .then(d => {
                 if (d.ok) {
                   dispatch({ type: 'CONFIRM_MESSAGE', convId, tempId, realId: d.message_id || tempId });
-                  log.ai('✅ auto-reply delivered', d.message_id);
-                  toast.success('🤖 AI replied automatically', { duration: 2500 });
+                  log.ai('✅ bot reply delivered', d.message_id);
                 } else {
-                  log.error('auto-reply failed:', d.error);
+                  log.error('bot reply failed:', d.error);
                   toast.error(`AI send failed: ${d.error}`);
                 }
               })
               .catch(e => {
-                log.error('auto-reply network error:', e.message);
+                log.error('bot reply network error:', e.message);
                 toast.error(`Network error: ${e.message}`);
               });
 
-          } else if (isOpen && ai.suggested_reply) {
-            window.dispatchEvent(new CustomEvent('airos:ai-suggestion', {
-              detail: { convId, text: ai.suggested_reply, score: ai.lead_score, intent: ai.intent },
-            }));
+          } else {
+            // Agent manually took over — show suggestion only
+            log.ai('👤 manual takeover — showing suggestion');
+            const isOpen = storeRef.current.activeId === convId;
+            if (isOpen) {
+              window.dispatchEvent(new CustomEvent('airos:ai-suggestion', {
+                detail: { convId, text: ai.suggested_reply, score: ai.lead_score, intent: ai.intent },
+              }));
+            }
           }
         })
         .catch(e => {
           dispatch({ type: 'SET_AI_TYPING', convId, value: false });
-          log.error('❌ frontend AI error:', e.message);
+          log.error('❌ AI error:', e.message);
           toast.error(`AI error: ${e.message}`, { duration: 4000 });
         });
     });
@@ -721,11 +726,12 @@ export default function ConversationsPage() {
       dispatch({ type: 'SET_AI_TYPING', convId: conversation_id, value: false });
       dispatch({ type: 'UPDATE_CONV',   convId: conversation_id, fields: { intent, score: lead_score } });
 
-      const autoOn = _autoReply[conversation_id] || false;
+      // Bot mode: send unless agent manually paused this conversation
+      const manuallyPaused = _autoReply[conversation_id] === false;
       const isOpen = storeRef.current.activeId === conversation_id;
       const conv   = storeRef.current.convs[conversation_id];
 
-      if (autoOn && suggested_reply && conv) {
+      if (!manuallyPaused && suggested_reply && conv) {
         const phone  = conv.customerPhone || conversation_id.replace('whatsapp:', '');
         const tempId = `ai_${Date.now()}`;
         const aiMsg  = {
@@ -1200,27 +1206,41 @@ export default function ConversationsPage() {
                       ⚠ AI not set up
                     </a>
                   )}
-                  {/* AI toggle */}
-                  <div onClick={() => {
-                      if (!aiConfigured) {
-                        toast.error('Set your AI API key in Settings → AI Configuration first', { duration:4000 });
-                        return;
-                      }
-                      const next = !autoOn;
-                      _autoReply[activeLive.id] = next;   // sync — readable by socket callbacks immediately
-                      dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: next });
-                      toast(next ? '🤖 AI Auto-Reply ON — will reply automatically' : '👤 Manual mode', { duration:2500 });
-                    }}
-                    style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 12px',
-                      borderRadius:99, cursor:'pointer',
-                      border:`1px solid ${autoOn ? 'rgba(6,182,212,0.35)' : 'var(--b1)'}`,
-                      background: autoOn ? 'rgba(6,182,212,0.08)' : 'var(--s1)',
-                      opacity: aiConfigured ? 1 : 0.5 }}>
-                    <span style={{ fontSize:11.5, fontWeight:600, color: autoOn ? '#67e8f9' : 'var(--t4)' }}>
-                      {autoOn ? '🤖 AI Active' : '👤 Manual'}
-                    </span>
-                    <div className={`toggle${autoOn?' on':''}`} style={{ transform:'scale(0.8)' }} />
-                  </div>
+                  {/* Bot mode toggle — default is BOT ON, agent can take over manually */}
+                  {(() => {
+                    // manuallyPaused = agent explicitly clicked "Take Over"
+                    // _autoReply[id] === false means agent paused. undefined/true = bot active.
+                    const paused = _autoReply[activeLive.id] === false;
+                    return (
+                      <div onClick={() => {
+                          if (!aiConfigured) {
+                            toast.error('Set your AI API key in Settings → AI Configuration first', { duration:4000 });
+                            return;
+                          }
+                          if (paused) {
+                            // Resume bot
+                            _autoReply[activeLive.id] = true;
+                            dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: true });
+                            toast.success('🤖 Bot resumed — AI will reply automatically', { duration:2500 });
+                          } else {
+                            // Pause bot — agent takes over
+                            _autoReply[activeLive.id] = false;
+                            dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: false });
+                            toast('👤 Manual takeover — bot paused for this conversation', { duration:2500 });
+                          }
+                        }}
+                        style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 12px',
+                          borderRadius:99, cursor:'pointer',
+                          border:`1px solid ${!paused ? 'rgba(6,182,212,0.35)' : 'var(--b1)'}`,
+                          background: !paused ? 'rgba(6,182,212,0.08)' : 'var(--s1)',
+                          opacity: aiConfigured ? 1 : 0.5 }}>
+                        <span style={{ fontSize:11.5, fontWeight:600, color: !paused ? '#67e8f9' : 'var(--t4)' }}>
+                          {!paused ? '🤖 Bot Active' : '👤 Manual'}
+                        </span>
+                        <div className={`toggle${!paused?' on':''}`} style={{ transform:'scale(0.8)' }} />
+                      </div>
+                    );
+                  })()}
                   {/* Intent badge */}
                   <span style={{ fontSize:10.5, fontWeight:600, padding:'3px 9px', borderRadius:99,
                     background:`${IC_COLOR[intent]||'#64748b'}12`, color:IC_COLOR[intent]||'#64748b',
@@ -1242,17 +1262,17 @@ export default function ConversationsPage() {
                 </div>
               </div>
 
-              {/* AI auto-reply active banner */}
-              {autoOn && (
+              {/* Bot active banner — shown when AI is configured and not manually paused */}
+              {aiConfigured && _autoReply[activeLive.id] !== false && (
                 <div style={{ background:'rgba(6,182,212,0.06)', borderBottom:'1px solid rgba(6,182,212,0.15)',
                   padding:'6px 20px', display:'flex', alignItems:'center', justifyContent:'space-between',
                   fontSize:12, flexShrink:0 }}>
                   <span style={{ color:'#67e8f9', display:'flex', alignItems:'center', gap:6 }}>
                     <span style={{ width:6, height:6, borderRadius:'50%', background:'#67e8f9',
                       display:'inline-block', animation:'blink 1.5s infinite' }} />
-                    <strong>AI is handling this conversation</strong> — replies sent automatically
+                    <strong>🤖 Bot is handling this conversation</strong> — replying automatically
                   </span>
-                  <button onClick={() => { _autoReply[activeLive.id] = false; dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: false }); }}
+                  <button onClick={() => { _autoReply[activeLive.id] = false; dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: false }); toast('👤 You took over — bot paused', { duration:2000 }); }}
                     style={{ fontSize:11, color:'#fca5a5', background:'rgba(239,68,68,0.08)',
                       border:'1px solid rgba(239,68,68,0.2)', padding:'3px 10px', borderRadius:6,
                       cursor:'pointer', fontWeight:600 }}>
