@@ -131,6 +131,7 @@ export default function ConversationsPage() {
   const [activeLive, setActiveLive] = useState(null); // active live conversation
   const [liveMsgs, setLiveMsgs]     = useState([]);   // messages for active live conv
   const [liveSuggestion, setLiveSuggestion] = useState(null);
+  const [liveReply, setLiveReply] = useState('');
   const socketRef = useRef(null);
   const bottomRef = useRef(null);
 
@@ -219,6 +220,7 @@ export default function ConversationsPage() {
   async function openLiveConv(conv) {
     setActiveLive(conv);
     setLiveSuggestion(null);
+    setLiveReply('');
     // Load messages
     try {
       const r = await fetch(`${API}/api/live/conversations/${encodeURIComponent(conv.id)}/messages`);
@@ -600,98 +602,204 @@ export default function ConversationsPage() {
 
           {/* -- Live WhatsApp chat -- */}
           {activeLive ? (
-            <div style={{ display:'flex', flexDirection:'column', height:'100%' }}>
-              {/* Header */}
+            <>
+              {/* Header — identical layout to demo chat */}
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
-                padding:'0 16px', borderBottom:'1px solid var(--b1)', background:'var(--bg2)',
-                minHeight:56, flexShrink:0 }}>
+                padding:'0 16px', borderBottom:'1px solid var(--b1)', flexShrink:0,
+                background:'var(--bg2)', minHeight:56, gap:8, flexWrap:'wrap' }}>
                 <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-                  <div style={{ width:34, height:34, borderRadius:'50%', background:'rgba(37,211,102,0.15)',
-                    border:'1px solid rgba(37,211,102,0.3)', display:'flex', alignItems:'center',
-                    justifyContent:'center', fontWeight:700, color:'#25D366' }}>
+                  <div style={{ width:34, height:34, borderRadius:'50%',
+                    background:'linear-gradient(135deg,rgba(37,211,102,0.22),rgba(16,185,129,0.18))',
+                    display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:15 }}>
                     {activeLive.customerName?.[0]?.toUpperCase()}
                   </div>
                   <div>
-                    <p style={{ fontWeight:700, fontSize:14, color:'var(--t1)' }}>{activeLive.customerName}</p>
-                    <p style={{ fontSize:12, color:'#25D366' }}>📱 WhatsApp · {activeLive.customerPhone}</p>
+                    <p style={{ fontWeight:700, fontSize:14, color:'var(--t1)', lineHeight:1.2 }}>{activeLive.customerName}</p>
+                    <p style={{ fontSize:12, color:'#25D366', marginTop:2 }}>📱 whatsapp</p>
                   </div>
                 </div>
-                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                  {activeLive.score > 0 && (
-                    <div style={{ padding:'4px 12px', borderRadius:99, fontSize:12, fontWeight:700,
-                      background: activeLive.score > 70 ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
-                      color: activeLive.score > 70 ? '#34d399' : '#fbbf24' }}>
-                      Score {activeLive.score}
-                    </div>
-                  )}
-                  {activeLive.intent && (
-                    <div style={{ padding:'4px 12px', borderRadius:99, fontSize:11, fontWeight:600,
-                      background:'rgba(99,102,241,0.1)', color:'#a5b4fc' }}>
-                      {activeLive.intent.replace(/_/g,' ')}
-                    </div>
-                  )}
-                  <button onClick={() => { setActiveLive(null); setLiveMsgs([]); }}
-                    style={{ padding:'6px 14px', borderRadius:8, border:'1px solid var(--b1)',
-                      background:'var(--s1)', color:'var(--t3)', cursor:'pointer', fontSize:12 }}>
-                    ← Back
-                  </button>
+                <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                  {/* Manual/AI toggle */}
+                  <div style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 12px',
+                    borderRadius:99, border:'1px solid var(--b1)', background:'var(--s1)' }}>
+                    <span style={{ fontSize:11.5, fontWeight:600, color:'var(--t4)' }}>👤 Manual</span>
+                    <div className="toggle" style={{ transform:'scale(0.8)' }} />
+                  </div>
+                  {/* Intent */}
+                  <div style={{ fontSize:11, color:IC_COLOR[activeLive.intent]||'#94a3b8',
+                    background:`${IC_COLOR[activeLive.intent]||'#94a3b8'}10`,
+                    border:`1px solid ${IC_COLOR[activeLive.intent]||'#94a3b8'}22`,
+                    padding:'4px 10px', borderRadius:99, fontWeight:600 }}>
+                    {(activeLive.intent||'inquiry').replace(/_/g,' ')}
+                  </div>
+                  {/* Score */}
+                  <div style={{ fontSize:11, fontWeight:700, background:'var(--s2)',
+                    border:'1px solid var(--b1)', padding:'4px 10px', borderRadius:99,
+                    color: (activeLive.score||0)>70?'#34d399': (activeLive.score||0)>40?'#fcd34d':'#fca5a5' }}>
+                    {activeLive.score||0}
+                  </div>
+                  <button className="btn btn-ghost btn-xs" onClick={() => toast('Assign coming soon')}>Assign</button>
+                  <button className="btn btn-primary btn-xs" onClick={() => { setActiveLive(null); setLiveMsgs([]); }}>✓ Close</button>
+                  <button onClick={() => setShow(v => !v)} className="btn btn-ghost btn-xs">{showPanel?'→':'←'}</button>
                 </div>
               </div>
 
               {/* Messages */}
-              <div style={{ flex:1, overflowY:'auto', padding:'16px', display:'flex', flexDirection:'column', gap:10 }}>
+              <div style={{ flex:1, overflowY:'auto', padding:'20px', display:'flex',
+                flexDirection:'column', gap:12 }}>
                 {liveMsgs.length === 0 && (
                   <div style={{ textAlign:'center', color:'var(--t4)', fontSize:13, marginTop:40 }}>
                     No messages yet. Waiting for customer…
                   </div>
                 )}
-                {liveMsgs.map((m, i) => (
-                  <div key={m.id || i} style={{ display:'flex', justifyContent: m.direction === 'outbound' ? 'flex-end' : 'flex-start' }}>
-                    <div style={{ maxWidth:'68%', padding:'10px 14px', borderRadius: m.direction === 'outbound' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                      background: m.direction === 'outbound' ? '#6366f1' : 'var(--bg3)',
-                      border: m.direction === 'outbound' ? 'none' : '1px solid var(--b1)',
-                      color: m.direction === 'outbound' ? '#fff' : 'var(--t1)' }}>
-                      <p style={{ fontSize:14, lineHeight:1.5 }} dir="auto">{m.content}</p>
-                      <p style={{ fontSize:10, opacity:0.6, marginTop:4, textAlign:'right' }}>{m.at}</p>
+                {liveMsgs.map((m, i) => {
+                  const isOut = m.direction === 'outbound';
+                  return (
+                    <div key={m.id || i} style={{ display:'flex',
+                      justifyContent: isOut ? 'flex-end' : 'flex-start',
+                      gap:8, alignItems:'flex-end' }}>
+                      {!isOut && (
+                        <div style={{ width:28, height:28, borderRadius:'50%', flexShrink:0,
+                          background:'rgba(37,211,102,0.18)', display:'flex', alignItems:'center',
+                          justifyContent:'center', fontWeight:700, fontSize:12, color:'#25D366' }}>
+                          {activeLive.customerName?.[0]?.toUpperCase()}
+                        </div>
+                      )}
+                      <div style={{ maxWidth:'70%' }}>
+                        <div className={isOut ? 'bubble-out' : 'bubble-in'}>
+                          <span dir="auto">{m.content}</span>
+                        </div>
+                        <p style={{ fontSize:10.5, color:'var(--t4)', marginTop:4,
+                          textAlign: isOut ? 'right' : 'left' }}>
+                          {m.at}
+                          {m.sent_by === 'agent' && <span style={{ marginLeft:5 }}>· Agent</span>}
+                          {m.sent_by === 'ai' && <span style={{ marginLeft:5, color:'#67e8f9' }}>🤖 AI</span>}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 <div ref={bottomRef} />
               </div>
 
-              {/* AI suggestion */}
-              {liveSuggestion && (
-                <div style={{ margin:'0 16px', padding:'12px 16px', borderRadius:12,
-                  background:'rgba(99,102,241,0.07)', border:'1px solid rgba(99,102,241,0.2)',
-                  display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <p style={{ fontSize:11, fontWeight:700, color:'#a5b4fc', marginBottom:4 }}>🤖 AI Suggestion</p>
-                    <p style={{ fontSize:13, color:'var(--t2)' }} dir="auto">{liveSuggestion.text}</p>
+              {/* AI suggestion bar */}
+              <div style={{ margin:'0 16px 8px', background:'rgba(6,182,212,0.05)',
+                border:'1px solid rgba(6,182,212,0.18)', borderRadius:12, padding:'10px 14px' }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <span style={{ fontSize:12, fontWeight:700, color:'#67e8f9' }}>🤖 AI Suggestion</span>
+                    {liveSuggestion && <span style={{ fontSize:11, color:'var(--t4)' }}>{liveSuggestion.score}% confident</span>}
                   </div>
-                  <button onClick={() => { sendLiveReply(liveSuggestion.text); setLiveSuggestion(null); }}
-                    style={{ padding:'8px 16px', borderRadius:8, background:'#6366f1', color:'#fff',
-                      border:'none', cursor:'pointer', fontWeight:600, fontSize:12, flexShrink:0 }}>
-                    Use Reply
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button
+                      disabled={!liveSuggestion}
+                      onClick={() => { if (liveSuggestion) { setLiveReply(liveSuggestion.text); setLiveSuggestion(null); } }}
+                      style={{ fontSize:11, fontWeight:600, padding:'3px 10px', borderRadius:7, cursor:'pointer',
+                        background:'rgba(6,182,212,0.15)', color:'#67e8f9', border:'1px solid rgba(6,182,212,0.25)',
+                        opacity: liveSuggestion ? 1 : 0.4 }}>
+                      Use ↑
+                    </button>
+                    <button
+                      disabled={!liveSuggestion}
+                      onClick={() => { if (liveSuggestion) sendLiveReply(liveSuggestion.text); }}
+                      style={{ fontSize:11, padding:'3px 9px', borderRadius:7, cursor:'pointer',
+                        background:'rgba(99,102,241,0.1)', color:'#a5b4fc', border:'1px solid rgba(99,102,241,0.2)',
+                        fontWeight:600, opacity: liveSuggestion ? 1 : 0.4 }}>
+                      ▶ Simulate Msg
+                    </button>
+                  </div>
+                </div>
+                <p style={{ fontSize:13, color:'var(--t2)', lineHeight:1.55 }} dir="auto">
+                  {liveSuggestion ? liveSuggestion.text : 'Waiting for AI suggestion…'}
+                </p>
+              </div>
+
+              {/* Reply area — same toolbar + textarea as demo */}
+              <div style={{ padding:'0 16px 16px' }} data-canned-area="">
+                {/* Canned picker */}
+                {showCannedPicker && (
+                  <div style={{ background:'var(--bg3)', border:'1px solid var(--b1)', borderRadius:12,
+                    marginBottom:8, overflow:'hidden', boxShadow:'0 8px 32px rgba(0,0,0,0.4)' }}>
+                    <div style={{ padding:'10px 12px', borderBottom:'1px solid var(--b1)',
+                      display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                      <span style={{ fontSize:12, fontWeight:700, color:'var(--t2)' }}>
+                        💬 Canned Replies
+                        <span style={{ fontSize:11, color:'var(--t4)', marginLeft:6 }}>type to filter · click to insert</span>
+                      </span>
+                      <button onClick={() => setShowCannedPicker(false)}
+                        style={{ fontSize:13, padding:'3px 8px', borderRadius:7, cursor:'pointer',
+                          background:'transparent', color:'var(--t4)', border:'none' }}>✕</button>
+                    </div>
+                    <div style={{ maxHeight:200, overflowY:'auto' }}>
+                      {filteredCanned.map(c => (
+                        <button key={c.id} onClick={() => { setLiveReply(c.text); setShowCannedPicker(false); }}
+                          style={{ width:'100%', padding:'10px 14px', textAlign:'left', cursor:'pointer',
+                            background:'transparent', border:'none', borderBottom:'1px solid rgba(255,255,255,0.04)',
+                            display:'flex', alignItems:'flex-start', gap:10 }}
+                          onMouseEnter={e => e.currentTarget.style.background='var(--s1)'}
+                          onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                          <span style={{ fontSize:11, fontFamily:'monospace', color:'#818cf8',
+                            background:'rgba(99,102,241,0.1)', padding:'2px 6px', borderRadius:5, flexShrink:0 }}>{c.shortcut}</span>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <p style={{ fontSize:12.5, fontWeight:600, color:'var(--t1)', marginBottom:2 }}>{c.title}</p>
+                            <p style={{ fontSize:12, color:'var(--t3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} dir="auto">{c.text}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Toolbar */}
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+                  <button title="Attach file" onClick={() => fileInputRef.current?.click()}
+                    style={{ padding:'5px 9px', borderRadius:8, cursor:'pointer', fontSize:16,
+                      background:'var(--s1)', border:'1px solid var(--b1)', color:'var(--t3)', lineHeight:1 }}
+                    onMouseEnter={e => { e.currentTarget.style.background='var(--s2)'; e.currentTarget.style.color='var(--t1)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background='var(--s1)'; e.currentTarget.style.color='var(--t3)'; }}>
+                    📎
+                  </button>
+                  <button title="Send image" onClick={() => imageInputRef.current?.click()}
+                    style={{ padding:'5px 9px', borderRadius:8, cursor:'pointer', fontSize:16,
+                      background:'var(--s1)', border:'1px solid var(--b1)', color:'var(--t3)', lineHeight:1 }}
+                    onMouseEnter={e => { e.currentTarget.style.background='var(--s2)'; e.currentTarget.style.color='var(--t1)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background='var(--s1)'; e.currentTarget.style.color='var(--t3)'; }}>
+                    🖼
+                  </button>
+                  <button title="Canned replies" onClick={() => { setShowCannedPicker(v => !v); setCannedSearch(''); }}
+                    style={{ padding:'5px 10px', borderRadius:8, cursor:'pointer', fontSize:12, fontWeight:600,
+                      background: showCannedPicker ? 'rgba(99,102,241,0.15)' : 'var(--s1)',
+                      border: showCannedPicker ? '1px solid rgba(99,102,241,0.35)' : '1px solid var(--b1)',
+                      color: showCannedPicker ? '#a5b4fc' : 'var(--t3)', lineHeight:1,
+                      display:'flex', alignItems:'center', gap:5 }}>
+                    💬 <span>Canned</span>
+                  </button>
+                  <span style={{ fontSize:11, color:'var(--t4)', marginLeft:2 }}>Type / to search canned · Ctrl+Enter to send</span>
+                </div>
+                {/* Textarea + send */}
+                <div style={{ display:'flex', gap:10, alignItems:'flex-end' }}>
+                  <textarea className="input" style={{ flex:1, resize:'none', fontSize:13.5,
+                    minHeight:52, maxHeight:120, lineHeight:1.55 }}
+                    placeholder="Type a reply…"
+                    value={liveReply}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setLiveReply(val);
+                      if (val.startsWith('/')) { setShowCannedPicker(true); setCannedSearch(val.slice(1)); }
+                      else if (showCannedPicker && !val.startsWith('/')) setShowCannedPicker(false);
+                    }}
+                    onKeyDown={e => { if (e.key==='Enter' && e.ctrlKey) { e.preventDefault(); sendLiveReply(liveReply); setLiveReply(''); }}}
+                    rows={2} dir="auto"
+                  />
+                  <button
+                    disabled={!liveReply.trim()}
+                    onClick={() => { sendLiveReply(liveReply); setLiveReply(''); }}
+                    className="btn btn-primary"
+                    style={{ padding:'13px 20px', flexShrink:0 }}>
+                    Send ↑
                   </button>
                 </div>
-              )}
-
-              {/* Reply box */}
-              <div style={{ padding:'12px 16px', borderTop:'1px solid var(--b1)', display:'flex', gap:10 }}>
-                <input
-                  className="input" style={{ flex:1, fontSize:14 }}
-                  placeholder="Type a reply…"
-                  id="live-reply-input"
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const el = document.getElementById('live-reply-input'); sendLiveReply(el.value); el.value = ''; }}}
-                />
-                <button
-                  onClick={() => { const el = document.getElementById('live-reply-input'); sendLiveReply(el.value); el.value = ''; }}
-                  style={{ padding:'10px 20px', borderRadius:10, background:'#25D366', color:'#000',
-                    border:'none', cursor:'pointer', fontWeight:700, fontSize:13 }}>
-                  Send 📱
-                </button>
               </div>
-            </div>
+            </>
           ) : active ? (
             <>
               {/* Chat header */}
@@ -956,66 +1064,79 @@ export default function ConversationsPage() {
         </div>
 
         {/* -- Customer panel -------------------------------------------- */}
-        {active && !activeLive && showPanel && (
-          <div style={{ width:230, flexShrink:0, borderLeft:'1px solid var(--b1)',
-            background:'var(--bg2)', padding:'20px 16px', overflowY:'auto',
-            display:'flex', flexDirection:'column', gap:18 }} className="hide-sm">
-            <div style={{ textAlign:'center' }}>
-              <div style={{ width:58, height:58, borderRadius:'50%', margin:'0 auto 12px',
-                background:'linear-gradient(135deg,rgba(99,102,241,0.25),rgba(139,92,246,0.2))',
-                display:'flex', alignItems:'center', justifyContent:'center',
-                fontWeight:800, fontSize:22, border:'2px solid rgba(99,102,241,0.2)' }}>
-                {active.name[0]}
-              </div>
-              <p style={{ fontWeight:700, fontSize:14 }}>{active.name}</p>
-              <p style={{ fontSize:12, color:CH_COLOR[active.ch], marginTop:3 }}>
-                {CH_ICON[active.ch]} {active.ch}
-              </p>
-            </div>
-
-            <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
-              {[
-                { l:'Lead Score', v:`${active.score}/100`, c: active.score>70?'#34d399': active.score>40?'#fcd34d':'#fca5a5' },
-                { l:'Intent', v:active.intent.replace(/_/g,' '), c:IC_COLOR[active.intent]||'var(--t1)' },
-                { l:'Assigned', v:currentAgent, c:'var(--t1)' },
-                { l:'AI Mode', v:isAutoOn?'Auto':'Manual', c:isAutoOn?'#67e8f9':'var(--t3)' },
-              ].map(row => (
-                <div key={row.l} style={{ display:'flex', justifyContent:'space-between',
-                  alignItems:'center', padding:'10px 0', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
-                  <span style={{ fontSize:12, color:'var(--t4)' }}>{row.l}</span>
-                  <span style={{ fontSize:12, fontWeight:600, color:row.c }}>{row.v}</span>
+        {(active || activeLive) && showPanel && (() => {
+          const isLive = !!activeLive;
+          const panelName   = isLive ? activeLive.customerName : active.name;
+          const panelCh     = isLive ? 'whatsapp' : active.ch;
+          const panelScore  = isLive ? (activeLive.score||0) : active.score;
+          const panelIntent = isLive ? (activeLive.intent||'inquiry') : active.intent;
+          const panelAgent  = isLive ? 'Unassigned' : currentAgent;
+          const panelAuto   = isLive ? false : isAutoOn;
+          const panelTags   = isLive ? [] : activeTags;
+          return (
+            <div style={{ width:230, flexShrink:0, borderLeft:'1px solid var(--b1)',
+              background:'var(--bg2)', padding:'20px 16px', overflowY:'auto',
+              display:'flex', flexDirection:'column', gap:18 }} className="hide-sm">
+              <div style={{ textAlign:'center' }}>
+                <div style={{ width:58, height:58, borderRadius:'50%', margin:'0 auto 12px',
+                  background: isLive
+                    ? 'linear-gradient(135deg,rgba(37,211,102,0.25),rgba(16,185,129,0.2))'
+                    : 'linear-gradient(135deg,rgba(99,102,241,0.25),rgba(139,92,246,0.2))',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  fontWeight:800, fontSize:22,
+                  border: isLive ? '2px solid rgba(37,211,102,0.25)' : '2px solid rgba(99,102,241,0.2)' }}>
+                  {panelName[0]}
                 </div>
-              ))}
-            </div>
+                <p style={{ fontWeight:700, fontSize:14 }}>{panelName}</p>
+                <p style={{ fontSize:12, color: isLive ? '#25D366' : CH_COLOR[panelCh], marginTop:3 }}>
+                  {isLive ? '📱' : CH_ICON[panelCh]} {panelCh}
+                </p>
+              </div>
 
-            {activeTags.length > 0 && (
-              <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
-                {activeTags.map(t => (
-                  <span key={t} style={{ fontSize:11, padding:'3px 9px', borderRadius:99,
-                    background:'rgba(99,102,241,0.12)', color:'#a5b4fc',
-                    border:'1px solid rgba(99,102,241,0.2)' }}>{t}</span>
+              <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
+                {[
+                  { l:'Lead Score', v:`${panelScore}/100`, c: panelScore>70?'#34d399': panelScore>40?'#fcd34d':'#fca5a5' },
+                  { l:'Intent', v:panelIntent.replace(/_/g,' '), c:IC_COLOR[panelIntent]||'var(--t1)' },
+                  { l:'Assigned', v:panelAgent, c:'var(--t1)' },
+                  { l:'AI Mode', v:panelAuto?'Auto':'Manual', c:panelAuto?'#67e8f9':'var(--t3)' },
+                ].map(row => (
+                  <div key={row.l} style={{ display:'flex', justifyContent:'space-between',
+                    alignItems:'center', padding:'10px 0', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
+                    <span style={{ fontSize:12, color:'var(--t4)' }}>{row.l}</span>
+                    <span style={{ fontSize:12, fontWeight:600, color:row.c }}>{row.v}</span>
+                  </div>
                 ))}
               </div>
-            )}
 
-            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
-                padding:'10px 12px', borderRadius:'var(--r)',
-                background: isAutoOn ? 'rgba(6,182,212,0.07)' : 'var(--s1)',
-                border:`1px solid ${isAutoOn ? 'rgba(6,182,212,0.25)' : 'var(--b1)'}` }}>
-                <span style={{ fontSize:12.5, fontWeight:600, color: isAutoOn ? '#67e8f9' : 'var(--t3)' }}>AI Auto-Reply</span>
-                <div className={`toggle${isAutoOn?' on':''}`} style={{ transform:'scale(0.75)' }}
-                  onClick={toggleAutoReply} />
+              {panelTags.length > 0 && (
+                <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+                  {panelTags.map(t => (
+                    <span key={t} style={{ fontSize:11, padding:'3px 9px', borderRadius:99,
+                      background:'rgba(99,102,241,0.12)', color:'#a5b4fc',
+                      border:'1px solid rgba(99,102,241,0.2)' }}>{t}</span>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
+                  padding:'10px 12px', borderRadius:'var(--r)',
+                  background: panelAuto ? 'rgba(6,182,212,0.07)' : 'var(--s1)',
+                  border:`1px solid ${panelAuto ? 'rgba(6,182,212,0.25)' : 'var(--b1)'}` }}>
+                  <span style={{ fontSize:12.5, fontWeight:600, color: panelAuto ? '#67e8f9' : 'var(--t3)' }}>AI Auto-Reply</span>
+                  <div className={`toggle${panelAuto?' on':''}`} style={{ transform:'scale(0.75)' }}
+                    onClick={isLive ? undefined : toggleAutoReply} />
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={() => setCannedMgmtModal(true)}
+                  style={{ width:'100%', justifyContent:'center' }}>💬 Canned Replies</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => { if (!isLive) setTagModal(true); }}
+                  style={{ width:'100%', justifyContent:'center' }}>+ Add Tag</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => { if (!isLive) setHistoryModal(true); }}
+                  style={{ width:'100%', justifyContent:'center' }}>View History</button>
               </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => setCannedMgmtModal(true)}
-                style={{ width:'100%', justifyContent:'center' }}>💬 Canned Replies</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => setTagModal(true)}
-                style={{ width:'100%', justifyContent:'center' }}>+ Add Tag</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => setHistoryModal(true)}
-                style={{ width:'100%', justifyContent:'center' }}>View History</button>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* -- Canned Replies Management Modal -------------------------------- */}
