@@ -484,37 +484,50 @@ export default function ConversationsPage() {
                 {liveConvs.map(conv => (
                   <div key={conv.id}
                     onClick={() => openLiveConv(conv)}
-                    style={{ padding:'11px 14px', cursor:'pointer', transition:'background 0.1s',
+                    style={{
+                      padding:'13px 14px', cursor:'pointer',
                       borderBottom:'1px solid rgba(255,255,255,0.04)',
                       background: activeLive?.id === conv.id ? 'rgba(37,211,102,0.08)' : 'transparent',
-                      borderLeft: activeLive?.id === conv.id ? '3px solid #25D366' : '3px solid transparent' }}
-                    onMouseEnter={e => { if (activeLive?.id !== conv.id) e.currentTarget.style.background = 'var(--s1)'; }}
-                    onMouseLeave={e => { if (activeLive?.id !== conv.id) e.currentTarget.style.background = 'transparent'; }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:9 }}>
+                      borderLeft: activeLive?.id === conv.id ? '2px solid #25D366' : '2px solid transparent',
+                      transition:'background 0.12s',
+                    }}
+                    onMouseEnter={e => { if (activeLive?.id !== conv.id) e.currentTarget.style.background='var(--s1)'; }}
+                    onMouseLeave={e => { if (activeLive?.id !== conv.id) e.currentTarget.style.background='transparent'; }}>
+                    <div style={{ display:'flex', alignItems:'flex-start', gap:10 }}>
                       <div style={{ position:'relative', flexShrink:0 }}>
-                        <div style={{ width:36, height:36, borderRadius:'50%',
-                          background:'rgba(37,211,102,0.15)', border:'1px solid rgba(37,211,102,0.3)',
-                          display:'flex', alignItems:'center', justifyContent:'center',
-                          fontWeight:700, fontSize:13, color:'#25D366' }}>
+                        <div style={{ width:38, height:38, borderRadius:'50%',
+                          background:'linear-gradient(135deg,rgba(37,211,102,0.22),rgba(16,185,129,0.18))',
+                          display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:14 }}>
                           {conv.customerName?.[0]?.toUpperCase() || '?'}
                         </div>
-                        <span style={{ position:'absolute', bottom:-1, right:-2, fontSize:11 }}>📱</span>
+                        <span style={{ position:'absolute', bottom:-2, right:-2, fontSize:11 }}>📱</span>
                       </div>
                       <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
-                          <span style={{ fontSize:13, fontWeight:600, color:'var(--t1)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{conv.customerName}</span>
-                          {conv.unread > 0 && <span style={{ fontSize:10, fontWeight:700, background:'#25D366', color:'#000', borderRadius:99, padding:'1px 6px', flexShrink:0, marginLeft:4 }}>{conv.unread}</span>}
-                        </div>
-                        <div style={{ fontSize:11.5, color:'var(--t3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} dir="auto">{conv.lastMessage || '…'}</div>
-                        {conv.intent && conv.intent !== 'inquiry' && (
-                          <div style={{ marginTop:3 }}>
-                            <span style={{ fontSize:10, fontWeight:600, padding:'1px 6px', borderRadius:99,
-                              background:`${IC_COLOR[conv.intent]||'#64748b'}15`, color:IC_COLOR[conv.intent]||'#64748b',
-                              border:`1px solid ${IC_COLOR[conv.intent]||'#64748b'}25` }}>
-                              {conv.intent.replace(/_/g,' ')}
-                            </span>
+                        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
+                          <span style={{ fontWeight:600, fontSize:13.5, color:'var(--t1)' }}>{conv.customerName}</span>
+                          <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0 }}>
+                            {conv.unread > 0 && <span style={{ fontSize:10, fontWeight:700, background:'#25D366', color:'#000', borderRadius:99, padding:'1px 6px' }}>{conv.unread}</span>}
                           </div>
-                        )}
+                        </div>
+                        <p style={{ fontSize:12.5, color:'var(--t3)', overflow:'hidden',
+                          textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:6 }}
+                          dir="auto">{conv.lastMessage || '…'}</p>
+                        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                          <span style={{ fontSize:10.5, fontWeight:600, padding:'2px 7px', borderRadius:99,
+                            background:`${IC_COLOR[conv.intent]||'#64748b'}12`, color:IC_COLOR[conv.intent]||'#64748b',
+                            border:`1px solid ${IC_COLOR[conv.intent]||'#64748b'}20` }}>
+                            {(conv.intent||'inquiry').replace(/_/g,' ')}
+                          </span>
+                          <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                            <div style={{ width:32, height:3, borderRadius:99, background:'var(--s3)' }}>
+                              <div style={{ height:3, borderRadius:99,
+                                background: (conv.score||0)>70?'#10b981': (conv.score||0)>40?'#f59e0b':'#ef4444',
+                                width:`${conv.score||0}%` }} />
+                            </div>
+                            <span style={{ fontSize:11, fontWeight:700,
+                              color: (conv.score||0)>70?'#10b981': (conv.score||0)>40?'#f59e0b':'#ef4444' }}>{conv.score||0}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
