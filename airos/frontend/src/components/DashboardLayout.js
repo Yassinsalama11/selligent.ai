@@ -18,12 +18,16 @@ const NAV = [
   { href: '/dashboard/settings',      icon: '⚙',  label: 'Settings'                    },
 ];
 
+const API = process.env.NEXT_PUBLIC_API_URL || 'https://selligentai-production.up.railway.app';
+
 export default function DashboardLayout({ children }) {
   const pathname = usePathname();
   const router   = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [time, setTime]           = useState('');
   const [demo, setDemo]           = useState(false);
+  const [trialInfo, setTrialInfo] = useState(null); // { daysLeft, isExpired, isTrialUser }
+  const [upgradeLoading, setUpgradeLoading] = useState(null);
 
   useEffect(() => {
     setDemo(isDemo());
@@ -32,11 +36,42 @@ export default function DashboardLayout({ children }) {
     );
     tick();
     const t = setInterval(tick, 1000);
+
+    // Check trial status
+    const trialEnd = localStorage.getItem('airos_trial_end');
+    if (trialEnd) {
+      const now = Date.now();
+      const end = parseInt(trialEnd, 10);
+      const msLeft = end - now;
+      const daysLeft = Math.ceil(msLeft / (1000 * 60 * 60 * 24));
+      setTrialInfo({ daysLeft, isExpired: msLeft <= 0, isTrialUser: true });
+    }
+
     return () => clearInterval(t);
   }, []);
 
+  async function handleUpgrade(plan) {
+    setUpgradeLoading(plan);
+    const user = JSON.parse(localStorage.getItem('airos_user') || '{}');
+    try {
+      const res = await fetch(`${API}/api/stripe/create-checkout-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan, email: user.email }),
+      });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+      else { alert(data.error || 'Something went wrong'); setUpgradeLoading(null); }
+    } catch {
+      alert('Could not connect to payment server');
+      setUpgradeLoading(null);
+    }
+  }
+
   const isActive = item => item.exact ? pathname === item.href : pathname.startsWith(item.href);
   const pageLabel = NAV.find(n => isActive(n))?.label ?? 'Dashboard';
+  const currentUser = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('airos_user') || '{}') : {};
+  const userInitial = currentUser?.name?.[0]?.toUpperCase() || 'U';
 
   const S = {
     root:  { display:'flex', height:'100vh', overflow:'hidden', background:'var(--bg)' },
@@ -169,7 +204,7 @@ export default function DashboardLayout({ children }) {
               background:'linear-gradient(135deg,#6366f1,#8b5cf6)',
               display:'flex', alignItems:'center', justifyContent:'center',
               color:'#fff', fontWeight:700, fontSize:13, cursor:'pointer', flexShrink:0 }}>
-              D
+              {userInitial}
             </div>
           </div>
         </header>
@@ -189,7 +224,66 @@ export default function DashboardLayout({ children }) {
           </div>
         )}
 
-        <main style={{ flex:1, overflowY:'auto', overflowX:'hidden' }}>
+        {/* Trial banner — shows when active trial */}
+        {trialInfo?.isTrialUser && !trialInfo.isExpired && (
+          <div style={{ background:'rgba(245,158,11,0.08)', borderBottom:'1px solid rgba(245,158,11,0.2)',
+            padding:'8px 24px', display:'flex', alignItems:'center', justifyContent:'space-between',
+            flexShrink:0, fontSize:13 }}>
+            <span style={{ color:'#fcd34d' }}>
+              ⏳ <strong>Free trial</strong> — {trialInfo.daysLeft > 0 ? `${trialInfo.daysLeft} day${trialInfo.daysLeft !== 1 ? 's' : ''} remaining` : 'expires today'}.
+              Upgrade to keep your account active.
+            </span>
+            <button onClick={() => handleUpgrade('pro')} disabled={!!upgradeLoading}
+              style={{ padding:'6px 18px', borderRadius:8, border:'none', cursor:'pointer',
+                background:'#f59e0b', color:'#000', fontWeight:700, fontSize:12, opacity: upgradeLoading ? 0.7 : 1 }}>
+              {upgradeLoading ? 'Loading…' : 'Upgrade Now'}
+            </button>
+          </div>
+        )}
+
+        <main style={{ flex:1, overflowY:'auto', overflowX:'hidden', position:'relative' }}>
+          {/* Trial expired overlay */}
+          {trialInfo?.isExpired && (
+            <div style={{ position:'absolute', inset:0, zIndex:100,
+              background:'rgba(7,7,16,0.92)', backdropFilter:'blur(8px)',
+              display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <div style={{ textAlign:'center', maxWidth:480, padding:40 }}>
+                <div style={{ fontSize:56, marginBottom:16 }}>🔒</div>
+                <h2 style={{ fontSize:26, fontWeight:800, color:'var(--t1)', marginBottom:8, letterSpacing:'-0.03em' }}>
+                  Your trial has ended
+                </h2>
+                <p style={{ fontSize:15, color:'var(--t3)', marginBottom:32, lineHeight:1.6 }}>
+                  Your 7-day free trial has expired. Upgrade to a paid plan to continue using Selligent.ai and keep all your data.
+                </p>
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  {[
+                    { plan:'starter', label:'Starter', price:'€49/mo', desc:'1 channel · 500 conv/mo' },
+                    { plan:'pro',     label:'Pro',     price:'€149/mo', desc:'All channels · 5,000 conv/mo', popular:true },
+                    { plan:'enterprise', label:'Enterprise', price:'€299/mo', desc:'Unlimited everything' },
+                  ].map(p => (
+                    <button key={p.plan} onClick={() => handleUpgrade(p.plan)} disabled={!!upgradeLoading}
+                      style={{ padding:'14px 20px', borderRadius:12, border:'none', cursor:'pointer',
+                        display:'flex', alignItems:'center', justifyContent:'space-between',
+                        background: p.popular ? '#6366f1' : 'rgba(255,255,255,0.06)',
+                        opacity: upgradeLoading === p.plan ? 0.7 : 1,
+                        border: p.popular ? 'none' : '1px solid rgba(255,255,255,0.1)' }}>
+                      <span style={{ fontWeight:700, color: p.popular ? '#fff' : 'var(--t1)', fontSize:14 }}>
+                        {upgradeLoading === p.plan ? 'Redirecting…' : p.label}
+                        {p.popular && <span style={{ marginLeft:8, fontSize:10, background:'rgba(255,255,255,0.2)', padding:'2px 8px', borderRadius:99 }}>POPULAR</span>}
+                      </span>
+                      <span style={{ fontSize:13, color: p.popular ? 'rgba(255,255,255,0.8)' : 'var(--t3)' }}>
+                        {p.price} · {p.desc}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <p style={{ marginTop:20, fontSize:12, color:'var(--t4)' }}>
+                  Need help?{' '}
+                  <a href="mailto:support@selligent.ai" style={{ color:'#818cf8' }}>Contact support</a>
+                </p>
+              </div>
+            </div>
+          )}
           {children}
         </main>
       </div>

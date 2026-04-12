@@ -58,6 +58,10 @@ app.use('/api/stripe', stripeRoutes);
 const scanRoutes = require('./api/scan');
 app.use('/api/scan', scanRoutes);
 
+// Onboarding — trial account registration (public)
+const onboardingRoutes = require('./api/onboarding');
+app.use('/api/onboarding', onboardingRoutes);
+
 // Webhook routes (public — Meta verifies these)
 app.use('/webhooks', require('./channels/whatsapp/webhook'));
 app.use('/webhooks', require('./channels/instagram/webhook'));

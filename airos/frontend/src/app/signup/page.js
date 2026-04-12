@@ -111,16 +111,23 @@ export default function SignupPage() {
   async function handlePay(plan) {
     setPayLoading(plan);
     try {
-      const res = await fetch(`${API}/api/stripe/create-checkout-session`, {
+      const res = await fetch(`${API}/api/onboarding/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan, email: account.email }),
+        body: JSON.stringify({ account, presence, aiData, plan }),
       });
       const data = await res.json();
-      if (data.url) window.location.href = data.url;
-      else { alert(data.error || 'Something went wrong'); setPayLoading(null); }
+      if (data.token) {
+        localStorage.setItem('airos_token', data.token);
+        localStorage.setItem('airos_user', JSON.stringify(data.user));
+        localStorage.setItem('airos_trial_end', data.trialEnd);
+        window.location.href = '/dashboard';
+      } else {
+        alert(data.error || 'Registration failed');
+        setPayLoading(null);
+      }
     } catch {
-      alert('Could not connect to payment server');
+      alert('Could not connect to server. Please try again.');
       setPayLoading(null);
     }
   }
@@ -362,7 +369,7 @@ export default function SignupPage() {
           {step === 5 && (
             <div>
               <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--t1)', letterSpacing: '-0.03em', marginBottom: 6, textAlign: 'center' }}>Choose your plan</h1>
-              <p style={{ fontSize: 14, color: 'var(--t4)', marginBottom: 28, textAlign: 'center' }}>14-day free trial · Cancel anytime · Prices in EUR</p>
+              <p style={{ fontSize: 14, color: 'var(--t4)', marginBottom: 28, textAlign: 'center' }}>7-day free trial · No credit card needed · Prices in EUR</p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
                 {PLANS.map(p => (
                   <div key={p.plan} style={{ borderRadius: 20, padding: 28, display: 'flex', flexDirection: 'column',
