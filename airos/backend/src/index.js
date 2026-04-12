@@ -54,6 +54,10 @@ app.use('/api/auth', authRoutes);
 const stripeRoutes = require('./api/stripe');
 app.use('/api/stripe', stripeRoutes);
 
+// AI brand scan (public — called during onboarding)
+const scanRoutes = require('./api/scan');
+app.use('/api/scan', scanRoutes);
+
 // Webhook routes (public — Meta verifies these)
 app.use('/webhooks', require('./channels/whatsapp/webhook'));
 app.use('/webhooks', require('./channels/instagram/webhook'));
