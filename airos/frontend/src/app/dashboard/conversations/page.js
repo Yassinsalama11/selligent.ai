@@ -6,6 +6,25 @@ import { io } from 'socket.io-client';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://selligentai-production.up.railway.app';
 
+function playNotif() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Two-tone chime
+    [0, 0.18].forEach((delay, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = i === 0 ? 880 : 1100;
+      gain.gain.setValueAtTime(0, ctx.currentTime + delay);
+      gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + delay + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.35);
+      osc.start(ctx.currentTime + delay);
+      osc.stop(ctx.currentTime + delay + 0.36);
+    });
+  } catch {}
+}
+
 /* -- Static data ------------------------------------------------------------ */
 const CONVS = [
   { id:'1', name:'Ahmed Mohamed', ch:'whatsapp',  last:'عايز أطلب اتنين',      ago:'2m',  score:91, intent:'ready_to_buy',   unread:2 },
@@ -122,11 +141,22 @@ export default function ConversationsPage() {
 
   /* -- Socket.io + live conversations -- */
   useEffect(() => {
-    // Load existing live conversations
+    // Load existing live conversations (polling fallback)
+    let prevIds = new Set();
+    let prevUnread = {};
     function fetchConvs() {
       fetch(`${API}/api/live/conversations`)
         .then(r => r.json())
-        .then(data => { if (Array.isArray(data)) setLiveConvs(data); })
+        .then(data => {
+          if (!Array.isArray(data)) return;
+          setLiveConvs(data);
+          // Play sound if a new conversation appeared OR unread count increased
+          const newConv = data.some(c => !prevIds.has(c.id));
+          const moreUnread = data.some(c => (c.unread || 0) > (prevUnread[c.id] || 0));
+          if ((newConv || moreUnread) && prevIds.size > 0) playNotif();
+          prevIds = new Set(data.map(c => c.id));
+          prevUnread = Object.fromEntries(data.map(c => [c.id, c.unread || 0]));
+        })
         .catch(() => {});
     }
     fetchConvs();
@@ -160,6 +190,7 @@ export default function ConversationsPage() {
         return current;
       });
 
+      playNotif();
       toast(`📱 New WhatsApp from ${conversation.customerName}`, { duration: 4000 });
     });
 
@@ -417,43 +448,6 @@ export default function ConversationsPage() {
         <div style={{ width:280, flexShrink:0, display:'flex', flexDirection:'column',
           borderRight:'1px solid var(--b1)', background:'var(--bg2)', overflow:'hidden' }}>
 
-          {/* Live WhatsApp conversations */}
-          {liveConvs.length > 0 && (
-            <div style={{ borderBottom:'1px solid var(--b1)' }}>
-              <div style={{ padding:'8px 14px 4px', fontSize:10, fontWeight:700,
-                color:'#25D366', letterSpacing:'0.08em', textTransform:'uppercase',
-                display:'flex', alignItems:'center', gap:6 }}>
-                <span style={{ width:6, height:6, borderRadius:'50%', background:'#25D366', display:'inline-block', animation:'blink 1.5s ease-in-out infinite' }} />
-                Live WhatsApp
-              </div>
-              {liveConvs.map(conv => (
-                <div key={conv.id}
-                  onClick={() => openLiveConv(conv)}
-                  style={{ padding:'10px 14px', cursor:'pointer', transition:'background 0.1s',
-                    background: activeLive?.id === conv.id ? 'rgba(37,211,102,0.08)' : 'transparent',
-                    borderLeft: activeLive?.id === conv.id ? '3px solid #25D366' : '3px solid transparent' }}
-                  onMouseEnter={e => { if (activeLive?.id !== conv.id) e.currentTarget.style.background = 'var(--s1)'; }}
-                  onMouseLeave={e => { if (activeLive?.id !== conv.id) e.currentTarget.style.background = 'transparent'; }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:9 }}>
-                    <div style={{ width:34, height:34, borderRadius:'50%', flexShrink:0,
-                      background:'rgba(37,211,102,0.15)', border:'1px solid rgba(37,211,102,0.3)',
-                      display:'flex', alignItems:'center', justifyContent:'center',
-                      fontWeight:700, fontSize:13, color:'#25D366' }}>
-                      {conv.customerName?.[0]?.toUpperCase() || '?'}
-                    </div>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                        <span style={{ fontSize:13, fontWeight:600, color:'var(--t1)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{conv.customerName}</span>
-                        {conv.unread > 0 && <span style={{ fontSize:10, fontWeight:700, background:'#25D366', color:'#000', borderRadius:99, padding:'1px 6px', flexShrink:0 }}>{conv.unread}</span>}
-                      </div>
-                      <div style={{ fontSize:11, color:'var(--t4)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} dir="auto">{conv.lastMessage || '…'}</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
           <div style={{ padding:'14px 14px 10px' }}>
             <input className="input" style={{ fontSize:13 }}
               placeholder="Search conversations…"
@@ -476,6 +470,62 @@ export default function ConversationsPage() {
           </div>
           <div style={{ borderBottom:'1px solid var(--b1)', marginBottom:2 }} />
           <div style={{ flex:1, overflowY:'auto' }}>
+
+            {/* Live WhatsApp conversations — top of list */}
+            {liveConvs.length > 0 && (
+              <>
+                <div style={{ padding:'6px 14px 4px', fontSize:10, fontWeight:700,
+                  color:'#25D366', letterSpacing:'0.08em', textTransform:'uppercase',
+                  display:'flex', alignItems:'center', gap:6 }}>
+                  <span style={{ width:6, height:6, borderRadius:'50%', background:'#25D366',
+                    display:'inline-block', animation:'blink 1.5s ease-in-out infinite' }} />
+                  Live
+                </div>
+                {liveConvs.map(conv => (
+                  <div key={conv.id}
+                    onClick={() => openLiveConv(conv)}
+                    style={{ padding:'11px 14px', cursor:'pointer', transition:'background 0.1s',
+                      borderBottom:'1px solid rgba(255,255,255,0.04)',
+                      background: activeLive?.id === conv.id ? 'rgba(37,211,102,0.08)' : 'transparent',
+                      borderLeft: activeLive?.id === conv.id ? '3px solid #25D366' : '3px solid transparent' }}
+                    onMouseEnter={e => { if (activeLive?.id !== conv.id) e.currentTarget.style.background = 'var(--s1)'; }}
+                    onMouseLeave={e => { if (activeLive?.id !== conv.id) e.currentTarget.style.background = 'transparent'; }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:9 }}>
+                      <div style={{ position:'relative', flexShrink:0 }}>
+                        <div style={{ width:36, height:36, borderRadius:'50%',
+                          background:'rgba(37,211,102,0.15)', border:'1px solid rgba(37,211,102,0.3)',
+                          display:'flex', alignItems:'center', justifyContent:'center',
+                          fontWeight:700, fontSize:13, color:'#25D366' }}>
+                          {conv.customerName?.[0]?.toUpperCase() || '?'}
+                        </div>
+                        <span style={{ position:'absolute', bottom:-1, right:-2, fontSize:11 }}>📱</span>
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
+                          <span style={{ fontSize:13, fontWeight:600, color:'var(--t1)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{conv.customerName}</span>
+                          {conv.unread > 0 && <span style={{ fontSize:10, fontWeight:700, background:'#25D366', color:'#000', borderRadius:99, padding:'1px 6px', flexShrink:0, marginLeft:4 }}>{conv.unread}</span>}
+                        </div>
+                        <div style={{ fontSize:11.5, color:'var(--t3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} dir="auto">{conv.lastMessage || '…'}</div>
+                        {conv.intent && conv.intent !== 'inquiry' && (
+                          <div style={{ marginTop:3 }}>
+                            <span style={{ fontSize:10, fontWeight:600, padding:'1px 6px', borderRadius:99,
+                              background:`${IC_COLOR[conv.intent]||'#64748b'}15`, color:IC_COLOR[conv.intent]||'#64748b',
+                              border:`1px solid ${IC_COLOR[conv.intent]||'#64748b'}25` }}>
+                              {conv.intent.replace(/_/g,' ')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ padding:'5px 14px 4px', fontSize:10, fontWeight:700,
+                  color:'var(--t4)', letterSpacing:'0.08em', textTransform:'uppercase' }}>
+                  Demo
+                </div>
+              </>
+            )}
+
             {filtered.map(c => (
               <div key={c.id} onClick={() => selectConv(c)}
                 style={{
