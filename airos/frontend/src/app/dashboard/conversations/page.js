@@ -6,6 +6,11 @@ import { io } from 'socket.io-client';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://selligentai-production.up.railway.app';
 
+// Module-level auto-reply map — updated synchronously when toggle changes.
+// This bypasses React's async useEffect/storeRef update cycle so socket
+// callbacks always read the correct value immediately.
+const _autoReply = {}; // { [convId]: boolean }
+
 /* ─── Logger ─────────────────────────────────────────────────────────────── */
 const log = {
   msg:    (...a) => console.log(`%c[MSG]`,    'color:#25D366;font-weight:bold', ...a),
@@ -48,6 +53,9 @@ const STORE_INIT = loadPersistedStore() || {
   aiTyping:  {},
   convs:     {},
 };
+
+// Sync _autoReply from persisted store on page load
+Object.assign(_autoReply, STORE_INIT.autoReply || {});
 
 function parseTs(ts) {
   if (!ts) return 0;
@@ -648,12 +656,13 @@ export default function ConversationsPage() {
           dispatch({ type: 'UPDATE_CONV', convId, fields: { intent: ai.intent, score: ai.lead_score } });
 
           const cfg    = getAiConfig();
-          // autoOn = per-conversation toggle OR global setting from Settings → AI Configuration
-          const autoOn = storeRef.current.autoReply[convId] || cfg?.autoReply || false;
+          // _autoReply is a module-level map updated synchronously when the toggle is clicked.
+          // It is NOT subject to React's async useEffect update cycle, so it is always current.
+          const autoOn = _autoReply[convId] || cfg?.autoReply || false;
           const isOpen = storeRef.current.activeId === convId;
           const phone  = conversation.customerPhone || convId.replace('whatsapp:', '');
 
-          log.ai(`autoOn=${autoOn} isOpen=${isOpen} phone=${phone}`);
+          log.ai(`autoOn=${autoOn} (perConv=${!!_autoReply[convId]} globalCfg=${!!cfg?.autoReply}) isOpen=${isOpen}`);
 
           if (autoOn && ai.suggested_reply) {
             log.ai('🤖 auto-reply sending…');
@@ -712,7 +721,7 @@ export default function ConversationsPage() {
       dispatch({ type: 'SET_AI_TYPING', convId: conversation_id, value: false });
       dispatch({ type: 'UPDATE_CONV',   convId: conversation_id, fields: { intent, score: lead_score } });
 
-      const autoOn = storeRef.current.autoReply[conversation_id] || false;
+      const autoOn = _autoReply[conversation_id] || false;
       const isOpen = storeRef.current.activeId === conversation_id;
       const conv   = storeRef.current.convs[conversation_id];
 
@@ -1198,6 +1207,7 @@ export default function ConversationsPage() {
                         return;
                       }
                       const next = !autoOn;
+                      _autoReply[activeLive.id] = next;   // sync — readable by socket callbacks immediately
                       dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: next });
                       toast(next ? '🤖 AI Auto-Reply ON — will reply automatically' : '👤 Manual mode', { duration:2500 });
                     }}
@@ -1242,7 +1252,7 @@ export default function ConversationsPage() {
                       display:'inline-block', animation:'blink 1.5s infinite' }} />
                     <strong>AI is handling this conversation</strong> — replies sent automatically
                   </span>
-                  <button onClick={() => dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: false })}
+                  <button onClick={() => { _autoReply[activeLive.id] = false; dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: false }); }}
                     style={{ fontSize:11, color:'#fca5a5', background:'rgba(239,68,68,0.08)',
                       border:'1px solid rgba(239,68,68,0.2)', padding:'3px 10px', borderRadius:6,
                       cursor:'pointer', fontWeight:600 }}>
@@ -1796,6 +1806,7 @@ export default function ConversationsPage() {
                     onClick={() => {
                       if (isLive) {
                         const next = !panelAuto;
+                        _autoReply[activeLive.id] = next;
                         dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: next });
                         toast(next ? '🤖 AI Auto-Reply ON' : '👤 Manual mode', { duration:2000 });
                       } else toggleAutoReply();
