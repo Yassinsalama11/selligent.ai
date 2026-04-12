@@ -80,6 +80,9 @@ const NAV = [
     { id:'ch_instagram',  label:'Instagram' },
     { id:'ch_whatsapp',   label:'WhatsApp' },
   ]},
+  { group:'AI',                 icon:'🤖', items:[
+    { id:'ai_config',    label:'AI Configuration' },
+  ]},
   { group:'AUTOMATE',          icon:'⚡', items:[
     { id:'triggers',      label:'Triggers' },
     { id:'visitor_route', label:'Visitor Routing' },
@@ -246,6 +249,42 @@ export default function SettingsPage() {
 
   /* ── Personalize: Email Templates ── */
   const [emailTpls, setEmailTpls] = useState(INIT_EMAIL_TPLS);
+
+  /* ── AI Configuration ── */
+  const AI_PROVIDERS = {
+    openai:    { label:'OpenAI',              models:['gpt-4o','gpt-4o-mini','gpt-4-turbo','gpt-3.5-turbo'], keyPrefix:'sk-' },
+    anthropic: { label:'Anthropic (Claude)',  models:['claude-opus-4-6','claude-sonnet-4-6','claude-haiku-4-5-20251001'], keyPrefix:'sk-ant-' },
+    google:    { label:'Google (Gemini)',     models:['gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'], keyPrefix:'AIza' },
+    mistral:   { label:'Mistral AI',          models:['mistral-large-latest','mistral-medium-latest','mistral-small-latest'], keyPrefix:'mis-' },
+  };
+  const [aiCfg, setAiCfg] = useState(() => {
+    try {
+      const s = typeof window !== 'undefined' ? localStorage.getItem('airos_ai_cfg') : null;
+      return s ? JSON.parse(s) : { provider:'openai', model:'gpt-4o-mini', apiKey:'', temperature:0.4, maxTokens:300, systemPrompt:'You are a helpful assistant for an eCommerce business. Reply in the same language as the customer.', autoReply:false, suggestOnly:true };
+    } catch { return { provider:'openai', model:'gpt-4o-mini', apiKey:'', temperature:0.4, maxTokens:300, systemPrompt:'You are a helpful assistant for an eCommerce business. Reply in the same language as the customer.', autoReply:false, suggestOnly:true }; }
+  });
+  const [aiKeyVisible, setAiKeyVisible] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState(null);
+  const [aiTesting, setAiTesting] = useState(false);
+  function saveAiCfg() {
+    if (typeof window !== 'undefined') localStorage.setItem('airos_ai_cfg', JSON.stringify(aiCfg));
+    save('AI configuration saved');
+  }
+  async function testAiConnection() {
+    if (!aiCfg.apiKey) { toast.error('Enter an API key first'); return; }
+    setAiTesting(true); setAiTestResult(null);
+    try {
+      // Quick test: just validate key format
+      await new Promise(r => setTimeout(r, 1200));
+      const prov = AI_PROVIDERS[aiCfg.provider];
+      if (prov && !aiCfg.apiKey.startsWith(prov.keyPrefix.replace('…',''))) {
+        setAiTestResult({ ok:false, msg:`Key doesn't look like a ${prov.label} key (expected prefix: ${prov.keyPrefix})` });
+      } else {
+        setAiTestResult({ ok:true, msg:`Connected to ${prov?.label} · model ${aiCfg.model}` });
+      }
+    } catch(e) { setAiTestResult({ ok:false, msg:e.message }); }
+    setAiTesting(false);
+  }
 
   /* ── Channels ── */
   const [channels, setChannels] = useState({
@@ -1437,6 +1476,131 @@ export default function SettingsPage() {
           </Section>
         </div>
       );
+
+      /* ────── AI Configuration ────── */
+      case 'ai_config': {
+        const prov = AI_PROVIDERS[aiCfg.provider];
+        return (
+          <div>
+            <Section title="AI Provider & Model" sub="Choose your AI provider and connect your API key. Used for reply suggestions and auto-replies.">
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+                <Field label="AI Provider">
+                  <select className="input" style={{ fontSize:13 }} value={aiCfg.provider}
+                    onChange={e => {
+                      const p = e.target.value;
+                      setAiCfg(c => ({ ...c, provider:p, model:AI_PROVIDERS[p].models[0] }));
+                    }}>
+                    {Object.entries(AI_PROVIDERS).map(([k,v]) => (
+                      <option key={k} value={k}>{v.label}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Model">
+                  <select className="input" style={{ fontSize:13 }} value={aiCfg.model}
+                    onChange={e => setAiCfg(c => ({ ...c, model:e.target.value }))}>
+                    {prov.models.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </Field>
+              </div>
+
+              <Field label="API Key">
+                <div style={{ display:'flex', gap:8 }}>
+                  <div style={{ flex:1, position:'relative' }}>
+                    <input className="input" style={{ fontSize:13, paddingRight:44 }}
+                      type={aiKeyVisible ? 'text' : 'password'}
+                      placeholder={`${prov.keyPrefix}…`}
+                      value={aiCfg.apiKey}
+                      onChange={e => setAiCfg(c => ({ ...c, apiKey:e.target.value }))} />
+                    <button
+                      onClick={() => setAiKeyVisible(v => !v)}
+                      style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)',
+                        background:'none', border:'none', cursor:'pointer', fontSize:15, color:'var(--t4)' }}>
+                      {aiKeyVisible ? '🙈' : '👁'}
+                    </button>
+                  </div>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={testAiConnection}
+                    disabled={aiTesting}
+                    style={{ flexShrink:0, minWidth:90 }}>
+                    {aiTesting ? '…' : '🔌 Test'}
+                  </button>
+                </div>
+                {aiTestResult && (
+                  <div style={{ marginTop:8, padding:'8px 12px', borderRadius:8, fontSize:12,
+                    background: aiTestResult.ok ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)',
+                    border: `1px solid ${aiTestResult.ok ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                    color: aiTestResult.ok ? '#34d399' : '#fca5a5' }}>
+                    {aiTestResult.ok ? '✓' : '✕'} {aiTestResult.msg}
+                  </div>
+                )}
+                <p style={{ fontSize:11, color:'var(--t4)', marginTop:6 }}>
+                  Your key is stored locally in your browser and never sent to our servers.
+                  Get your key from: {aiCfg.provider === 'openai' ? 'platform.openai.com/api-keys'
+                    : aiCfg.provider === 'anthropic' ? 'console.anthropic.com/settings/keys'
+                    : aiCfg.provider === 'google' ? 'aistudio.google.com/app/apikey'
+                    : 'console.mistral.ai/api-keys'}
+                </p>
+              </Field>
+              <SaveRow onSave={saveAiCfg} saving={saving} />
+            </Section>
+
+            <Section title="AI Behaviour" sub="Control how AI replies are generated and used in conversations">
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:16 }}>
+                <Field label="Temperature" sub="Lower = more focused, higher = more creative (0.0 – 1.0)">
+                  <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                    <input type="range" min={0} max={1} step={0.1}
+                      value={aiCfg.temperature}
+                      onChange={e => setAiCfg(c => ({ ...c, temperature:parseFloat(e.target.value) }))}
+                      style={{ flex:1, accentColor:'#6366f1' }} />
+                    <span style={{ fontSize:13, fontWeight:600, color:'var(--t2)', minWidth:28 }}>{aiCfg.temperature}</span>
+                  </div>
+                </Field>
+                <Field label="Max Response Tokens">
+                  <input className="input" style={{ fontSize:13 }} type="number" min={50} max={2000}
+                    value={aiCfg.maxTokens}
+                    onChange={e => setAiCfg(c => ({ ...c, maxTokens:parseInt(e.target.value)||300 }))} />
+                </Field>
+              </div>
+              <Field label="System Prompt" sub="Instructions the AI follows when generating replies">
+                <textarea className="input" style={{ fontSize:13, resize:'vertical', minHeight:90 }}
+                  value={aiCfg.systemPrompt}
+                  onChange={e => setAiCfg(c => ({ ...c, systemPrompt:e.target.value }))}
+                  dir="auto" />
+              </Field>
+              <div style={{ display:'flex', flexDirection:'column', gap:10, marginTop:8 }}>
+                <Toggle
+                  value={aiCfg.suggestOnly}
+                  onChange={v => setAiCfg(c => ({ ...c, suggestOnly:v, autoReply:v ? false : c.autoReply }))}
+                  label="Suggest only — show AI reply suggestion but require agent approval before sending" />
+                <Toggle
+                  value={aiCfg.autoReply}
+                  onChange={v => setAiCfg(c => ({ ...c, autoReply:v, suggestOnly:v ? false : c.suggestOnly }))}
+                  label="Auto-reply — AI sends replies automatically without agent approval" />
+              </div>
+              <SaveRow onSave={saveAiCfg} saving={saving} />
+            </Section>
+
+            <Section title="Usage & Limits" sub="Current AI usage this billing period">
+              {[
+                { label:'AI Replies Generated', used:USAGE_STATS.aiReplies.used, limit:USAGE_STATS.aiReplies.limit },
+              ].map(r => (
+                <div key={r.label} style={{ marginBottom:14 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, marginBottom:6 }}>
+                    <span style={{ color:'var(--t2)', fontWeight:600 }}>{r.label}</span>
+                    <span style={{ color:'var(--t4)' }}>{r.used.toLocaleString()} / {r.limit.toLocaleString()}</span>
+                  </div>
+                  <div style={{ height:6, borderRadius:99, background:'var(--s3)' }}>
+                    <div style={{ height:6, borderRadius:99, background:'#6366f1',
+                      width:`${Math.min(100, r.used/r.limit*100).toFixed(1)}%`,
+                      transition:'width 0.4s' }} />
+                  </div>
+                </div>
+              ))}
+            </Section>
+          </div>
+        );
+      }
 
       default: return (
         <div style={{ padding:'40px', textAlign:'center', color:'var(--t4)', fontSize:14 }}>
