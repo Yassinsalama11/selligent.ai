@@ -49,12 +49,19 @@ const STORE_INIT = loadPersistedStore() || {
   convs:     {},
 };
 
+function parseTs(ts) {
+  if (!ts) return 0;
+  const n = Number(ts);
+  if (!isNaN(n)) return n < 1e12 ? n * 1000 : n; // Unix seconds or ms
+  const d = new Date(ts).getTime();
+  return isNaN(d) ? 0 : d;
+}
 function sortMessages(msgs) {
-  return [...msgs].sort((a, b) => {
-    const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-    const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-    return ta - tb; // ascending — oldest first, newest last
-  });
+  // Stable sort: preserve original index as tiebreaker
+  return msgs
+    .map((m, i) => ({ m, i, t: parseTs(m.timestamp) }))
+    .sort((a, b) => a.t - b.t || a.i - b.i)
+    .map(x => x.m);
 }
 
 function storeReducer(state, action) {
@@ -75,10 +82,12 @@ function storeReducer(state, action) {
 
     case 'LOAD_MESSAGES': {
       const existing = state.convs[action.convId]?.messages || [];
-      // Merge: server is authoritative but keep any optimistic messages not yet confirmed
       const serverIds = new Set(action.messages.map(m => m.id));
-      const optimistic = existing.filter(m => m.status === 'sending' && !serverIds.has(m.id));
-      const merged = sortMessages([...action.messages, ...optimistic]);
+      // Keep ALL local messages not on server (optimistic 'sending' AND recently confirmed 'sent'
+      // that the server might not have synced yet). Messages with real server IDs will come
+      // from action.messages anyway — no duplicate risk after CONFIRM changes tempId → realId.
+      const localOnly = existing.filter(m => !serverIds.has(m.id));
+      const merged = sortMessages([...action.messages, ...localOnly]);
       return {
         ...state,
         convs: {
@@ -97,7 +106,9 @@ function storeReducer(state, action) {
       const prevMsgs = existing?.messages || [];
       // Dedup by message id
       if (prevMsgs.some(m => m.id === message.id)) return state;
-      const messages = sortMessages([...prevMsgs, { ...message, status: 'delivered' }]);
+      // Force direction — never rely on backend field being present
+      const normalized = { ...message, direction: 'inbound', status: 'delivered' };
+      const messages = sortMessages([...prevMsgs, normalized]);
       const isActive = state.activeId === conv.id;
       return {
         ...state,
@@ -119,10 +130,11 @@ function storeReducer(state, action) {
       // Optimistic add before server confirms
       const existing = state.convs[action.convId];
       if (!existing) return state;
-      const messages = sortMessages([
-        ...existing.messages,
-        { ...action.message, status: 'sending' },
-      ]);
+      // Dedup: don't add if already present (re-render safety)
+      if (existing.messages.some(m => m.id === action.message.id)) return state;
+      // Force direction = outbound — this is the single source of truth
+      const outMsg = { ...action.message, direction: 'outbound', status: 'sending' };
+      const messages = sortMessages([...existing.messages, outMsg]);
       return {
         ...state,
         convs: {
@@ -138,20 +150,20 @@ function storeReducer(state, action) {
     }
 
     case 'CONFIRM_MESSAGE': {
-      // Mark optimistic message as sent
+      // Replace tempId with server realId, mark status 'sent'
       const existing = state.convs[action.convId];
       if (!existing) return state;
+      const realId = action.realId || action.tempId;
+      // If realId already exists in messages (server echoed before confirm), remove the temp entry
+      const hasDupe = existing.messages.some(m => m.id === realId && m.id !== action.tempId);
+      const messages = hasDupe
+        ? existing.messages.filter(m => m.id !== action.tempId)
+        : existing.messages.map(m =>
+            m.id === action.tempId ? { ...m, id: realId, direction: 'outbound', status: 'sent' } : m
+          );
       return {
         ...state,
-        convs: {
-          ...state.convs,
-          [action.convId]: {
-            ...existing,
-            messages: existing.messages.map(m =>
-              m.id === action.tempId ? { ...m, id: action.realId || m.id, status: 'sent' } : m
-            ),
-          },
-        },
+        convs: { ...state.convs, [action.convId]: { ...existing, messages } },
       };
     }
 
@@ -569,66 +581,83 @@ export default function ConversationsPage() {
     socket.on('connect_error', e => log.error('socket error', e.message));
 
     socket.on('whatsapp:message', ({ conversation, message }) => {
-      log.msg('inbound', message.id, message.content?.slice(0,40));
+      log.msg('inbound', message.id, message.content?.slice(0, 40));
+
+      // Step 1: add message to store (direction forced to 'inbound' in reducer)
       dispatch({ type: 'INBOUND_MESSAGE', conv: conversation, message });
       playNotif();
-      toast(`📱 ${conversation.customerName}: ${(message.content||'').slice(0,40)}`, { duration: 4000 });
+      toast(`📱 ${conversation.customerName}: ${(message.content || '').slice(0, 40)}`, { duration: 4000 });
 
-      // Trigger AI from frontend using the user's API key from Settings
-      if (message.content && message.type !== 'image' && message.type !== 'file') {
-        const convId = conversation.id;
-        dispatch({ type: 'SET_AI_TYPING', convId, value: true });
+      // Step 2: AI analysis — only for text messages
+      if (!message.content || message.type === 'image' || message.type === 'file') return;
 
-        const recentMsgs = storeRef.current.convs[convId]?.messages || [];
-        runFrontendAI(conversation, message, recentMsgs).then(ai => {
-          dispatch({ type: 'SET_AI_TYPING', convId, value: false });
-          if (!ai) return;
+      const convId = conversation.id;
+      dispatch({ type: 'SET_AI_TYPING', convId, value: true });
+      log.ai(`AI triggered for conv ${convId}`);
 
-          const autoOn = storeRef.current.autoReply[convId];
-          const isOpen = storeRef.current.activeId === convId;
+      // Step 3: capture current messages AFTER dispatch (storeRef is updated in next microtask,
+      // but we need the messages including this new inbound one — get them now from current state)
+      // We include the new message explicitly to give AI full context
+      const recentMsgs = [
+        ...(storeRef.current.convs[convId]?.messages || []),
+        { ...message, direction: 'inbound' },
+      ].slice(-8);
 
-          // Update conv intent + score
-          dispatch({ type: 'UPDATE_CONV', convId, fields: { intent: ai.intent, score: ai.lead_score } });
+      runFrontendAI(conversation, message, recentMsgs).then(ai => {
+        dispatch({ type: 'SET_AI_TYPING', convId, value: false });
+        if (!ai) {
+          log.ai('no AI result — check API key in Settings → AI Configuration');
+          return;
+        }
+        log.ai('result', ai.intent, ai.lead_score, ai.suggested_reply?.slice(0, 40));
 
-          if (autoOn && ai.suggested_reply) {
-            // Auto-reply mode: send immediately
-            const phone = conversation.customerPhone || convId.replace('whatsapp:', '');
-            const tempId = `ai_${Date.now()}`;
-            const aiMsg = {
-              id: tempId, direction: 'outbound', content: ai.suggested_reply,
-              type: 'text', sent_by: 'ai', status: 'sending',
-              at: new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' }),
-              timestamp: new Date().toISOString(),
-            };
-            dispatch({ type: 'AI_RESULT', convId, intent: ai.intent, score: ai.lead_score, aiMessage: aiMsg });
+        // Always update intent + score
+        dispatch({ type: 'UPDATE_CONV', convId, fields: { intent: ai.intent, score: ai.lead_score } });
 
-            fetch(`${API}/api/live/send`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ phone, message: ai.suggested_reply }),
+        // Read autoReply from storeRef (always current)
+        const autoOn  = storeRef.current.autoReply[convId] || false;
+        const isOpen  = storeRef.current.activeId === convId;
+        const phone   = conversation.customerPhone || convId.replace('whatsapp:', '');
+
+        if (autoOn && ai.suggested_reply) {
+          // Auto-reply: optimistic add then send
+          const tempId = `ai_${Date.now()}`;
+          const aiMsg = {
+            id: tempId, direction: 'outbound', content: ai.suggested_reply,
+            type: 'text', sent_by: 'ai', status: 'sending',
+            at: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+            timestamp: new Date().toISOString(),
+          };
+          dispatch({ type: 'OUTBOUND_MESSAGE', convId, message: aiMsg });
+
+          fetch(`${API}/api/live/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone, message: ai.suggested_reply }),
+          })
+            .then(r => r.json())
+            .then(d => {
+              if (d.ok) {
+                dispatch({ type: 'CONFIRM_MESSAGE', convId, tempId, realId: d.message_id || tempId });
+                log.ai('auto-reply sent ✅', d.message_id);
+                toast.success('🤖 AI replied automatically', { duration: 2500 });
+              } else {
+                log.error('auto-reply failed', d.error);
+                toast.error(`AI send failed: ${d.error}`);
+              }
             })
-              .then(r => r.json())
-              .then(d => {
-                if (d.ok) {
-                  dispatch({ type: 'CONFIRM_MESSAGE', convId, tempId, realId: d.message_id || tempId });
-                  log.ai('auto-reply sent ✅');
-                  toast.success('🤖 AI replied automatically', { duration: 2500 });
-                } else {
-                  log.error('auto-reply failed', d.error);
-                  toast.error(`AI send failed: ${d.error}`);
-                }
-              })
-              .catch(e => log.error('auto-reply fetch error', e.message));
+            .catch(e => log.error('auto-reply fetch error', e.message));
 
-          } else if (isOpen && ai.suggested_reply) {
-            // Manual mode: set suggestion in state (setSuggestion is component state)
-            // Use a custom event to bridge the module-level handler → component state
-            window.dispatchEvent(new CustomEvent('airos:ai-suggestion', {
-              detail: { convId, text: ai.suggested_reply, score: ai.lead_score, intent: ai.intent }
-            }));
-          }
-        });
-      }
+        } else if (isOpen && ai.suggested_reply) {
+          // Manual mode — bridge to component state via custom event
+          window.dispatchEvent(new CustomEvent('airos:ai-suggestion', {
+            detail: { convId, text: ai.suggested_reply, score: ai.lead_score, intent: ai.intent },
+          }));
+        }
+      }).catch(e => {
+        dispatch({ type: 'SET_AI_TYPING', convId, value: false });
+        log.error('AI promise rejected', e.message);
+      });
     });
 
     // whatsapp:ai = fallback from backend (used only if no frontend API key configured)
@@ -725,10 +754,7 @@ export default function ConversationsPage() {
       if (data.ok) {
         dispatch({ type: 'CONFIRM_MESSAGE', convId: conv.id, tempId, realId: data.message_id || tempId });
         log.msg('sent ✅', data.message_id);
-        // 3. AI will be triggered on backend — show typing indicator
-        dispatch({ type: 'SET_AI_TYPING', convId: conv.id, value: true });
-        // Safety: clear typing after 15s if no AI response
-        setTimeout(() => dispatch({ type: 'SET_AI_TYPING', convId: conv.id, value: false }), 15000);
+        // AI typing is triggered ONLY when the customer replies (inbound), not when agent sends
       } else {
         log.error('send failed', data.error);
         toast.error(data.error || 'Failed to send');
@@ -1172,7 +1198,9 @@ export default function ConversationsPage() {
                     No messages yet. Waiting for customer…
                   </div>
                 ) : liveMsgs.map((m) => {
-                  const isOut = m.direction === 'outbound';
+                  // Primary: direction field. Fallback: sent_by (never rely on a single string).
+                  const isOut = m.direction === 'outbound'
+                    || (m.direction !== 'inbound' && (m.sent_by === 'agent' || m.sent_by === 'ai'));
                   const isSending = m.status === 'sending';
                   return (
                     <div key={m.id} style={{ display:'flex',
