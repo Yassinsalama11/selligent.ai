@@ -29,6 +29,8 @@ export default function DashboardLayout({ children }) {
   const [trialInfo, setTrialInfo] = useState(null); // { daysLeft, isExpired, isTrialUser }
   const [upgradeLoading, setUpgradeLoading] = useState(null);
 
+  const [currentUser, setCurrentUser] = useState({});
+
   useEffect(() => {
     setDemo(isDemo());
     const tick = () => setTime(
@@ -36,6 +38,12 @@ export default function DashboardLayout({ children }) {
     );
     tick();
     const t = setInterval(tick, 1000);
+
+    // Load user from localStorage
+    try {
+      const u = JSON.parse(localStorage.getItem('airos_user') || '{}');
+      setCurrentUser(u);
+    } catch {}
 
     // Check trial status
     const trialEnd = localStorage.getItem('airos_trial_end');
@@ -70,7 +78,6 @@ export default function DashboardLayout({ children }) {
 
   const isActive = item => item.exact ? pathname === item.href : pathname.startsWith(item.href);
   const pageLabel = NAV.find(n => isActive(n))?.label ?? 'Dashboard';
-  const currentUser = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('airos_user') || '{}') : {};
   const userInitial = currentUser?.name?.[0]?.toUpperCase() || 'U';
 
   const S = {
@@ -158,13 +165,31 @@ export default function DashboardLayout({ children }) {
 
         {/* Bottom */}
         <div style={S.bottomBar}>
+          {/* User card */}
+          {!collapsed && currentUser?.name && (
+            <div style={{ padding:'10px 12px', borderRadius:10, marginBottom:4,
+              background:'rgba(99,102,241,0.06)', border:'1px solid rgba(99,102,241,0.15)' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:9 }}>
+                <div style={{ width:30, height:30, borderRadius:'50%', flexShrink:0,
+                  background:'linear-gradient(135deg,#6366f1,#8b5cf6)',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  color:'#fff', fontWeight:700, fontSize:12 }}>
+                  {userInitial}
+                </div>
+                <div style={{ minWidth:0 }}>
+                  <div style={{ fontSize:12, fontWeight:600, color:'var(--t1)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{currentUser.name}</div>
+                  <div style={{ fontSize:11, color:'var(--t4)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{currentUser.company || currentUser.email}</div>
+                </div>
+              </div>
+            </div>
+          )}
           <button onClick={() => setCollapsed(c => !c)} className="nav-item"
             style={{ justifyContent: collapsed?'center':undefined,
               width:'100%', background:'none', border:'1px solid transparent', cursor:'pointer' }}>
             <span style={{ fontSize:13 }}>{collapsed ? '→' : '←'}</span>
             {!collapsed && <span>Collapse</span>}
           </button>
-          <button onClick={() => { clearToken(); router.push('/login'); }} className="nav-item"
+          <button onClick={() => { clearToken(); localStorage.removeItem('airos_user'); localStorage.removeItem('airos_trial_end'); router.push('/login'); }} className="nav-item"
             style={{ justifyContent: collapsed?'center':undefined, color:'#f87171',
               width:'100%', background:'none', border:'1px solid transparent', cursor:'pointer' }}>
             <span style={{ fontSize:13 }}>↪</span>

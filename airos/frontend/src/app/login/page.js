@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -13,6 +13,12 @@ export default function LoginPage() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // If already logged in (trial JWT or regular token), go to dashboard
+  useEffect(() => {
+    const token = localStorage.getItem('airos_token');
+    if (token) router.replace('/dashboard');
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();

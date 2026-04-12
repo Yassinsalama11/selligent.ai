@@ -192,9 +192,18 @@ export default function SettingsPage() {
   }
 
   /* ── General: My Profile ── */
-  const [profile, setProfile] = useState({
-    name:'Ahmed Mohamed', email:'ahmed@store.com', phone:'+20 100 000 0001',
-    timezone:'Africa/Cairo', lang:'ar', avatar:'A',
+  const [profile, setProfile] = useState(() => {
+    try {
+      const u = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('airos_user') || '{}') : {};
+      return {
+        name:     u.name     || 'Ahmed Mohamed',
+        email:    u.email    || 'ahmed@store.com',
+        phone:    u.phone    || '',
+        timezone: 'Africa/Cairo',
+        lang:     'ar',
+        avatar:   (u.name?.[0] || 'A').toUpperCase(),
+      };
+    } catch { return { name:'Ahmed Mohamed', email:'ahmed@store.com', phone:'', timezone:'Africa/Cairo', lang:'ar', avatar:'A' }; }
   });
   const [pwForm, setPwForm] = useState({ current:'', next:'', confirm:'' });
 

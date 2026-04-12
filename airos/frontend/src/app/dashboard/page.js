@@ -1,6 +1,7 @@
 'use client';
 import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import toast from 'react-hot-toast';
+import { useState, useEffect } from 'react';
 
 const REV = [
   { d:'Mon', r:3200, deals:8  },
@@ -84,15 +85,24 @@ function SectionHeader({ title, action, href }) {
 }
 
 export default function DashboardPage() {
+  const [user, setUser] = useState({});
+  useEffect(() => {
+    try { setUser(JSON.parse(localStorage.getItem('airos_user') || '{}')); } catch {}
+  }, []);
+
+  const dateStr = new Date().toLocaleDateString('en-US', { month:'long', year:'numeric' });
+
   return (
     <div style={{ padding:'28px 28px 40px', display:'flex', flexDirection:'column', gap:20 }}>
 
       {/* ── Page header ─────────────────────────────────────────────────── */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <div>
-          <h1 style={{ fontSize:22, fontWeight:800, marginBottom:4 }}>Revenue Control Center</h1>
+          <h1 style={{ fontSize:22, fontWeight:800, marginBottom:4 }}>
+            {user?.company ? `${user.company} — ` : ''}Revenue Control Center
+          </h1>
           <p style={{ fontSize:13, color:'var(--t3)' }}>
-            Real-time business intelligence · April 2025
+            Real-time business intelligence · {dateStr}
           </p>
         </div>
         <div style={{ display:'flex', gap:10 }}>

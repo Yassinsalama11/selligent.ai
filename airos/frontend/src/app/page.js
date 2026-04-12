@@ -58,8 +58,8 @@ function Nav() {
         </Link>
 
         <div style={{ display: 'flex', gap: 36 }} className="hide-sm">
-          {['Features', 'Pricing', 'Integrations', 'Blog'].map(l => (
-            <a key={l} href={`#${l.toLowerCase()}`} style={{ color: 'var(--t3)', fontSize: 14, fontWeight: 500, textDecoration: 'none', transition: 'color 0.2s' }}
+          {[['Features','#features'],['How it works','#howitworks'],['Integrations','#integrations'],['Pricing','#pricing']].map(([l, href]) => (
+            <a key={l} href={href} style={{ color: 'var(--t3)', fontSize: 14, fontWeight: 500, textDecoration: 'none', transition: 'color 0.2s' }}
               onMouseEnter={e => e.target.style.color = 'var(--t1)'}
               onMouseLeave={e => e.target.style.color = 'var(--t3)'}>
               {l}
@@ -109,7 +109,7 @@ function Hero() {
             ▶ Watch Demo
           </Link>
         </div>
-        <p style={{ fontSize: 12, color: 'var(--t4)', marginTop: 16 }}>14-day trial · No setup fee · Cancel anytime</p>
+        <p style={{ fontSize: 12, color: 'var(--t4)', marginTop: 16 }}>7-day free trial · No credit card · No setup fee</p>
 
         {/* Dashboard mockup */}
         <div style={{ marginTop: 72, position: 'relative' }}>
@@ -300,35 +300,11 @@ function Channels() {
 
 /* ── Pricing ──────────────────────────────────────────────────────────────── */
 function Pricing() {
-  const [loading, setLoading] = React.useState(null);
-
   const plans = [
     { name: 'Starter',    price: 49,  plan: 'starter',    desc: 'For small stores starting out',      features: ['1 channel', '500 conversations/mo', 'AI intent detection', 'Basic reports', '1 agent seat'], popular: false },
     { name: 'Pro',        price: 149, plan: 'pro',        desc: 'For growing eCommerce brands',        features: ['All 4 channels', '5,000 conversations/mo', 'AI replies + lead scoring', 'Full reports suite', '5 agent seats', 'WooCommerce & Shopify sync'], popular: true },
     { name: 'Enterprise', price: 299, plan: 'enterprise', desc: 'For high-volume operations',          features: ['All 4 channels', 'Unlimited conversations', 'Full AI engine', 'Advanced analytics', 'Unlimited agents', 'Priority support', 'Custom AI tone'], popular: false },
   ];
-
-  async function handleCheckout(plan) {
-    setLoading(plan);
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://selligentai-production.up.railway.app';
-      const res = await fetch(`${apiUrl}/api/stripe/create-checkout-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan }),
-      });
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        alert(data.error || 'Something went wrong');
-        setLoading(null);
-      }
-    } catch (err) {
-      alert('Could not connect to payment server');
-      setLoading(null);
-    }
-  }
 
   return (
     <section id="pricing" style={{ padding: '100px 32px', maxWidth: 1200, margin: '0 auto' }}>
@@ -337,7 +313,7 @@ function Pricing() {
         <h2 style={{ fontSize: 'clamp(36px,4vw,56px)', fontWeight: 900, letterSpacing: '-0.04em' }}>
           Simple, <span className="gt">transparent pricing</span>
         </h2>
-        <p style={{ fontSize: 14, color: 'var(--t4)', marginTop: 12 }}>All prices in EUR · Cancel anytime</p>
+        <p style={{ fontSize: 14, color: 'var(--t4)', marginTop: 12 }}>All prices in EUR · 7-day free trial · No credit card needed</p>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 24 }}>
@@ -373,13 +349,145 @@ function Pricing() {
               ))}
             </ul>
 
-            <button
-              onClick={() => handleCheckout(p.plan)}
-              disabled={loading === p.plan}
+            <Link href={`/signup?plan=${p.plan}`}
               className={`btn ${p.popular ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ textAlign: 'center', width: '100%', cursor: loading === p.plan ? 'not-allowed' : 'pointer', opacity: loading === p.plan ? 0.7 : 1 }}>
-              {loading === p.plan ? 'Redirecting…' : 'Get Started →'}
+              style={{ textAlign: 'center', width: '100%' }}>
+              Start Free Trial →
+            </Link>
+          </div>
+        ))}
+      </div>
+
+      <p style={{ textAlign: 'center', marginTop: 32, fontSize: 13, color: 'var(--t4)' }}>
+        No credit card required to start · Upgrade or cancel anytime · Invoices in EUR
+      </p>
+    </section>
+  );
+}
+
+/* ── How it works ─────────────────────────────────────────────────────────── */
+function HowItWorks() {
+  const steps = [
+    { n:'01', title:'Connect your channels', body:'Link WhatsApp, Instagram, Messenger, and your website Live Chat in minutes. No coding needed — follow the guided setup wizard.', icon:'🔌' },
+    { n:'02', title:'AI scans your brand', body:'Our AI reads your website and social profiles to auto-configure your tone, products, pricing, and reply style. Your brand DNA in seconds.', icon:'🧠' },
+    { n:'03', title:'Conversations come in', body:'Every message from every channel lands in one unified inbox. AI instantly scores the lead, detects intent, and drafts the perfect reply.', icon:'💬' },
+    { n:'04', title:'Close deals & grow', body:'Your team reviews AI suggestions, sends replies in one click, and moves deals through the pipeline — all while reports track your revenue growth.', icon:'🎯' },
+  ];
+
+  return (
+    <section id="howitworks" style={{ padding: '100px 32px', maxWidth: 1200, margin: '0 auto' }}>
+      <div style={{ textAlign: 'center', marginBottom: 72 }}>
+        <div className="section-tag" style={{ marginBottom: 20 }}>How It Works</div>
+        <h2 style={{ fontSize: 'clamp(36px,4vw,56px)', fontWeight: 900, letterSpacing: '-0.04em' }}>
+          Up and running <span className="gt">in one day</span>
+        </h2>
+        <p style={{ color: 'var(--t3)', fontSize: 17, marginTop: 14, maxWidth: 560, margin: '14px auto 0' }}>
+          No complex integrations. No IT team needed. Most clients send their first AI reply within an hour.
+        </p>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 20 }}>
+        {steps.map((s, i) => (
+          <div key={i} style={{ padding: '32px 24px', borderRadius: 20, position: 'relative',
+            background: 'var(--bg3)', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: '#6366f1', letterSpacing: '0.1em',
+              marginBottom: 16, fontFamily: 'Space Grotesk' }}>{s.n}</div>
+            <div style={{ fontSize: 34, marginBottom: 16 }}>{s.icon}</div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--t1)', marginBottom: 10 }}>{s.title}</h3>
+            <p style={{ fontSize: 13, color: 'var(--t3)', lineHeight: 1.7 }}>{s.body}</p>
+            {i < steps.length - 1 && (
+              <div style={{ position: 'absolute', right: -12, top: '50%', transform: 'translateY(-50%)',
+                color: '#6366f1', fontSize: 18, zIndex: 1 }}>→</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ── Integrations ─────────────────────────────────────────────────────────── */
+function Integrations() {
+  const integrations = [
+    { name: 'Shopify',       icon: '🛍',  color: '#96bf48' },
+    { name: 'WooCommerce',   icon: '🔵',  color: '#7f54b3' },
+    { name: 'WhatsApp',      icon: '📱',  color: '#25D366' },
+    { name: 'Instagram',     icon: '📸',  color: '#E1306C' },
+    { name: 'Facebook',      icon: '💬',  color: '#0099FF' },
+    { name: 'Stripe',        icon: '💳',  color: '#635bff' },
+    { name: 'Zapier',        icon: '⚡',  color: '#ff4f00' },
+    { name: 'REST API',      icon: '🔗',  color: '#06b6d4' },
+  ];
+
+  return (
+    <section id="integrations" style={{ padding: '80px 32px', background: 'rgba(255,255,255,0.01)' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto', textAlign: 'center' }}>
+        <div className="section-tag" style={{ marginBottom: 20 }}>Integrations</div>
+        <h2 style={{ fontSize: 'clamp(32px,4vw,48px)', fontWeight: 900, letterSpacing: '-0.04em', marginBottom: 12 }}>
+          Connects with your <span className="gt">existing stack</span>
+        </h2>
+        <p style={{ color: 'var(--t3)', fontSize: 16, marginBottom: 52 }}>
+          Plug into the tools you already use — no migration needed.
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center' }}>
+          {integrations.map((ig, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10,
+              padding: '14px 22px', borderRadius: 14,
+              background: 'var(--bg3)', border: `1px solid ${ig.color}22`,
+              fontSize: 14, fontWeight: 600, color: 'var(--t2)' }}>
+              <span style={{ fontSize: 22 }}>{ig.icon}</span>
+              {ig.name}
+            </div>
+          ))}
+        </div>
+        <p style={{ marginTop: 28, fontSize: 13, color: 'var(--t4)' }}>
+          + REST API & Webhooks for any custom integration
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/* ── FAQ ──────────────────────────────────────────────────────────────────── */
+function FAQ() {
+  const [open, setOpen] = React.useState(null);
+  const items = [
+    { q: 'Do I need a WhatsApp Business API account?', a: 'No — Selligent.ai handles the WhatsApp Business API connection for you. Just connect through our guided setup and you\'re live in minutes.' },
+    { q: 'Does the AI reply in Arabic?', a: 'Yes. Our AI is trained on Arabic eCommerce conversations and writes fluent, natural Arabic (Modern Standard or Egyptian dialect) as well as English. You can set your preferred language in settings.' },
+    { q: 'What happens after the 7-day trial?', a: 'Your account locks (no data is deleted) until you subscribe. You can upgrade anytime within 30 days and keep all your contacts, conversations, and settings.' },
+    { q: 'Can I connect my Shopify or WooCommerce store?', a: 'Yes. Connect your store in Settings → Channels and your product catalog, prices, and stock levels will sync automatically and power every AI reply.' },
+    { q: 'How accurate is the AI intent detection?', a: 'Our intent model achieves over 91% accuracy on Arabic eCommerce conversations across ready_to_buy, interested, price_objection, and inquiry intents — verified on live client data.' },
+    { q: 'Is there a setup fee?', a: 'No setup fees, ever. You pay the monthly plan price and nothing else. Cancel anytime from your dashboard — no contracts.' },
+  ];
+
+  return (
+    <section style={{ padding: '100px 32px', maxWidth: 800, margin: '0 auto' }}>
+      <div style={{ textAlign: 'center', marginBottom: 60 }}>
+        <div className="section-tag" style={{ marginBottom: 20 }}>FAQ</div>
+        <h2 style={{ fontSize: 'clamp(32px,4vw,48px)', fontWeight: 900, letterSpacing: '-0.04em' }}>
+          Questions? <span className="gt">We have answers.</span>
+        </h2>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {items.map((item, i) => (
+          <div key={i} style={{ borderRadius: 16, overflow: 'hidden',
+            border: `1px solid ${open === i ? 'rgba(99,102,241,0.35)' : 'var(--border)'}`,
+            background: open === i ? 'rgba(99,102,241,0.04)' : 'var(--bg3)',
+            transition: 'all 0.2s' }}>
+            <button onClick={() => setOpen(open === i ? null : i)}
+              style={{ width: '100%', padding: '18px 24px', display: 'flex', alignItems: 'center',
+                justifyContent: 'space-between', background: 'none', border: 'none',
+                cursor: 'pointer', textAlign: 'left' }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--t1)' }}>{item.q}</span>
+              <span style={{ fontSize: 18, color: '#818cf8', flexShrink: 0, marginLeft: 16,
+                transform: open === i ? 'rotate(45deg)' : 'none', transition: 'transform 0.2s' }}>+</span>
             </button>
+            {open === i && (
+              <div style={{ padding: '0 24px 18px', fontSize: 14, color: 'var(--t3)', lineHeight: 1.8 }}>
+                {item.a}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -482,7 +590,7 @@ function Footer() {
         </div>
 
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 13, color: 'var(--t4)' }}>© 2025 Selligent.ai — All rights reserved.</span>
+          <span style={{ fontSize: 13, color: 'var(--t4)' }}>© {new Date().getFullYear()} Selligent.ai — All rights reserved.</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--t4)' }}>
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#34d399', display: 'inline-block', animation: 'blink 2s ease-in-out infinite' }} />
             All systems operational
@@ -502,9 +610,12 @@ export default function Home() {
       <Hero />
       <Stats />
       <Features />
+      <HowItWorks />
       <Channels />
+      <Integrations />
       <Pricing />
       <Social />
+      <FAQ />
       <CTA />
       <Footer />
     </main>
