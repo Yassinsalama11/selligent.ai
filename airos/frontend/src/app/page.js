@@ -1,7 +1,7 @@
 'use client';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useState, useEffect, useRef } from 'react';
 
 /* ── helpers ──────────────────────────────────────────────────────────────── */
 function Orbs() {
@@ -300,11 +300,35 @@ function Channels() {
 
 /* ── Pricing ──────────────────────────────────────────────────────────────── */
 function Pricing() {
+  const [loading, setLoading] = React.useState(null);
+
   const plans = [
-    { name: 'Starter', price: 49, desc: 'For small stores starting out', features: ['1 channel', '500 conversations/mo', 'AI intent detection', 'Basic reports', '1 agent seat'], popular: false },
-    { name: 'Growth', price: 149, desc: 'For growing eCommerce brands', features: ['All 4 channels', '5,000 conversations/mo', 'AI replies + lead scoring', 'Full reports suite', '5 agent seats', 'WooCommerce & Shopify sync'], popular: true },
-    { name: 'Pro', price: 349, desc: 'For high-volume operations', features: ['All 4 channels', 'Unlimited conversations', 'Full AI engine', 'Advanced analytics', 'Unlimited agents', 'Priority support', 'Custom AI tone'], popular: false },
+    { name: 'Starter',    price: 49,  plan: 'starter',    desc: 'For small stores starting out',      features: ['1 channel', '500 conversations/mo', 'AI intent detection', 'Basic reports', '1 agent seat'], popular: false },
+    { name: 'Pro',        price: 149, plan: 'pro',        desc: 'For growing eCommerce brands',        features: ['All 4 channels', '5,000 conversations/mo', 'AI replies + lead scoring', 'Full reports suite', '5 agent seats', 'WooCommerce & Shopify sync'], popular: true },
+    { name: 'Enterprise', price: 299, plan: 'enterprise', desc: 'For high-volume operations',          features: ['All 4 channels', 'Unlimited conversations', 'Full AI engine', 'Advanced analytics', 'Unlimited agents', 'Priority support', 'Custom AI tone'], popular: false },
   ];
+
+  async function handleCheckout(plan) {
+    setLoading(plan);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const res = await fetch(`${apiUrl}/api/stripe/create-checkout-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        alert(data.error || 'Something went wrong');
+        setLoading(null);
+      }
+    } catch (err) {
+      alert('Could not connect to payment server');
+      setLoading(null);
+    }
+  }
 
   return (
     <section id="pricing" style={{ padding: '100px 32px', maxWidth: 1200, margin: '0 auto' }}>
@@ -313,6 +337,7 @@ function Pricing() {
         <h2 style={{ fontSize: 'clamp(36px,4vw,56px)', fontWeight: 900, letterSpacing: '-0.04em' }}>
           Simple, <span className="gt">transparent pricing</span>
         </h2>
+        <p style={{ fontSize: 14, color: 'var(--t4)', marginTop: 12 }}>All prices in EUR · Cancel anytime</p>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 24 }}>
@@ -335,7 +360,7 @@ function Pricing() {
               <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>{p.name}</div>
               <div style={{ fontSize: 13, color: 'var(--t4)', marginBottom: 20 }}>{p.desc}</div>
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4 }}>
-                <span style={{ fontSize: 52, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1, fontFamily: 'Space Grotesk' }}>${p.price}</span>
+                <span style={{ fontSize: 52, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1, fontFamily: 'Space Grotesk' }}>€{p.price}</span>
                 <span style={{ fontSize: 14, color: 'var(--t4)', marginBottom: 6 }}>/month</span>
               </div>
             </div>
@@ -348,9 +373,13 @@ function Pricing() {
               ))}
             </ul>
 
-            <Link href="/signup" className={`btn ${p.popular ? 'btn-primary' : 'btn-ghost'}`} style={{ textAlign: 'center', width: '100%' }}>
-              Start Free Trial
-            </Link>
+            <button
+              onClick={() => handleCheckout(p.plan)}
+              disabled={loading === p.plan}
+              className={`btn ${p.popular ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ textAlign: 'center', width: '100%', cursor: loading === p.plan ? 'not-allowed' : 'pointer', opacity: loading === p.plan ? 0.7 : 1 }}>
+              {loading === p.plan ? 'Redirecting…' : 'Get Started →'}
+            </button>
           </div>
         ))}
       </div>

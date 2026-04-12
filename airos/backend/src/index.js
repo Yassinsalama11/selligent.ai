@@ -35,6 +35,10 @@ app.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOSt
 // Public routes
 app.use('/api/auth', authRoutes);
 
+// Stripe — checkout session creation (public) + webhook (raw body)
+const stripeRoutes = require('./api/stripe');
+app.use('/api/stripe', stripeRoutes);
+
 // Webhook routes (public — Meta verifies these)
 app.use('/webhooks', require('./channels/whatsapp/webhook'));
 app.use('/webhooks', require('./channels/instagram/webhook'));
