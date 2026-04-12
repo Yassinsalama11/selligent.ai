@@ -237,6 +237,155 @@ function playNotif() {
   } catch {}
 }
 
+/* ─── Frontend AI Engine ─────────────────────────────────────────────────── */
+/*
+  Reads the user's AI config from localStorage (set in Settings → AI Configuration)
+  and calls the AI provider directly from the browser.
+  This means each user's own API key is used — no backend key needed.
+*/
+function getAiConfig() {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem('airos_ai_cfg') : null;
+    if (!raw) return null;
+    const cfg = JSON.parse(raw);
+    if (!cfg.apiKey?.trim()) return null;
+    return cfg;
+  } catch { return null; }
+}
+
+async function runFrontendAI(conv, inboundMessage, recentMessages = []) {
+  const cfg = getAiConfig();
+  if (!cfg) {
+    log.ai('No AI config found — go to Settings → AI Configuration to add your API key');
+    return null;
+  }
+
+  log.ai(`calling ${cfg.provider} / ${cfg.model} for conv ${conv.id}`);
+
+  const history = recentMessages.slice(-6).map(m =>
+    `${m.direction === 'inbound' ? 'Customer' : 'Agent'}: ${m.content}`
+  ).join('\n');
+
+  const userPrompt = `You are an AI assistant for an eCommerce business.
+Customer: ${conv.customerName} (${conv.customerPhone})
+Message: "${inboundMessage.content}"
+${history ? `\nRecent history:\n${history}` : ''}
+
+Respond ONLY with valid JSON:
+{
+  "intent": "ready_to_buy|interested|price_objection|inquiry|complaint|other",
+  "lead_score": <integer 0-100>,
+  "suggested_reply": "<reply in same language as customer, max 2 sentences>"
+}`;
+
+  try {
+    let result = null;
+
+    if (cfg.provider === 'openai' || !cfg.provider) {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${cfg.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: cfg.model || 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: cfg.systemPrompt || 'You are a helpful assistant for an eCommerce business. Reply in the same language as the customer.' },
+            { role: 'user',   content: userPrompt },
+          ],
+          temperature: cfg.temperature ?? 0.4,
+          max_tokens:  cfg.maxTokens  || 300,
+          response_format: { type: 'json_object' },
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || `OpenAI ${res.status}`);
+      }
+      const data = await res.json();
+      result = JSON.parse(data.choices[0].message.content);
+
+    } else if (cfg.provider === 'anthropic') {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': cfg.apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: cfg.model || 'claude-haiku-4-5-20251001',
+          max_tokens: cfg.maxTokens || 300,
+          system: cfg.systemPrompt || 'You are a helpful assistant. Reply in JSON only.',
+          messages: [{ role: 'user', content: userPrompt }],
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || `Anthropic ${res.status}`);
+      }
+      const data = await res.json();
+      result = JSON.parse(data.content[0].text);
+
+    } else if (cfg.provider === 'google') {
+      const model = cfg.model || 'gemini-2.0-flash';
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cfg.apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: userPrompt }] }],
+            generationConfig: { temperature: cfg.temperature ?? 0.4, maxOutputTokens: cfg.maxTokens || 300 },
+          }),
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || `Google ${res.status}`);
+      }
+      const data = await res.json();
+      const text = data.candidates[0].content.parts[0].text;
+      result = JSON.parse(text.replace(/```json\n?|\n?```/g, '').trim());
+
+    } else if (cfg.provider === 'mistral') {
+      const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${cfg.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: cfg.model || 'mistral-small-latest',
+          messages: [
+            { role: 'system', content: cfg.systemPrompt || 'You are a helpful assistant. Reply in JSON only.' },
+            { role: 'user',   content: userPrompt },
+          ],
+          temperature: cfg.temperature ?? 0.4,
+          max_tokens:  cfg.maxTokens || 300,
+          response_format: { type: 'json_object' },
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || `Mistral ${res.status}`);
+      }
+      const data = await res.json();
+      result = JSON.parse(data.choices[0].message.content);
+    }
+
+    log.ai('result', result);
+    return result;
+
+  } catch (err) {
+    log.error('AI call failed:', err.message);
+    toast.error(`AI error: ${err.message}`, { duration: 5000 });
+    return null;
+  }
+}
+
 /* -- Static data ------------------------------------------------------------ */
 const CONVS = [
   { id:'1', name:'Ahmed Mohamed', ch:'whatsapp',  last:'عايز أطلب اتنين',      ago:'2m',  score:91, intent:'ready_to_buy',   unread:2 },
@@ -364,6 +513,18 @@ export default function ConversationsPage() {
   const bottomRef = useRef(null);
   const msgsContainerRef = useRef(null);
 
+  // Listen for AI suggestion from socket handler (bridges module scope → component state)
+  useEffect(() => {
+    function onSuggestion(e) {
+      const { convId, text, score, intent } = e.detail;
+      if (storeRef.current.activeId === convId) {
+        setSuggestion({ text, score, intent });
+      }
+    }
+    window.addEventListener('airos:ai-suggestion', onSuggestion);
+    return () => window.removeEventListener('airos:ai-suggestion', onSuggestion);
+  }, []);
+
   /* Scroll to bottom — useLayoutEffect runs sync after DOM paint */
   useLayoutEffect(() => {
     const el = msgsContainerRef.current;
@@ -412,12 +573,72 @@ export default function ConversationsPage() {
       dispatch({ type: 'INBOUND_MESSAGE', conv: conversation, message });
       playNotif();
       toast(`📱 ${conversation.customerName}: ${(message.content||'').slice(0,40)}`, { duration: 4000 });
+
+      // Trigger AI from frontend using the user's API key from Settings
+      if (message.content && message.type !== 'image' && message.type !== 'file') {
+        const convId = conversation.id;
+        dispatch({ type: 'SET_AI_TYPING', convId, value: true });
+
+        const recentMsgs = storeRef.current.convs[convId]?.messages || [];
+        runFrontendAI(conversation, message, recentMsgs).then(ai => {
+          dispatch({ type: 'SET_AI_TYPING', convId, value: false });
+          if (!ai) return;
+
+          const autoOn = storeRef.current.autoReply[convId];
+          const isOpen = storeRef.current.activeId === convId;
+
+          // Update conv intent + score
+          dispatch({ type: 'UPDATE_CONV', convId, fields: { intent: ai.intent, score: ai.lead_score } });
+
+          if (autoOn && ai.suggested_reply) {
+            // Auto-reply mode: send immediately
+            const phone = conversation.customerPhone || convId.replace('whatsapp:', '');
+            const tempId = `ai_${Date.now()}`;
+            const aiMsg = {
+              id: tempId, direction: 'outbound', content: ai.suggested_reply,
+              type: 'text', sent_by: 'ai', status: 'sending',
+              at: new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' }),
+              timestamp: new Date().toISOString(),
+            };
+            dispatch({ type: 'AI_RESULT', convId, intent: ai.intent, score: ai.lead_score, aiMessage: aiMsg });
+
+            fetch(`${API}/api/live/send`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phone, message: ai.suggested_reply }),
+            })
+              .then(r => r.json())
+              .then(d => {
+                if (d.ok) {
+                  dispatch({ type: 'CONFIRM_MESSAGE', convId, tempId, realId: d.message_id || tempId });
+                  log.ai('auto-reply sent ✅');
+                  toast.success('🤖 AI replied automatically', { duration: 2500 });
+                } else {
+                  log.error('auto-reply failed', d.error);
+                  toast.error(`AI send failed: ${d.error}`);
+                }
+              })
+              .catch(e => log.error('auto-reply fetch error', e.message));
+
+          } else if (isOpen && ai.suggested_reply) {
+            // Manual mode: set suggestion in state (setSuggestion is component state)
+            // Use a custom event to bridge the module-level handler → component state
+            window.dispatchEvent(new CustomEvent('airos:ai-suggestion', {
+              detail: { convId, text: ai.suggested_reply, score: ai.lead_score, intent: ai.intent }
+            }));
+          }
+        });
+      }
     });
 
+    // whatsapp:ai = fallback from backend (used only if no frontend API key configured)
     socket.on('whatsapp:ai', ({ conversation_id, intent, lead_score, suggested_reply }) => {
-      log.ai('result', { conversation_id, intent, lead_score, reply: suggested_reply?.slice(0,40) });
-
-      // Stop AI typing indicator
+      // If frontend already handled AI (key was set), ignore backend event
+      if (getAiConfig()) {
+        log.ai('backend AI event ignored — frontend AI is active');
+        return;
+      }
+      log.ai('backend fallback AI result', { conversation_id, intent, lead_score });
       dispatch({ type: 'SET_AI_TYPING', convId: conversation_id, value: false });
       dispatch({ type: 'UPDATE_CONV',   convId: conversation_id, fields: { intent, score: lead_score } });
 
@@ -426,47 +647,25 @@ export default function ConversationsPage() {
       const conv   = storeRef.current.convs[conversation_id];
 
       if (autoOn && suggested_reply && conv) {
-        log.ai('auto-reply triggered for', conversation_id);
-        const phone = conv.customerPhone || conversation_id.replace('whatsapp:', '');
+        const phone  = conv.customerPhone || conversation_id.replace('whatsapp:', '');
         const tempId = `ai_${Date.now()}`;
-
-        // 1. Optimistic add to store immediately
-        const aiMsg = {
+        const aiMsg  = {
           id: tempId, direction: 'outbound', content: suggested_reply,
           type: 'text', sent_by: 'ai', status: 'sending',
           at: new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' }),
           timestamp: new Date().toISOString(),
         };
         dispatch({ type: 'AI_RESULT', convId: conversation_id, intent, score: lead_score, aiMessage: aiMsg });
-
-        // 2. Actually send via WhatsApp API
         fetch(`${API}/api/live/send`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone, message: suggested_reply }),
-        })
-          .then(r => r.json())
-          .then(d => {
-            if (d.ok) {
-              dispatch({ type: 'CONFIRM_MESSAGE', convId: conversation_id, tempId, realId: d.message_id || tempId });
-              log.ai('auto-reply sent ✅', d.message_id);
-              toast.success('🤖 AI replied automatically', { duration: 2500 });
-            } else {
-              log.error('auto-reply API error', d.error);
-              toast.error(`AI send failed: ${d.error}`);
-            }
-          })
-          .catch(e => {
-            log.error('auto-reply fetch failed', e.message);
-            toast.error('AI reply failed — check connection');
-          });
-      } else {
-        // Manual mode: store suggestion, show in bar
-        dispatch({ type: 'AI_RESULT', convId: conversation_id, intent, score: lead_score });
-        if (isOpen) {
-          log.ai('suggestion ready for manual review');
-          setSuggestion({ text: suggested_reply, score: lead_score, intent });
-        }
+        }).then(r => r.json()).then(d => {
+          if (d.ok) dispatch({ type: 'CONFIRM_MESSAGE', convId: conversation_id, tempId, realId: d.message_id || tempId });
+        }).catch(() => {});
+      } else if (isOpen && suggested_reply) {
+        window.dispatchEvent(new CustomEvent('airos:ai-suggestion', {
+          detail: { convId: conversation_id, text: suggested_reply, score: lead_score, intent }
+        }));
       }
     });
 
