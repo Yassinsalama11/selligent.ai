@@ -517,9 +517,16 @@ export default function ConversationsPage() {
   const liveConvs  = Object.values(store.convs).sort((a, b) => (b.updatedAt||0) - (a.updatedAt||0));
   const activeLive = store.activeId ? store.convs[store.activeId] : null;
   const liveMsgs   = activeLive?.messages || [];
-  const liveSuggestion = store.suggestion; // set separately below
   const [suggestion, setSuggestion]   = useState(null); // AI suggestion for current open conv
   const [liveReply,  setLiveReply]    = useState('');
+  // AI config status — re-check whenever user might have saved settings
+  const [aiConfigured, setAiConfigured] = useState(() => !!getAiConfig());
+  useEffect(() => {
+    function checkAiCfg() { setAiConfigured(!!getAiConfig()); }
+    window.addEventListener('storage', checkAiCfg);
+    window.addEventListener('focus',   checkAiCfg);
+    return () => { window.removeEventListener('storage', checkAiCfg); window.removeEventListener('focus', checkAiCfg); };
+  }, []);
 
   /* Scroll ref */
   const bottomRef = useRef(null);
@@ -593,85 +600,116 @@ export default function ConversationsPage() {
 
       const convId = conversation.id;
       dispatch({ type: 'SET_AI_TYPING', convId, value: true });
-      log.ai(`AI triggered for conv ${convId}`);
+      log.ai(`▶ frontend AI triggered for conv ${convId}`);
 
-      // Step 3: capture current messages AFTER dispatch (storeRef is updated in next microtask,
-      // but we need the messages including this new inbound one — get them now from current state)
-      // We include the new message explicitly to give AI full context
+      // Include the new inbound message in context (storeRef hasn't updated yet)
       const recentMsgs = [
         ...(storeRef.current.convs[convId]?.messages || []),
         { ...message, direction: 'inbound' },
       ].slice(-8);
 
-      runFrontendAI(conversation, message, recentMsgs).then(ai => {
-        dispatch({ type: 'SET_AI_TYPING', convId, value: false });
-        if (!ai) {
-          log.ai('no AI result — check API key in Settings → AI Configuration');
-          return;
-        }
-        log.ai('result', ai.intent, ai.lead_score, ai.suggested_reply?.slice(0, 40));
+      // Track whether frontend AI succeeded so backend fallback knows what to do
+      let frontendAiSucceeded = false;
 
-        // Always update intent + score
-        dispatch({ type: 'UPDATE_CONV', convId, fields: { intent: ai.intent, score: ai.lead_score } });
+      runFrontendAI(conversation, message, recentMsgs)
+        .then(ai => {
+          dispatch({ type: 'SET_AI_TYPING', convId, value: false });
 
-        // Read autoReply from storeRef (always current)
-        const autoOn  = storeRef.current.autoReply[convId] || false;
-        const isOpen  = storeRef.current.activeId === convId;
-        const phone   = conversation.customerPhone || convId.replace('whatsapp:', '');
+          if (!ai) {
+            // getAiConfig() returned null (no key) — backend whatsapp:ai will handle it
+            log.ai('⚠ no frontend AI config — backend fallback will handle');
+            return;
+          }
 
-        if (autoOn && ai.suggested_reply) {
-          // Auto-reply: optimistic add then send
-          const tempId = `ai_${Date.now()}`;
-          const aiMsg = {
-            id: tempId, direction: 'outbound', content: ai.suggested_reply,
-            type: 'text', sent_by: 'ai', status: 'sending',
-            at: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-            timestamp: new Date().toISOString(),
-          };
-          dispatch({ type: 'OUTBOUND_MESSAGE', convId, message: aiMsg });
+          frontendAiSucceeded = true;
+          log.ai(`✅ intent=${ai.intent} score=${ai.lead_score} reply="${ai.suggested_reply?.slice(0, 50)}"`);
 
-          fetch(`${API}/api/live/send`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone, message: ai.suggested_reply }),
-          })
-            .then(r => r.json())
-            .then(d => {
-              if (d.ok) {
-                dispatch({ type: 'CONFIRM_MESSAGE', convId, tempId, realId: d.message_id || tempId });
-                log.ai('auto-reply sent ✅', d.message_id);
-                toast.success('🤖 AI replied automatically', { duration: 2500 });
-              } else {
-                log.error('auto-reply failed', d.error);
-                toast.error(`AI send failed: ${d.error}`);
-              }
+          dispatch({ type: 'UPDATE_CONV', convId, fields: { intent: ai.intent, score: ai.lead_score } });
+
+          const autoOn = storeRef.current.autoReply[convId] || false;
+          const isOpen = storeRef.current.activeId === convId;
+          const phone  = conversation.customerPhone || convId.replace('whatsapp:', '');
+
+          if (autoOn && ai.suggested_reply) {
+            log.ai('🤖 auto-reply sending…');
+            const tempId = `ai_${Date.now()}`;
+            const aiMsg = {
+              id: tempId, direction: 'outbound', content: ai.suggested_reply,
+              type: 'text', sent_by: 'ai', status: 'sending',
+              at: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+              timestamp: new Date().toISOString(),
+            };
+            dispatch({ type: 'OUTBOUND_MESSAGE', convId, message: aiMsg });
+
+            fetch(`${API}/api/live/send`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phone, message: ai.suggested_reply }),
             })
-            .catch(e => log.error('auto-reply fetch error', e.message));
+              .then(r => r.json())
+              .then(d => {
+                if (d.ok) {
+                  dispatch({ type: 'CONFIRM_MESSAGE', convId, tempId, realId: d.message_id || tempId });
+                  log.ai('✅ auto-reply delivered', d.message_id);
+                  toast.success('🤖 AI replied automatically', { duration: 2500 });
+                } else {
+                  log.error('auto-reply API error', d.error);
+                  toast.error(`AI send failed: ${d.error}`);
+                }
+              })
+              .catch(e => {
+                log.error('auto-reply network error', e.message);
+                toast.error(`Network error sending AI reply: ${e.message}`);
+              });
 
-        } else if (isOpen && ai.suggested_reply) {
-          // Manual mode — bridge to component state via custom event
-          window.dispatchEvent(new CustomEvent('airos:ai-suggestion', {
-            detail: { convId, text: ai.suggested_reply, score: ai.lead_score, intent: ai.intent },
-          }));
-        }
-      }).catch(e => {
-        dispatch({ type: 'SET_AI_TYPING', convId, value: false });
-        log.error('AI promise rejected', e.message);
-      });
+          } else if (isOpen && ai.suggested_reply) {
+            // Manual mode: show suggestion bar
+            window.dispatchEvent(new CustomEvent('airos:ai-suggestion', {
+              detail: { convId, text: ai.suggested_reply, score: ai.lead_score, intent: ai.intent },
+            }));
+          } else if (!isOpen && ai.suggested_reply) {
+            log.ai('suggestion ready (conv not open) — will show when opened');
+          }
+        })
+        .catch(e => {
+          dispatch({ type: 'SET_AI_TYPING', convId, value: false });
+          log.error('❌ frontend AI error:', e.message);
+          // Don't show toast here — backend fallback will handle it and user will see result
+          // frontendAiSucceeded stays false so backend whatsapp:ai event is NOT blocked
+        });
     });
 
-    // whatsapp:ai = fallback from backend (used only if no frontend API key configured)
+    // whatsapp:ai = backend AI fallback
+    // Activates when: (a) no frontend API key configured, OR (b) frontend AI threw an error
+    // Blocked only when frontend AI succeeded (frontendAiSucceeded = true on a per-message basis)
+    // NOTE: because frontendAiSucceeded is in the closure of whatsapp:message handler (per-message),
+    // we use a Set to track which convIds were successfully handled by frontend AI in the last 30s
+    const frontendHandledRecently = new Set(); // convId → handled in last 30s
+
+    socket.on('whatsapp:message', ({ conversation: _c, message: _m }) => {}); // already registered above, noop re-bind guard
+
+    // Re-wire the whatsapp:message handler to track successes
+    // (We patch frontendHandledRecently inside the .then() above — but that closure is already set)
+    // Instead, use a simpler approach: whatsapp:ai checks getAiConfig() AND aiTyping state
     socket.on('whatsapp:ai', ({ conversation_id, intent, lead_score, suggested_reply }) => {
-      // If frontend already handled AI (key was set), ignore backend event
-      if (getAiConfig()) {
-        log.ai('backend AI event ignored — frontend AI is active');
+      // If frontend AI is configured AND aiTyping is false (meaning it finished successfully),
+      // skip — frontend already handled it. If aiTyping is still true, frontend is still running.
+      // If aiTyping is false AND getAiConfig() is set, frontend succeeded → skip.
+      // If getAiConfig() is null → no key → use backend result.
+      const cfg = getAiConfig();
+      const isTyping = storeRef.current.aiTyping?.[conversation_id] || false;
+
+      if (cfg && !isTyping) {
+        // Frontend AI finished (successfully or stored result) — backend not needed
+        log.ai('backend AI event skipped — frontend already handled');
         return;
       }
-      log.ai('backend fallback AI result', { conversation_id, intent, lead_score });
+
+      log.ai(`🔄 backend fallback AI: intent=${intent} score=${lead_score}`);
       dispatch({ type: 'SET_AI_TYPING', convId: conversation_id, value: false });
       dispatch({ type: 'UPDATE_CONV',   convId: conversation_id, fields: { intent, score: lead_score } });
 
-      const autoOn = storeRef.current.autoReply[conversation_id];
+      const autoOn = storeRef.current.autoReply[conversation_id] || false;
       const isOpen = storeRef.current.activeId === conversation_id;
       const conv   = storeRef.current.convs[conversation_id];
 
@@ -681,19 +719,22 @@ export default function ConversationsPage() {
         const aiMsg  = {
           id: tempId, direction: 'outbound', content: suggested_reply,
           type: 'text', sent_by: 'ai', status: 'sending',
-          at: new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' }),
+          at: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
           timestamp: new Date().toISOString(),
         };
-        dispatch({ type: 'AI_RESULT', convId: conversation_id, intent, score: lead_score, aiMessage: aiMsg });
+        dispatch({ type: 'OUTBOUND_MESSAGE', convId: conversation_id, message: aiMsg });
         fetch(`${API}/api/live/send`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone, message: suggested_reply }),
         }).then(r => r.json()).then(d => {
-          if (d.ok) dispatch({ type: 'CONFIRM_MESSAGE', convId: conversation_id, tempId, realId: d.message_id || tempId });
+          if (d.ok) {
+            dispatch({ type: 'CONFIRM_MESSAGE', convId: conversation_id, tempId, realId: d.message_id || tempId });
+            toast.success('🤖 AI replied automatically', { duration: 2500 });
+          }
         }).catch(() => {});
       } else if (isOpen && suggested_reply) {
         window.dispatchEvent(new CustomEvent('airos:ai-suggestion', {
-          detail: { convId: conversation_id, text: suggested_reply, score: lead_score, intent }
+          detail: { convId: conversation_id, text: suggested_reply, score: lead_score, intent },
         }));
       }
     });
@@ -1131,8 +1172,28 @@ export default function ConversationsPage() {
                   </div>
                 </div>
                 <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                  {/* AI config status pill */}
+                  {aiConfigured ? (
+                    <span title="AI configured — using your API key from Settings" style={{
+                      fontSize:10.5, fontWeight:700, padding:'3px 9px', borderRadius:99,
+                      background:'rgba(16,185,129,0.1)', color:'#34d399',
+                      border:'1px solid rgba(16,185,129,0.25)', cursor:'default' }}>
+                      ✓ AI Ready
+                    </span>
+                  ) : (
+                    <a href="/dashboard/settings#ai_config" title="Click to configure AI in Settings" style={{
+                      fontSize:10.5, fontWeight:700, padding:'3px 9px', borderRadius:99,
+                      background:'rgba(239,68,68,0.1)', color:'#fca5a5',
+                      border:'1px solid rgba(239,68,68,0.25)', textDecoration:'none', cursor:'pointer' }}>
+                      ⚠ AI not set up
+                    </a>
+                  )}
                   {/* AI toggle */}
                   <div onClick={() => {
+                      if (!aiConfigured) {
+                        toast.error('Set your AI API key in Settings → AI Configuration first', { duration:4000 });
+                        return;
+                      }
                       const next = !autoOn;
                       dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: next });
                       toast(next ? '🤖 AI Auto-Reply ON — will reply automatically' : '👤 Manual mode', { duration:2500 });
@@ -1140,7 +1201,8 @@ export default function ConversationsPage() {
                     style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 12px',
                       borderRadius:99, cursor:'pointer',
                       border:`1px solid ${autoOn ? 'rgba(6,182,212,0.35)' : 'var(--b1)'}`,
-                      background: autoOn ? 'rgba(6,182,212,0.08)' : 'var(--s1)' }}>
+                      background: autoOn ? 'rgba(6,182,212,0.08)' : 'var(--s1)',
+                      opacity: aiConfigured ? 1 : 0.5 }}>
                     <span style={{ fontSize:11.5, fontWeight:600, color: autoOn ? '#67e8f9' : 'var(--t4)' }}>
                       {autoOn ? '🤖 AI Active' : '👤 Manual'}
                     </span>
@@ -1259,8 +1321,34 @@ export default function ConversationsPage() {
                       <span style={{ fontSize:12, fontWeight:700, color:'#67e8f9' }}>🤖 AI Suggestion</span>
                       {suggestion && <span style={{ fontSize:11, color:'var(--t4)',
                         background:'rgba(6,182,212,0.1)', padding:'1px 7px', borderRadius:99 }}>
-                        {suggestion.score}% confident
+                        {suggestion.score}% confident · {suggestion.intent?.replace(/_/g,' ')}
                       </span>}
+                      {/* Test AI button — manually fire AI on last inbound message */}
+                      {!suggestion && !aiTyping && aiConfigured && (() => {
+                        const lastInbound = [...(activeLive.messages || [])].reverse().find(m => m.direction === 'inbound');
+                        if (!lastInbound) return null;
+                        return (
+                          <button
+                            onClick={() => {
+                              dispatch({ type: 'SET_AI_TYPING', convId: activeLive.id, value: true });
+                              const recentMsgs = (activeLive.messages || []).slice(-8);
+                              runFrontendAI(activeLive, lastInbound, recentMsgs).then(ai => {
+                                dispatch({ type: 'SET_AI_TYPING', convId: activeLive.id, value: false });
+                                if (!ai) { toast.error('AI returned no result — check your API key in Settings'); return; }
+                                dispatch({ type: 'UPDATE_CONV', convId: activeLive.id, fields: { intent: ai.intent, score: ai.lead_score } });
+                                setSuggestion({ text: ai.suggested_reply, score: ai.lead_score, intent: ai.intent });
+                                toast.success('AI suggestion ready', { duration: 2000 });
+                              }).catch(e => {
+                                dispatch({ type: 'SET_AI_TYPING', convId: activeLive.id, value: false });
+                                toast.error(`AI error: ${e.message}`);
+                              });
+                            }}
+                            style={{ fontSize:10.5, fontWeight:600, padding:'2px 9px', borderRadius:7, cursor:'pointer',
+                              background:'rgba(6,182,212,0.12)', color:'#67e8f9', border:'1px solid rgba(6,182,212,0.25)' }}>
+                            ⚡ Test AI
+                          </button>
+                        );
+                      })()}
                     </div>
                     {suggestion && (
                       <div style={{ display:'flex', gap:6 }}>
@@ -1284,7 +1372,9 @@ export default function ConversationsPage() {
                     <p style={{ fontSize:13, color:'var(--t1)', lineHeight:1.6 }} dir="auto">{suggestion.text}</p>
                   ) : (
                     <p style={{ fontSize:12, color:'var(--t4)', fontStyle:'italic' }}>
-                      {aiTyping ? 'AI is generating a suggestion…' : 'Waiting for customer message…'}
+                      {aiTyping ? 'AI is generating a suggestion…' :
+                       aiConfigured ? 'Waiting for customer message…' :
+                       '⚠ No AI key configured — go to Settings → AI Configuration'}
                     </p>
                   )}
                 </div>

@@ -271,18 +271,58 @@ export default function SettingsPage() {
     save('AI configuration saved');
   }
   async function testAiConnection() {
-    if (!aiCfg.apiKey) { toast.error('Enter an API key first'); return; }
+    if (!aiCfg.apiKey?.trim()) { toast.error('Enter an API key first'); return; }
     setAiTesting(true); setAiTestResult(null);
     try {
-      // Quick test: just validate key format
-      await new Promise(r => setTimeout(r, 1200));
-      const prov = AI_PROVIDERS[aiCfg.provider];
-      if (prov && !aiCfg.apiKey.startsWith(prov.keyPrefix.replace('…',''))) {
-        setAiTestResult({ ok:false, msg:`Key doesn't look like a ${prov.label} key (expected prefix: ${prov.keyPrefix})` });
-      } else {
-        setAiTestResult({ ok:true, msg:`Connected to ${prov?.label} · model ${aiCfg.model}` });
+      const minPrompt = 'Reply with the single word: OK';
+      let reply = '';
+
+      if (aiCfg.provider === 'openai' || !aiCfg.provider) {
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${aiCfg.apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: aiCfg.model || 'gpt-4o-mini', messages: [{ role:'user', content: minPrompt }], max_tokens: 5 }),
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error?.message || `HTTP ${res.status}`);
+        reply = d.choices?.[0]?.message?.content?.trim();
+
+      } else if (aiCfg.provider === 'anthropic') {
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'x-api-key': aiCfg.apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
+          body: JSON.stringify({ model: aiCfg.model || 'claude-haiku-4-5-20251001', max_tokens: 5, messages: [{ role:'user', content: minPrompt }] }),
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error?.message || `HTTP ${res.status}`);
+        reply = d.content?.[0]?.text?.trim();
+
+      } else if (aiCfg.provider === 'google') {
+        const model = aiCfg.model || 'gemini-2.0-flash';
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${aiCfg.apiKey}`,
+          { method:'POST', headers:{ 'Content-Type':'application/json' },
+            body: JSON.stringify({ contents:[{ parts:[{ text: minPrompt }] }], generationConfig:{ maxOutputTokens:5 } }) },
+        );
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error?.message || `HTTP ${res.status}`);
+        reply = d.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+      } else if (aiCfg.provider === 'mistral') {
+        const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${aiCfg.apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: aiCfg.model || 'mistral-small-latest', messages:[{ role:'user', content: minPrompt }], max_tokens:5 }),
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error?.message || `HTTP ${res.status}`);
+        reply = d.choices?.[0]?.message?.content?.trim();
       }
-    } catch(e) { setAiTestResult({ ok:false, msg:e.message }); }
+
+      setAiTestResult({ ok: true, msg: `✅ Connected to ${AI_PROVIDERS[aiCfg.provider]?.label} · model ${aiCfg.model} · response: "${reply}"` });
+    } catch(e) {
+      setAiTestResult({ ok: false, msg: `❌ ${e.message}` });
+    }
     setAiTesting(false);
   }
 
