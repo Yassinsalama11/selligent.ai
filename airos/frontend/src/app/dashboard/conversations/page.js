@@ -209,10 +209,17 @@ export default function ConversationsPage() {
         return next;
       });
 
-      // If this conversation is currently open, add message live
-      if (activeLiveRef.current?.id === conversation.id) {
-        setLiveMsgs(m => [...m, message]);
-      }
+      // Always add to liveMsgs via functional update — guaranteed latest state
+      setActiveLive(cur => {
+        if (cur?.id === conversation.id) {
+          setLiveMsgs(m => {
+            // Avoid duplicate if already present
+            if (m.some(x => x.id === message.id)) return m;
+            return [...m, message];
+          });
+        }
+        return cur;
+      });
 
       playNotif();
       toast(`📱 New WhatsApp from ${conversation.customerName}`, { duration: 4000 });
@@ -223,8 +230,7 @@ export default function ConversationsPage() {
         c.id === conversation_id ? { ...c, intent, score: lead_score } : c
       ));
 
-      const isActive = activeLiveRef.current?.id === conversation_id;
-      const autoOn   = liveAutoReplyRef.current[conversation_id];
+      const autoOn = liveAutoReplyRef.current[conversation_id];
 
       if (autoOn && suggested_reply) {
         // Auto-send the AI reply
@@ -240,7 +246,10 @@ export default function ConversationsPage() {
               type:'text', sent_by:'ai',
               at: new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}),
             };
-            if (isActive) setLiveMsgs(m => [...m, outMsg]);
+            setActiveLive(cur => {
+              if (cur?.id === conversation_id) setLiveMsgs(m => [...m, outMsg]);
+              return cur;
+            });
             setLiveMsgsCache(cache => {
               const arr = [...(cache[conversation_id]||[]), outMsg];
               const next = {...cache, [conversation_id]: arr};
@@ -250,8 +259,14 @@ export default function ConversationsPage() {
             toast.success('🤖 AI auto-replied', { duration:2500 });
           }
         }).catch(() => {});
-      } else if (isActive) {
-        setLiveSuggestion({ text: suggested_reply, score: lead_score, intent });
+      } else {
+        // Manual mode — show suggestion regardless of which conv is open
+        setActiveLive(cur => {
+          if (cur?.id === conversation_id && suggested_reply) {
+            setLiveSuggestion({ text: suggested_reply, score: lead_score, intent });
+          }
+          return cur;
+        });
       }
     });
 
@@ -271,16 +286,23 @@ export default function ConversationsPage() {
     // Show cached messages immediately
     const cached = liveMsgsCache[conv.id] || [];
     setLiveMsgs(cached);
-    // Then fetch fresh from backend and merge
+    // Fetch fresh from backend, then MERGE with any messages that arrived via socket during the fetch
     try {
       const r = await fetch(`${API}/api/live/conversations/${encodeURIComponent(conv.id)}/messages`);
       const data = await r.json();
-      if (Array.isArray(data) && data.length > 0) {
-        setLiveMsgs(data);
-        setLiveMsgsCache(cache => {
-          const next = { ...cache, [conv.id]: data };
-          try { localStorage.setItem('airos_live_msgs', JSON.stringify(next)); } catch {}
-          return next;
+      if (Array.isArray(data)) {
+        // Merge: take backend data + any newer socket messages not yet in it
+        setLiveMsgs(current => {
+          const backendIds = new Set(data.map(m => m.id));
+          const socketOnly = current.filter(m => !backendIds.has(m.id));
+          const merged = [...data, ...socketOnly];
+          // Update cache with full merged list
+          setLiveMsgsCache(cache => {
+            const next = { ...cache, [conv.id]: merged };
+            try { localStorage.setItem('airos_live_msgs', JSON.stringify(next)); } catch {}
+            return next;
+          });
+          return merged;
         });
       }
       fetch(`${API}/api/live/conversations/${encodeURIComponent(conv.id)}/read`, { method: 'POST' });
