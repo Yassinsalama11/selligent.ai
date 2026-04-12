@@ -635,27 +635,25 @@ export default function ConversationsPage() {
         { ...message, direction: 'inbound' },
       ].slice(-8);
 
-      // Track whether frontend AI succeeded so backend fallback knows what to do
-      let frontendAiSucceeded = false;
-
       runFrontendAI(conversation, message, recentMsgs)
         .then(ai => {
           dispatch({ type: 'SET_AI_TYPING', convId, value: false });
 
           if (!ai) {
-            // getAiConfig() returned null (no key) — backend whatsapp:ai will handle it
-            log.ai('⚠ no frontend AI config — backend fallback will handle');
+            log.ai('⚠ no frontend AI result — check API key in Settings → AI Configuration');
             return;
           }
 
-          frontendAiSucceeded = true;
           log.ai(`✅ intent=${ai.intent} score=${ai.lead_score} reply="${ai.suggested_reply?.slice(0, 50)}"`);
-
           dispatch({ type: 'UPDATE_CONV', convId, fields: { intent: ai.intent, score: ai.lead_score } });
 
-          const autoOn = storeRef.current.autoReply[convId] || false;
+          const cfg    = getAiConfig();
+          // autoOn = per-conversation toggle OR global setting from Settings → AI Configuration
+          const autoOn = storeRef.current.autoReply[convId] || cfg?.autoReply || false;
           const isOpen = storeRef.current.activeId === convId;
           const phone  = conversation.customerPhone || convId.replace('whatsapp:', '');
+
+          log.ai(`autoOn=${autoOn} isOpen=${isOpen} phone=${phone}`);
 
           if (autoOn && ai.suggested_reply) {
             log.ai('🤖 auto-reply sending…');
@@ -680,55 +678,33 @@ export default function ConversationsPage() {
                   log.ai('✅ auto-reply delivered', d.message_id);
                   toast.success('🤖 AI replied automatically', { duration: 2500 });
                 } else {
-                  log.error('auto-reply API error', d.error);
+                  log.error('auto-reply failed:', d.error);
                   toast.error(`AI send failed: ${d.error}`);
                 }
               })
               .catch(e => {
-                log.error('auto-reply network error', e.message);
-                toast.error(`Network error sending AI reply: ${e.message}`);
+                log.error('auto-reply network error:', e.message);
+                toast.error(`Network error: ${e.message}`);
               });
 
           } else if (isOpen && ai.suggested_reply) {
-            // Manual mode: show suggestion bar
             window.dispatchEvent(new CustomEvent('airos:ai-suggestion', {
               detail: { convId, text: ai.suggested_reply, score: ai.lead_score, intent: ai.intent },
             }));
-          } else if (!isOpen && ai.suggested_reply) {
-            log.ai('suggestion ready (conv not open) — will show when opened');
           }
         })
         .catch(e => {
           dispatch({ type: 'SET_AI_TYPING', convId, value: false });
           log.error('❌ frontend AI error:', e.message);
-          // Don't show toast here — backend fallback will handle it and user will see result
-          // frontendAiSucceeded stays false so backend whatsapp:ai event is NOT blocked
+          toast.error(`AI error: ${e.message}`, { duration: 4000 });
         });
     });
 
-    // whatsapp:ai = backend AI fallback
-    // Activates when: (a) no frontend API key configured, OR (b) frontend AI threw an error
-    // Blocked only when frontend AI succeeded (frontendAiSucceeded = true on a per-message basis)
-    // NOTE: because frontendAiSucceeded is in the closure of whatsapp:message handler (per-message),
-    // we use a Set to track which convIds were successfully handled by frontend AI in the last 30s
-    const frontendHandledRecently = new Set(); // convId → handled in last 30s
-
-    socket.on('whatsapp:message', ({ conversation: _c, message: _m }) => {}); // already registered above, noop re-bind guard
-
-    // Re-wire the whatsapp:message handler to track successes
-    // (We patch frontendHandledRecently inside the .then() above — but that closure is already set)
-    // Instead, use a simpler approach: whatsapp:ai checks getAiConfig() AND aiTyping state
+    // whatsapp:ai = backend AI fallback (only if no frontend API key configured)
     socket.on('whatsapp:ai', ({ conversation_id, intent, lead_score, suggested_reply }) => {
-      // If frontend AI is configured AND aiTyping is false (meaning it finished successfully),
-      // skip — frontend already handled it. If aiTyping is still true, frontend is still running.
-      // If aiTyping is false AND getAiConfig() is set, frontend succeeded → skip.
-      // If getAiConfig() is null → no key → use backend result.
-      const cfg = getAiConfig();
-      const isTyping = storeRef.current.aiTyping?.[conversation_id] || false;
-
-      if (cfg && !isTyping) {
-        // Frontend AI finished (successfully or stored result) — backend not needed
-        log.ai('backend AI event skipped — frontend already handled');
+      if (getAiConfig()) {
+        // Frontend AI is configured — it already handled (or errored with a visible toast)
+        log.ai('backend whatsapp:ai event ignored — frontend AI is active');
         return;
       }
 
