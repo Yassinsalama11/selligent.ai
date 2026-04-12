@@ -572,17 +572,17 @@ function Footer() {
           </div>
 
           {[
-            { title: 'Product', links: ['Features', 'Pricing', 'Integrations', 'Changelog', 'Status'] },
-            { title: 'Company', links: ['About', 'Blog', 'Careers', 'Contact', 'Press'] },
-            { title: 'Legal', links: ['Privacy', 'Terms', 'Security', 'Cookies'] },
+            { title: 'Product', links: [['Features','#features'],['Pricing','#pricing'],['Integrations','#integrations'],['Changelog','/changelog'],['Status','/status']] },
+            { title: 'Company', links: [['About','/about'],['Blog','/blog'],['Careers','/careers'],['Contact','/contact'],['Press','/press']] },
+            { title: 'Legal',   links: [['Privacy','/privacy'],['Terms','/terms'],['Security','/security'],['Cookies','/cookies']] },
           ].map(col => (
             <div key={col.title}>
               <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 16, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{col.title}</div>
               <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {col.links.map(l => (
-                  <li key={l}><a href="#" style={{ fontSize: 14, color: 'var(--t4)', textDecoration: 'none', transition: 'color 0.15s' }}
+                {col.links.map(([l, href]) => (
+                  <li key={l}><Link href={href} style={{ fontSize: 14, color: 'var(--t4)', textDecoration: 'none', transition: 'color 0.15s' }}
                     onMouseEnter={e=>e.target.style.color='var(--t2)'}
-                    onMouseLeave={e=>e.target.style.color='var(--t4)'}>{l}</a></li>
+                    onMouseLeave={e=>e.target.style.color='var(--t4)'}>{l}</Link></li>
                 ))}
               </ul>
             </div>
