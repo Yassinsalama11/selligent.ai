@@ -1,10 +1,222 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useReducer, useLayoutEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
 import { io } from 'socket.io-client';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://selligentai-production.up.railway.app';
+
+/* ─── Logger ─────────────────────────────────────────────────────────────── */
+const log = {
+  msg:    (...a) => console.log(`%c[MSG]`,    'color:#25D366;font-weight:bold', ...a),
+  store:  (...a) => console.log(`%c[STORE]`,  'color:#6366f1;font-weight:bold', ...a),
+  ws:     (...a) => console.log(`%c[WS]`,     'color:#f59e0b;font-weight:bold', ...a),
+  ai:     (...a) => console.log(`%c[AI]`,     'color:#67e8f9;font-weight:bold', ...a),
+  error:  (...a) => console.error(`%c[ERR]`,  'color:#ef4444;font-weight:bold', ...a),
+};
+
+/* ─── Conversation Store (single source of truth) ───────────────────────── */
+/*
+  Shape:
+  {
+    activeId: string | null,
+    autoReply: { [convId]: boolean },
+    aiTyping:  { [convId]: boolean },
+    convs: {
+      [id]: {
+        id, customerName, customerPhone, channel,
+        unread, score, intent, lastMessage, updatedAt,
+        messages: [{ id, direction, content, type, sent_by, at, timestamp, status }]
+      }
+    }
+  }
+*/
+function loadPersistedStore() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem('airos_conv_store');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Strip aiTyping on load — it shouldn't persist
+    return { ...parsed, aiTyping: {}, autoReply: parsed.autoReply || {} };
+  } catch { return null; }
+}
+
+const STORE_INIT = loadPersistedStore() || {
+  activeId:  null,
+  autoReply: {},
+  aiTyping:  {},
+  convs:     {},
+};
+
+function sortMessages(msgs) {
+  return [...msgs].sort((a, b) => {
+    const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+    const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+    return ta - tb; // ascending — oldest first, newest last
+  });
+}
+
+function storeReducer(state, action) {
+  log.store(action.type, action);
+  switch (action.type) {
+
+    case 'LOAD_CONVS': {
+      // Merge server convs into store — never delete existing messages
+      const convs = { ...state.convs };
+      for (const c of action.convs) {
+        convs[c.id] = {
+          ...c,
+          messages: convs[c.id]?.messages || [],
+        };
+      }
+      return { ...state, convs };
+    }
+
+    case 'LOAD_MESSAGES': {
+      const existing = state.convs[action.convId]?.messages || [];
+      // Merge: server is authoritative but keep any optimistic messages not yet confirmed
+      const serverIds = new Set(action.messages.map(m => m.id));
+      const optimistic = existing.filter(m => m.status === 'sending' && !serverIds.has(m.id));
+      const merged = sortMessages([...action.messages, ...optimistic]);
+      return {
+        ...state,
+        convs: {
+          ...state.convs,
+          [action.convId]: {
+            ...state.convs[action.convId],
+            messages: merged,
+          },
+        },
+      };
+    }
+
+    case 'INBOUND_MESSAGE': {
+      const { conv, message } = action;
+      const existing = state.convs[conv.id];
+      const prevMsgs = existing?.messages || [];
+      // Dedup by message id
+      if (prevMsgs.some(m => m.id === message.id)) return state;
+      const messages = sortMessages([...prevMsgs, { ...message, status: 'delivered' }]);
+      const isActive = state.activeId === conv.id;
+      return {
+        ...state,
+        convs: {
+          ...state.convs,
+          [conv.id]: {
+            ...(existing || conv),
+            ...conv,
+            messages,
+            unread: isActive ? 0 : (existing?.unread || 0) + 1,
+            lastMessage: message.content || '',
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }
+
+    case 'OUTBOUND_MESSAGE': {
+      // Optimistic add before server confirms
+      const existing = state.convs[action.convId];
+      if (!existing) return state;
+      const messages = sortMessages([
+        ...existing.messages,
+        { ...action.message, status: 'sending' },
+      ]);
+      return {
+        ...state,
+        convs: {
+          ...state.convs,
+          [action.convId]: {
+            ...existing,
+            messages,
+            lastMessage: action.message.content,
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }
+
+    case 'CONFIRM_MESSAGE': {
+      // Mark optimistic message as sent
+      const existing = state.convs[action.convId];
+      if (!existing) return state;
+      return {
+        ...state,
+        convs: {
+          ...state.convs,
+          [action.convId]: {
+            ...existing,
+            messages: existing.messages.map(m =>
+              m.id === action.tempId ? { ...m, id: action.realId || m.id, status: 'sent' } : m
+            ),
+          },
+        },
+      };
+    }
+
+    case 'AI_RESULT': {
+      const existing = state.convs[action.convId];
+      if (!existing) return state;
+      const updated = {
+        ...existing,
+        intent: action.intent,
+        score:  action.score,
+      };
+      // If AI message included (auto-reply was sent), append it
+      if (action.aiMessage) {
+        if (existing.messages.some(m => m.id === action.aiMessage.id)) return { ...state, convs: { ...state.convs, [action.convId]: updated } };
+        updated.messages = sortMessages([...existing.messages, { ...action.aiMessage, status: 'sent' }]);
+        updated.lastMessage = action.aiMessage.content;
+        updated.updatedAt = Date.now();
+      }
+      return { ...state, convs: { ...state.convs, [action.convId]: updated } };
+    }
+
+    case 'SET_ACTIVE': {
+      const conv = state.convs[action.convId];
+      if (!conv) return { ...state, activeId: action.convId };
+      return {
+        ...state,
+        activeId: action.convId,
+        convs: {
+          ...state.convs,
+          [action.convId]: { ...conv, unread: 0 },
+        },
+      };
+    }
+
+    case 'CLOSE_ACTIVE':
+      return { ...state, activeId: null };
+
+    case 'MARK_READ': {
+      const conv = state.convs[action.convId];
+      if (!conv) return state;
+      return {
+        ...state,
+        convs: { ...state.convs, [action.convId]: { ...conv, unread: 0 } },
+      };
+    }
+
+    case 'UPDATE_CONV': {
+      const conv = state.convs[action.convId];
+      if (!conv) return state;
+      return {
+        ...state,
+        convs: { ...state.convs, [action.convId]: { ...conv, ...action.fields } },
+      };
+    }
+
+    case 'SET_AUTO_REPLY':
+      return { ...state, autoReply: { ...state.autoReply, [action.convId]: action.value } };
+
+    case 'SET_AI_TYPING':
+      return { ...state, aiTyping: { ...state.aiTyping, [action.convId]: action.value } };
+
+    default:
+      return state;
+  }
+}
 
 function playNotif() {
   try {
@@ -127,186 +339,183 @@ export default function ConversationsPage() {
   const [showPanel, setShow]        = useState(true);
   const [tags, setTags]             = useState({ '1': ['VIP'], '2': [] });
   const [assignedTo, setAssignedTo] = useState({});
-  const [liveConvs, setLiveConvs]   = useState(() => {
-    try { const s = typeof window !== 'undefined' ? localStorage.getItem('airos_live_convs') : null;
-      return s ? JSON.parse(s) : []; } catch { return []; }
-  });
-  const [activeLive, setActiveLive] = useState(null);
-  const [liveMsgs, setLiveMsgs]     = useState([]);
-  const [liveMsgsCache, setLiveMsgsCache] = useState(() => {
-    try { const s = typeof window !== 'undefined' ? localStorage.getItem('airos_live_msgs') : null;
-      return s ? JSON.parse(s) : {}; } catch { return {}; }
-  });
-  const [liveSuggestion, setLiveSuggestion] = useState(null);
-  const [liveReply, setLiveReply] = useState('');
-  const [liveAutoReply, setLiveAutoReply] = useState({}); // convId → boolean
-  const socketRef = useRef(null);
+  /* ── Single source of truth store ── */
+  const [store, dispatch] = useReducer(storeReducer, STORE_INIT);
+  const storeRef = useRef(store); // always-current ref for socket callbacks
+  useEffect(() => { storeRef.current = store; }, [store]);
+
+  // Persist store to localStorage (debounced)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try { localStorage.setItem('airos_conv_store', JSON.stringify(store)); } catch {}
+    }, 300);
+    return () => clearTimeout(t);
+  }, [store]);
+
+  // Derived from store
+  const liveConvs  = Object.values(store.convs).sort((a, b) => (b.updatedAt||0) - (a.updatedAt||0));
+  const activeLive = store.activeId ? store.convs[store.activeId] : null;
+  const liveMsgs   = activeLive?.messages || [];
+  const liveSuggestion = store.suggestion; // set separately below
+  const [suggestion, setSuggestion]   = useState(null); // AI suggestion for current open conv
+  const [liveReply,  setLiveReply]    = useState('');
+
+  /* Scroll ref */
   const bottomRef = useRef(null);
-  const liveAutoReplyRef = useRef({});
-  const activeLiveRef = useRef(null);
+  const msgsContainerRef = useRef(null);
 
-  // Persist liveConvs to localStorage on every change
+  /* Scroll to bottom — useLayoutEffect runs sync after DOM paint */
+  useLayoutEffect(() => {
+    const el = msgsContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [liveMsgs.length, store.activeId]);
+
+  /* Socket.io + polling */
+  const socketRef = useRef(null);
   useEffect(() => {
-    try { localStorage.setItem('airos_live_convs', JSON.stringify(liveConvs)); } catch {}
-  }, [liveConvs]);
+    /* ── Polling fallback ── */
+    let knownIds = new Set(Object.keys(store.convs));
+    let knownUnread = Object.fromEntries(Object.values(store.convs).map(c => [c.id, c.unread || 0]));
 
-  // Keep refs in sync so socket callbacks can read latest values without stale closure
-  useEffect(() => { liveAutoReplyRef.current = liveAutoReply; }, [liveAutoReply]);
-  useEffect(() => { activeLiveRef.current = activeLive; }, [activeLive]);
-
-  /* AI (demo convs) */
-  const [aiAutoReply, setAiAutoReply] = useState({});
-  const [aiThinking, setAiThinking]   = useState(false);
-  const autoReplyTimers               = useRef({});
-
-  /* -- Socket.io + live conversations -- */
-  useEffect(() => {
-    // Load existing live conversations (polling fallback)
-    let prevIds = new Set();
-    let prevUnread = {};
     function fetchConvs() {
       fetch(`${API}/api/live/conversations`)
         .then(r => r.json())
         .then(data => {
           if (!Array.isArray(data)) return;
-          setLiveConvs(data);
-          // Play sound if a new conversation appeared OR unread count increased
-          const newConv = data.some(c => !prevIds.has(c.id));
-          const moreUnread = data.some(c => (c.unread || 0) > (prevUnread[c.id] || 0));
-          if ((newConv || moreUnread) && prevIds.size > 0) playNotif();
-          prevIds = new Set(data.map(c => c.id));
-          prevUnread = Object.fromEntries(data.map(c => [c.id, c.unread || 0]));
+          log.ws('poll: received', data.length, 'convs');
+          dispatch({ type: 'LOAD_CONVS', convs: data });
+          const newConv = data.some(c => !knownIds.has(c.id));
+          const moreUnread = data.some(c => (c.unread||0) > (knownUnread[c.id]||0));
+          if ((newConv || moreUnread) && knownIds.size > 0) playNotif();
+          knownIds = new Set(data.map(c => c.id));
+          knownUnread = Object.fromEntries(data.map(c => [c.id, c.unread||0]));
         })
-        .catch(() => {});
+        .catch(e => log.error('poll failed', e));
     }
     fetchConvs();
-    // Poll every 5 seconds as fallback
     const pollTimer = setInterval(fetchConvs, 5000);
 
-    // Connect Socket.io
-    const socket = io(API, { transports: ['websocket', 'polling'] });
+    /* ── Socket.io ── */
+    const socket = io(API, {
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
+    });
     socketRef.current = socket;
 
-    socket.on('connect', () => console.log('[Socket] connected'));
+    socket.on('connect',    () => log.ws('connected', socket.id));
+    socket.on('disconnect', () => log.ws('disconnected'));
+    socket.on('connect_error', e => log.error('socket error', e.message));
 
     socket.on('whatsapp:message', ({ conversation, message }) => {
-      // Update conversation list + persist
-      setLiveConvs(prev => {
-        const exists = prev.find(c => c.id === conversation.id);
-        const updated = exists
-          ? prev.map(c => c.id === conversation.id
-              ? { ...c, lastMessage: message.content, updatedAt: Date.now(), unread: (c.unread || 0) + 1 }
-              : c)
-          : [{ ...conversation, updatedAt: Date.now() }, ...prev];
-        return updated;
-      });
-
-      // Persist message to cache
-      setLiveMsgsCache(cache => {
-        const arr = [...(cache[conversation.id] || []), message];
-        const next = { ...cache, [conversation.id]: arr };
-        try { localStorage.setItem('airos_live_msgs', JSON.stringify(next)); } catch {}
-        return next;
-      });
-
-      // Add to liveMsgs if this conversation is currently open
-      if (activeLiveRef.current?.id === conversation.id) {
-        setLiveMsgs(m => {
-          if (m.some(x => x.id === message.id)) return m; // dedup
-          return [...m, message];
-        });
-      }
-
+      log.msg('inbound', message.id, message.content?.slice(0,40));
+      dispatch({ type: 'INBOUND_MESSAGE', conv: conversation, message });
       playNotif();
-      toast(`📱 New WhatsApp from ${conversation.customerName}`, { duration: 4000 });
+      toast(`📱 ${conversation.customerName}: ${(message.content||'').slice(0,40)}`, { duration: 4000 });
     });
 
     socket.on('whatsapp:ai', ({ conversation_id, intent, lead_score, suggested_reply }) => {
-      setLiveConvs(prev => prev.map(c =>
-        c.id === conversation_id ? { ...c, intent, score: lead_score } : c
-      ));
+      log.ai('result', { conversation_id, intent, lead_score, reply: suggested_reply?.slice(0,40) });
 
-      const autoOn = liveAutoReplyRef.current[conversation_id];
-      const currentConv = activeLiveRef.current;
-      const isOpen = currentConv?.id === conversation_id;
+      // Stop AI typing indicator
+      dispatch({ type: 'SET_AI_TYPING', convId: conversation_id, value: false });
+      dispatch({ type: 'UPDATE_CONV',   convId: conversation_id, fields: { intent, score: lead_score } });
 
-      if (autoOn && suggested_reply) {
-        // Auto-send the AI reply directly
-        const phone = currentConv?.customerPhone || conversation_id.replace('whatsapp:', '');
+      const autoOn = storeRef.current.autoReply[conversation_id];
+      const isOpen = storeRef.current.activeId === conversation_id;
+      const conv   = storeRef.current.convs[conversation_id];
+
+      if (autoOn && suggested_reply && conv) {
+        log.ai('auto-reply triggered for', conversation_id);
+        const phone = conv.customerPhone || conversation_id.replace('whatsapp:', '');
+        const tempId = `ai_${Date.now()}`;
+
+        // 1. Optimistic add to store immediately
+        const aiMsg = {
+          id: tempId, direction: 'outbound', content: suggested_reply,
+          type: 'text', sent_by: 'ai', status: 'sending',
+          at: new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' }),
+          timestamp: new Date().toISOString(),
+        };
+        dispatch({ type: 'AI_RESULT', convId: conversation_id, intent, score: lead_score, aiMessage: aiMsg });
+
+        // 2. Actually send via WhatsApp API
         fetch(`${API}/api/live/send`, {
-          method:'POST', headers:{'Content-Type':'application/json'},
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone, message: suggested_reply }),
-        }).then(r => r.json()).then(d => {
-          if (d.ok) {
-            const outMsg = {
-              id: `ai_${Date.now()}`, direction:'outbound', content: suggested_reply,
-              type:'text', sent_by:'ai',
-              at: new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}),
-            };
-            if (isOpen) setLiveMsgs(m => [...m, outMsg]);
-            setLiveMsgsCache(cache => {
-              const arr = [...(cache[conversation_id]||[]), outMsg];
-              const next = {...cache, [conversation_id]: arr};
-              try { localStorage.setItem('airos_live_msgs', JSON.stringify(next)); } catch {}
-              return next;
-            });
-            setLiveConvs(prev => prev.map(c =>
-              c.id === conversation_id ? { ...c, lastMessage: suggested_reply } : c
-            ));
-            toast.success('🤖 AI auto-replied', { duration:2500 });
-          }
-        }).catch(() => {});
-      } else if (isOpen && suggested_reply) {
-        // Manual mode — show suggestion bar
-        setLiveSuggestion({ text: suggested_reply, score: lead_score, intent });
+        })
+          .then(r => r.json())
+          .then(d => {
+            if (d.ok) {
+              dispatch({ type: 'CONFIRM_MESSAGE', convId: conversation_id, tempId, realId: d.message_id || tempId });
+              log.ai('auto-reply sent ✅', d.message_id);
+              toast.success('🤖 AI replied automatically', { duration: 2500 });
+            } else {
+              log.error('auto-reply API error', d.error);
+              toast.error(`AI send failed: ${d.error}`);
+            }
+          })
+          .catch(e => {
+            log.error('auto-reply fetch failed', e.message);
+            toast.error('AI reply failed — check connection');
+          });
+      } else {
+        // Manual mode: store suggestion, show in bar
+        dispatch({ type: 'AI_RESULT', convId: conversation_id, intent, score: lead_score });
+        if (isOpen) {
+          log.ai('suggestion ready for manual review');
+          setSuggestion({ text: suggested_reply, score: lead_score, intent });
+        }
       }
     });
 
     return () => { socket.disconnect(); clearInterval(pollTimer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [liveMsgs, activeLive]);
-
-  async function openLiveConv(conv) {
-    setActiveLive(conv);
-    activeLiveRef.current = conv;
-    setLiveSuggestion(null);
+  /* Open a live conversation */
+  const openLiveConv = useCallback(async (conv) => {
+    log.msg('opening conv', conv.id);
+    dispatch({ type: 'SET_ACTIVE', convId: conv.id });
+    setSuggestion(null);
     setLiveReply('');
-    // Show cached messages immediately
-    const cached = liveMsgsCache[conv.id] || [];
-    setLiveMsgs(cached);
-    // Fetch fresh from backend, then MERGE with any messages that arrived via socket during the fetch
+
+    // Fetch fresh messages from backend
     try {
       const r = await fetch(`${API}/api/live/conversations/${encodeURIComponent(conv.id)}/messages`);
       const data = await r.json();
       if (Array.isArray(data)) {
-        // Merge: take backend data + any newer socket messages not yet in it
-        setLiveMsgs(current => {
-          const backendIds = new Set(data.map(m => m.id));
-          const socketOnly = current.filter(m => !backendIds.has(m.id));
-          const merged = [...data, ...socketOnly];
-          // Update cache with full merged list
-          setLiveMsgsCache(cache => {
-            const next = { ...cache, [conv.id]: merged };
-            try { localStorage.setItem('airos_live_msgs', JSON.stringify(next)); } catch {}
-            return next;
-          });
-          return merged;
-        });
+        log.msg('loaded', data.length, 'messages for', conv.id);
+        dispatch({ type: 'LOAD_MESSAGES', convId: conv.id, messages: data });
       }
-      fetch(`${API}/api/live/conversations/${encodeURIComponent(conv.id)}/read`, { method: 'POST' });
-      setLiveConvs(prev => prev.map(c => c.id === conv.id ? { ...c, unread: 0 } : c));
-    } catch {}
-  }
+      // Mark read on server
+      fetch(`${API}/api/live/conversations/${encodeURIComponent(conv.id)}/read`, { method: 'POST' })
+        .catch(() => {});
+      dispatch({ type: 'MARK_READ', convId: conv.id });
+    } catch (e) { log.error('load messages failed', e.message); }
+  }, []);
 
-  async function sendLiveReply(text) {
-    const conv = activeLiveRef.current;
+  /* Send a reply */
+  const sendLiveReply = useCallback(async (text) => {
+    const conv = storeRef.current.convs[storeRef.current.activeId];
     if (!text.trim() || !conv) return;
+
+    const tempId = `out_${Date.now()}`;
+    const outMsg = {
+      id: tempId, direction: 'outbound', content: text, type: 'text', sent_by: 'agent',
+      status: 'sending',
+      at: new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' }),
+      timestamp: new Date().toISOString(),
+    };
+
+    // 1. Optimistic update — message shows immediately
+    dispatch({ type: 'OUTBOUND_MESSAGE', convId: conv.id, message: outMsg });
+    setLiveReply('');
+    setSuggestion(null);
+    log.msg('sending outbound', tempId, text.slice(0,40));
+
+    // 2. Send to WhatsApp API
     try {
       const res = await fetch(`${API}/api/live/send`, {
         method: 'POST',
@@ -315,26 +524,26 @@ export default function ConversationsPage() {
       });
       const data = await res.json();
       if (data.ok) {
-        const outMsg = {
-          id: `out_${Date.now()}`,
-          direction: 'outbound', content: text, type: 'text', sent_by: 'agent',
-          at: new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' }),
-        };
-        setLiveMsgs(m => [...m, outMsg]);
-        setLiveConvs(prev => prev.map(c => c.id === conv.id ? { ...c, lastMessage: text } : c));
-        setLiveMsgsCache(cache => {
-          const arr = [...(cache[conv.id]||[]), outMsg];
-          const next = { ...cache, [conv.id]: arr };
-          try { localStorage.setItem('airos_live_msgs', JSON.stringify(next)); } catch {}
-          return next;
-        });
-        setLiveSuggestion(null);
-        setLiveReply('');
+        dispatch({ type: 'CONFIRM_MESSAGE', convId: conv.id, tempId, realId: data.message_id || tempId });
+        log.msg('sent ✅', data.message_id);
+        // 3. AI will be triggered on backend — show typing indicator
+        dispatch({ type: 'SET_AI_TYPING', convId: conv.id, value: true });
+        // Safety: clear typing after 15s if no AI response
+        setTimeout(() => dispatch({ type: 'SET_AI_TYPING', convId: conv.id, value: false }), 15000);
       } else {
+        log.error('send failed', data.error);
         toast.error(data.error || 'Failed to send');
       }
-    } catch { toast.error('Connection error'); }
-  }
+    } catch (e) {
+      log.error('send fetch error', e.message);
+      toast.error('Connection error');
+    }
+  }, []);
+
+  /* AI (demo convs) */
+  const [aiAutoReply, setAiAutoReply] = useState({});
+  const [aiThinking, setAiThinking]   = useState(false);
+  const autoReplyTimers               = useRef({});
 
   /* Canned replies */
   const [cannedReplies, setCannedReplies]     = useState(DEFAULT_CANNED);
@@ -673,158 +882,207 @@ export default function ConversationsPage() {
         {/* -- Chat area ----------------------------------------------─-- */}
         <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
 
-          {/* -- Live WhatsApp chat -- */}
-          {activeLive ? (
+          {/* ── Live WhatsApp chat ── */}
+          {activeLive ? (() => {
+            const autoOn  = store.autoReply[activeLive.id] || false;
+            const aiTyping = store.aiTyping[activeLive.id] || false;
+            const score   = activeLive.score || 0;
+            const intent  = activeLive.intent || 'inquiry';
+            return (
             <>
-              {/* Header — identical layout to demo chat */}
+              {/* Header */}
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
                 padding:'0 16px', borderBottom:'1px solid var(--b1)', flexShrink:0,
                 background:'var(--bg2)', minHeight:56, gap:8, flexWrap:'wrap' }}>
                 <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-                  <div style={{ width:34, height:34, borderRadius:'50%',
-                    background:'linear-gradient(135deg,rgba(37,211,102,0.22),rgba(16,185,129,0.18))',
-                    display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:15 }}>
+                  <div style={{ width:36, height:36, borderRadius:'50%',
+                    background:'linear-gradient(135deg,rgba(37,211,102,0.25),rgba(16,185,129,0.18))',
+                    display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:15 }}>
                     {activeLive.customerName?.[0]?.toUpperCase()}
                   </div>
                   <div>
                     <p style={{ fontWeight:700, fontSize:14, color:'var(--t1)', lineHeight:1.2 }}>{activeLive.customerName}</p>
-                    <p style={{ fontSize:12, color:'#25D366', marginTop:2 }}>📱 whatsapp</p>
+                    <p style={{ fontSize:11.5, color:'#25D366', marginTop:2 }}>📱 WhatsApp · {activeLive.customerPhone}</p>
                   </div>
                 </div>
                 <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-                  {/* Manual/AI Auto-Reply toggle */}
-                  {(() => {
-                    const autoOn = liveAutoReply[activeLive.id] || false;
-                    return (
-                      <div
-                        onClick={() => {
-                          const next = !autoOn;
-                          setLiveAutoReply(a => ({ ...a, [activeLive.id]: next }));
-                          liveAutoReplyRef.current = { ...liveAutoReplyRef.current, [activeLive.id]: next };
-                          toast(next ? '🤖 AI Auto-Reply ON' : '👤 Manual mode', { duration:2000 });
-                        }}
-                        style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 12px',
-                          borderRadius:99, cursor:'pointer',
-                          border: `1px solid ${autoOn ? 'rgba(6,182,212,0.35)' : 'var(--b1)'}`,
-                          background: autoOn ? 'rgba(6,182,212,0.08)' : 'var(--s1)' }}>
-                        <span style={{ fontSize:11.5, fontWeight:600, color: autoOn ? '#67e8f9' : 'var(--t4)' }}>
-                          {autoOn ? '🤖 AI Active' : '👤 Manual'}
-                        </span>
-                        <div className={`toggle${autoOn?' on':''}`} style={{ transform:'scale(0.8)' }} />
-                      </div>
-                    );
-                  })()}
-                  {/* Intent */}
-                  <div style={{ fontSize:11, color:IC_COLOR[activeLive.intent]||'#94a3b8',
-                    background:`${IC_COLOR[activeLive.intent]||'#94a3b8'}10`,
-                    border:`1px solid ${IC_COLOR[activeLive.intent]||'#94a3b8'}22`,
-                    padding:'4px 10px', borderRadius:99, fontWeight:600 }}>
-                    {(activeLive.intent||'inquiry').replace(/_/g,' ')}
+                  {/* AI toggle */}
+                  <div onClick={() => {
+                      const next = !autoOn;
+                      dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: next });
+                      toast(next ? '🤖 AI Auto-Reply ON — will reply automatically' : '👤 Manual mode', { duration:2500 });
+                    }}
+                    style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 12px',
+                      borderRadius:99, cursor:'pointer',
+                      border:`1px solid ${autoOn ? 'rgba(6,182,212,0.35)' : 'var(--b1)'}`,
+                      background: autoOn ? 'rgba(6,182,212,0.08)' : 'var(--s1)' }}>
+                    <span style={{ fontSize:11.5, fontWeight:600, color: autoOn ? '#67e8f9' : 'var(--t4)' }}>
+                      {autoOn ? '🤖 AI Active' : '👤 Manual'}
+                    </span>
+                    <div className={`toggle${autoOn?' on':''}`} style={{ transform:'scale(0.8)' }} />
                   </div>
+                  {/* Intent badge */}
+                  <span style={{ fontSize:10.5, fontWeight:600, padding:'3px 9px', borderRadius:99,
+                    background:`${IC_COLOR[intent]||'#64748b'}12`, color:IC_COLOR[intent]||'#64748b',
+                    border:`1px solid ${IC_COLOR[intent]||'#64748b'}20` }}>
+                    {intent.replace(/_/g,' ')}
+                  </span>
                   {/* Score */}
-                  <div style={{ fontSize:11, fontWeight:700, background:'var(--s2)',
-                    border:'1px solid var(--b1)', padding:'4px 10px', borderRadius:99,
-                    color: (activeLive.score||0)>70?'#34d399': (activeLive.score||0)>40?'#fcd34d':'#fca5a5' }}>
-                    {activeLive.score||0}
-                  </div>
-                  <button className="btn btn-ghost btn-xs" onClick={() => toast('Assign coming soon')}>Assign</button>
-                  <button className="btn btn-primary btn-xs" onClick={() => { setActiveLive(null); setLiveMsgs([]); }}>✓ Close</button>
+                  <span style={{ fontSize:11, fontWeight:700, background:'var(--s2)',
+                    border:'1px solid var(--b1)', padding:'3px 9px', borderRadius:99,
+                    color: score>70?'#34d399': score>40?'#fcd34d':'#fca5a5' }}>
+                    {score}
+                  </span>
+                  <button className="btn btn-ghost btn-xs" onClick={() => setAssignModal(true)}>Assign</button>
+                  <button className="btn btn-primary btn-xs"
+                    onClick={() => { dispatch({ type:'CLOSE_ACTIVE' }); setSuggestion(null); }}>
+                    ✓ Close
+                  </button>
                   <button onClick={() => setShow(v => !v)} className="btn btn-ghost btn-xs">{showPanel?'→':'←'}</button>
                 </div>
               </div>
 
-              {/* Messages — spacer pushes messages to bottom */}
-              <div style={{ flex:1, overflowY:'auto', padding:'20px', display:'flex',
-                flexDirection:'column', gap:12 }}>
-                {/* Spacer — pushes all messages to bottom when few msgs */}
-                <div style={{ flex:1 }} />
-                {liveMsgs.length === 0 && (
-                  <div style={{ textAlign:'center', color:'var(--t4)', fontSize:13, paddingBottom:20 }}>
+              {/* AI auto-reply active banner */}
+              {autoOn && (
+                <div style={{ background:'rgba(6,182,212,0.06)', borderBottom:'1px solid rgba(6,182,212,0.15)',
+                  padding:'6px 20px', display:'flex', alignItems:'center', justifyContent:'space-between',
+                  fontSize:12, flexShrink:0 }}>
+                  <span style={{ color:'#67e8f9', display:'flex', alignItems:'center', gap:6 }}>
+                    <span style={{ width:6, height:6, borderRadius:'50%', background:'#67e8f9',
+                      display:'inline-block', animation:'blink 1.5s infinite' }} />
+                    <strong>AI is handling this conversation</strong> — replies sent automatically
+                  </span>
+                  <button onClick={() => dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: false })}
+                    style={{ fontSize:11, color:'#fca5a5', background:'rgba(239,68,68,0.08)',
+                      border:'1px solid rgba(239,68,68,0.2)', padding:'3px 10px', borderRadius:6,
+                      cursor:'pointer', fontWeight:600 }}>
+                    ✋ Take Over
+                  </button>
+                </div>
+              )}
+
+              {/* Messages — scrollable, newest at bottom */}
+              <div ref={msgsContainerRef}
+                style={{ flex:1, overflowY:'auto', padding:'16px 20px', display:'flex',
+                  flexDirection:'column', gap:10 }}>
+                {/* Spacer to push messages down when few exist */}
+                <div style={{ flex:1, minHeight:0 }} />
+
+                {liveMsgs.length === 0 ? (
+                  <div style={{ textAlign:'center', color:'var(--t4)', fontSize:13, padding:'20px 0' }}>
                     No messages yet. Waiting for customer…
                   </div>
-                )}
-                {liveMsgs.map((m, i) => {
+                ) : liveMsgs.map((m) => {
                   const isOut = m.direction === 'outbound';
+                  const isSending = m.status === 'sending';
                   return (
-                    <div key={m.id || i} style={{ display:'flex',
+                    <div key={m.id} style={{ display:'flex',
                       justifyContent: isOut ? 'flex-end' : 'flex-start',
                       gap:8, alignItems:'flex-end' }}>
                       {!isOut && (
-                        <div style={{ width:28, height:28, borderRadius:'50%', flexShrink:0,
+                        <div style={{ width:26, height:26, borderRadius:'50%', flexShrink:0,
                           background:'rgba(37,211,102,0.18)', display:'flex', alignItems:'center',
-                          justifyContent:'center', fontWeight:700, fontSize:12, color:'#25D366' }}>
+                          justifyContent:'center', fontWeight:700, fontSize:11, color:'#25D366' }}>
                           {activeLive.customerName?.[0]?.toUpperCase()}
                         </div>
                       )}
                       <div style={{ maxWidth:'70%' }}>
-                        <div className={isOut ? 'bubble-out' : 'bubble-in'}>
+                        <div className={isOut ? 'bubble-out' : 'bubble-in'}
+                          style={{ opacity: isSending ? 0.6 : 1, transition:'opacity 0.2s' }}>
                           <span dir="auto">{m.content}</span>
                         </div>
-                        <p style={{ fontSize:10.5, color:'var(--t4)', marginTop:4,
-                          textAlign: isOut ? 'right' : 'left' }}>
-                          {m.at}
-                          {m.sent_by === 'agent' && <span style={{ marginLeft:5 }}>· Agent</span>}
-                          {m.sent_by === 'ai' && <span style={{ marginLeft:5, color:'#67e8f9' }}>🤖 AI</span>}
+                        <p style={{ fontSize:10, color:'var(--t4)', marginTop:3,
+                          textAlign: isOut ? 'right' : 'left', display:'flex',
+                          justifyContent: isOut ? 'flex-end' : 'flex-start',
+                          alignItems:'center', gap:4 }}>
+                          <span>{m.at}</span>
+                          {isOut && isSending  && <span style={{ color:'#94a3b8' }}>· sending…</span>}
+                          {isOut && !isSending && m.sent_by === 'agent' && <span>· Agent ✓</span>}
+                          {isOut && !isSending && m.sent_by === 'ai'    && <span style={{ color:'#67e8f9' }}>· 🤖 AI ✓</span>}
                         </p>
                       </div>
                     </div>
                   );
                 })}
+
+                {/* AI typing indicator */}
+                {aiTyping && (
+                  <div style={{ display:'flex', alignItems:'flex-end', gap:8 }}>
+                    <div style={{ width:26, height:26, borderRadius:'50%', flexShrink:0,
+                      background:'rgba(6,182,212,0.15)', display:'flex', alignItems:'center',
+                      justifyContent:'center', fontSize:12 }}>🤖</div>
+                    <div style={{ padding:'10px 14px', borderRadius:'14px 14px 14px 4px',
+                      background:'rgba(6,182,212,0.08)', border:'1px solid rgba(6,182,212,0.2)',
+                      display:'flex', alignItems:'center', gap:6 }}>
+                      <span style={{ color:'#67e8f9', fontSize:12, fontWeight:600 }}>AI is typing</span>
+                      <span style={{ letterSpacing:3, color:'#67e8f9', fontSize:16, animation:'blink 1s infinite' }}>···</span>
+                    </div>
+                  </div>
+                )}
                 <div ref={bottomRef} />
               </div>
 
-              {/* AI suggestion bar */}
-              <div style={{ margin:'0 16px 8px', background:'rgba(6,182,212,0.05)',
-                border:'1px solid rgba(6,182,212,0.18)', borderRadius:12, padding:'10px 14px' }}>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                    <span style={{ fontSize:12, fontWeight:700, color:'#67e8f9' }}>🤖 AI Suggestion</span>
-                    {liveSuggestion && <span style={{ fontSize:11, color:'var(--t4)' }}>{liveSuggestion.score}% confident</span>}
+              {/* AI suggestion bar — only in manual mode */}
+              {!autoOn && (
+                <div style={{ margin:'0 16px 8px', background:'rgba(6,182,212,0.04)',
+                  border:`1px solid ${suggestion ? 'rgba(6,182,212,0.3)' : 'rgba(6,182,212,0.12)'}`,
+                  borderRadius:10, padding:'10px 14px', transition:'border-color 0.2s' }}>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: suggestion ? 8 : 0 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <span style={{ fontSize:12, fontWeight:700, color:'#67e8f9' }}>🤖 AI Suggestion</span>
+                      {suggestion && <span style={{ fontSize:11, color:'var(--t4)',
+                        background:'rgba(6,182,212,0.1)', padding:'1px 7px', borderRadius:99 }}>
+                        {suggestion.score}% confident
+                      </span>}
+                    </div>
+                    {suggestion && (
+                      <div style={{ display:'flex', gap:6 }}>
+                        <button onClick={() => { setLiveReply(suggestion.text); setSuggestion(null); }}
+                          style={{ fontSize:11, fontWeight:600, padding:'3px 10px', borderRadius:7, cursor:'pointer',
+                            background:'rgba(6,182,212,0.15)', color:'#67e8f9', border:'1px solid rgba(6,182,212,0.3)' }}>
+                          Use ↑
+                        </button>
+                        <button onClick={() => { sendLiveReply(suggestion.text); setSuggestion(null); }}
+                          style={{ fontSize:11, padding:'3px 10px', borderRadius:7, cursor:'pointer',
+                            background:'#6366f1', color:'#fff', border:'none', fontWeight:600 }}>
+                          Send Now ↑
+                        </button>
+                        <button onClick={() => setSuggestion(null)}
+                          style={{ fontSize:12, padding:'3px 7px', borderRadius:7, cursor:'pointer',
+                            background:'transparent', color:'var(--t4)', border:'1px solid var(--b1)' }}>✕</button>
+                      </div>
+                    )}
                   </div>
-                  <div style={{ display:'flex', gap:6 }}>
-                    <button
-                      disabled={!liveSuggestion}
-                      onClick={() => { if (liveSuggestion) { setLiveReply(liveSuggestion.text); setLiveSuggestion(null); } }}
-                      style={{ fontSize:11, fontWeight:600, padding:'3px 10px', borderRadius:7, cursor:'pointer',
-                        background:'rgba(6,182,212,0.15)', color:'#67e8f9', border:'1px solid rgba(6,182,212,0.25)',
-                        opacity: liveSuggestion ? 1 : 0.4 }}>
-                      Use ↑
-                    </button>
-                    <button
-                      disabled={!liveSuggestion}
-                      onClick={() => { if (liveSuggestion) sendLiveReply(liveSuggestion.text); }}
-                      style={{ fontSize:11, padding:'3px 9px', borderRadius:7, cursor:'pointer',
-                        background:'rgba(99,102,241,0.1)', color:'#a5b4fc', border:'1px solid rgba(99,102,241,0.2)',
-                        fontWeight:600, opacity: liveSuggestion ? 1 : 0.4 }}>
-                      ▶ Simulate Msg
-                    </button>
-                  </div>
+                  {suggestion ? (
+                    <p style={{ fontSize:13, color:'var(--t1)', lineHeight:1.6 }} dir="auto">{suggestion.text}</p>
+                  ) : (
+                    <p style={{ fontSize:12, color:'var(--t4)', fontStyle:'italic' }}>
+                      {aiTyping ? 'AI is generating a suggestion…' : 'Waiting for customer message…'}
+                    </p>
+                  )}
                 </div>
-                <p style={{ fontSize:13, color:'var(--t2)', lineHeight:1.55 }} dir="auto">
-                  {liveSuggestion ? liveSuggestion.text : 'Waiting for AI suggestion…'}
-                </p>
-              </div>
+              )}
 
-              {/* Reply area — same toolbar + textarea as demo */}
-              <div style={{ padding:'0 16px 16px' }} data-canned-area="">
+              {/* Reply toolbar + textarea */}
+              <div style={{ padding:'0 16px 14px' }} data-canned-area="">
                 {/* Canned picker */}
                 {showCannedPicker && (
                   <div style={{ background:'var(--bg3)', border:'1px solid var(--b1)', borderRadius:12,
                     marginBottom:8, overflow:'hidden', boxShadow:'0 8px 32px rgba(0,0,0,0.4)' }}>
-                    <div style={{ padding:'10px 12px', borderBottom:'1px solid var(--b1)',
+                    <div style={{ padding:'9px 12px', borderBottom:'1px solid var(--b1)',
                       display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                       <span style={{ fontSize:12, fontWeight:700, color:'var(--t2)' }}>
                         💬 Canned Replies
-                        <span style={{ fontSize:11, color:'var(--t4)', marginLeft:6 }}>type to filter · click to insert</span>
+                        <span style={{ fontSize:11, color:'var(--t4)', marginLeft:6 }}>click to insert</span>
                       </span>
                       <button onClick={() => setShowCannedPicker(false)}
-                        style={{ fontSize:13, padding:'3px 8px', borderRadius:7, cursor:'pointer',
+                        style={{ fontSize:13, padding:'2px 7px', borderRadius:6, cursor:'pointer',
                           background:'transparent', color:'var(--t4)', border:'none' }}>✕</button>
                     </div>
                     <div style={{ maxHeight:200, overflowY:'auto' }}>
                       {filteredCanned.map(c => (
-                        <button key={c.id} onClick={() => { setLiveReply(c.text); setShowCannedPicker(false); }}
-                          style={{ width:'100%', padding:'10px 14px', textAlign:'left', cursor:'pointer',
+                        <button key={c.id} onClick={() => { setLiveReply(c.text); setShowCannedPicker(false); setCannedSearch(''); }}
+                          style={{ width:'100%', padding:'9px 14px', textAlign:'left', cursor:'pointer',
                             background:'transparent', border:'none', borderBottom:'1px solid rgba(255,255,255,0.04)',
                             display:'flex', alignItems:'flex-start', gap:10 }}
                           onMouseEnter={e => e.currentTarget.style.background='var(--s1)'}
@@ -832,7 +1090,7 @@ export default function ConversationsPage() {
                           <span style={{ fontSize:11, fontFamily:'monospace', color:'#818cf8',
                             background:'rgba(99,102,241,0.1)', padding:'2px 6px', borderRadius:5, flexShrink:0 }}>{c.shortcut}</span>
                           <div style={{ flex:1, minWidth:0 }}>
-                            <p style={{ fontSize:12.5, fontWeight:600, color:'var(--t1)', marginBottom:2 }}>{c.title}</p>
+                            <p style={{ fontSize:12.5, fontWeight:600, color:'var(--t1)', marginBottom:1 }}>{c.title}</p>
                             <p style={{ fontSize:12, color:'var(--t3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} dir="auto">{c.text}</p>
                           </div>
                         </button>
@@ -841,57 +1099,55 @@ export default function ConversationsPage() {
                   </div>
                 )}
                 {/* Toolbar */}
-                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
-                  <button title="Attach file" onClick={() => fileInputRef.current?.click()}
-                    style={{ padding:'5px 9px', borderRadius:8, cursor:'pointer', fontSize:16,
-                      background:'var(--s1)', border:'1px solid var(--b1)', color:'var(--t3)', lineHeight:1 }}
-                    onMouseEnter={e => { e.currentTarget.style.background='var(--s2)'; e.currentTarget.style.color='var(--t1)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background='var(--s1)'; e.currentTarget.style.color='var(--t3)'; }}>
-                    📎
-                  </button>
-                  <button title="Send image" onClick={() => imageInputRef.current?.click()}
-                    style={{ padding:'5px 9px', borderRadius:8, cursor:'pointer', fontSize:16,
-                      background:'var(--s1)', border:'1px solid var(--b1)', color:'var(--t3)', lineHeight:1 }}
-                    onMouseEnter={e => { e.currentTarget.style.background='var(--s2)'; e.currentTarget.style.color='var(--t1)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background='var(--s1)'; e.currentTarget.style.color='var(--t3)'; }}>
-                    🖼
-                  </button>
-                  <button title="Canned replies" onClick={() => { setShowCannedPicker(v => !v); setCannedSearch(''); }}
-                    style={{ padding:'5px 10px', borderRadius:8, cursor:'pointer', fontSize:12, fontWeight:600,
+                <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:6 }}>
+                  <button title="Attach" onClick={() => fileInputRef.current?.click()}
+                    style={{ padding:'5px 9px', borderRadius:7, cursor:'pointer', fontSize:15,
+                      background:'var(--s1)', border:'1px solid var(--b1)', color:'var(--t4)' }}>📎</button>
+                  <button title="Image" onClick={() => imageInputRef.current?.click()}
+                    style={{ padding:'5px 9px', borderRadius:7, cursor:'pointer', fontSize:15,
+                      background:'var(--s1)', border:'1px solid var(--b1)', color:'var(--t4)' }}>🖼</button>
+                  <button onClick={() => { setShowCannedPicker(v => !v); setCannedSearch(''); }}
+                    style={{ padding:'4px 10px', borderRadius:7, cursor:'pointer', fontSize:12, fontWeight:600,
                       background: showCannedPicker ? 'rgba(99,102,241,0.15)' : 'var(--s1)',
                       border: showCannedPicker ? '1px solid rgba(99,102,241,0.35)' : '1px solid var(--b1)',
-                      color: showCannedPicker ? '#a5b4fc' : 'var(--t3)', lineHeight:1,
-                      display:'flex', alignItems:'center', gap:5 }}>
-                    💬 <span>Canned</span>
+                      color: showCannedPicker ? '#a5b4fc' : 'var(--t4)',
+                      display:'flex', alignItems:'center', gap:4 }}>
+                    💬 Canned
                   </button>
-                  <span style={{ fontSize:11, color:'var(--t4)', marginLeft:2 }}>Type / to search canned · Ctrl+Enter to send</span>
+                  <span style={{ fontSize:11, color:'var(--t4)', marginLeft:4 }}>Ctrl+Enter to send</span>
                 </div>
-                {/* Textarea + send */}
-                <div style={{ display:'flex', gap:10, alignItems:'flex-end' }}>
-                  <textarea className="input" style={{ flex:1, resize:'none', fontSize:13.5,
-                    minHeight:52, maxHeight:120, lineHeight:1.55 }}
-                    placeholder="Type a reply…"
+                <div style={{ display:'flex', gap:8, alignItems:'flex-end' }}>
+                  <textarea className="input"
+                    style={{ flex:1, resize:'none', fontSize:13.5, minHeight:50, maxHeight:120, lineHeight:1.55 }}
+                    placeholder={autoOn ? 'AI is handling — click "Take Over" to reply manually' : 'Type a reply…'}
+                    disabled={autoOn}
                     value={liveReply}
                     onChange={e => {
                       const val = e.target.value;
                       setLiveReply(val);
                       if (val.startsWith('/')) { setShowCannedPicker(true); setCannedSearch(val.slice(1)); }
-                      else if (showCannedPicker && !val.startsWith('/')) setShowCannedPicker(false);
+                      else if (showCannedPicker) setShowCannedPicker(false);
                     }}
-                    onKeyDown={e => { if (e.key==='Enter' && e.ctrlKey) { e.preventDefault(); sendLiveReply(liveReply); setLiveReply(''); }}}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && e.ctrlKey) {
+                        e.preventDefault();
+                        if (liveReply.trim()) sendLiveReply(liveReply);
+                      }
+                    }}
                     rows={2} dir="auto"
                   />
                   <button
-                    disabled={!liveReply.trim()}
-                    onClick={() => { sendLiveReply(liveReply); setLiveReply(''); }}
+                    disabled={!liveReply.trim() || autoOn}
+                    onClick={() => { if (liveReply.trim()) sendLiveReply(liveReply); }}
                     className="btn btn-primary"
-                    style={{ padding:'13px 20px', flexShrink:0 }}>
+                    style={{ padding:'12px 20px', flexShrink:0 }}>
                     Send ↑
                   </button>
                 </div>
               </div>
             </>
-          ) : active ? (
+            );
+          })() : active ? (
             <>
               {/* Chat header */}
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
@@ -1163,7 +1419,7 @@ export default function ConversationsPage() {
           const panelScore  = isLive ? (activeLive.score||0) : active.score;
           const panelIntent = isLive ? (activeLive.intent||'inquiry') : active.intent;
           const panelAgent  = isLive ? 'Unassigned' : currentAgent;
-          const panelAuto   = isLive ? (liveAutoReply[activeLive?.id] || false) : isAutoOn;
+          const panelAuto   = isLive ? (store.autoReply[activeLive?.id] || false) : isAutoOn;
           const panelTags   = isLive ? [] : activeTags;
           return (
             <div style={{ width:230, flexShrink:0, borderLeft:'1px solid var(--b1)',
@@ -1220,8 +1476,7 @@ export default function ConversationsPage() {
                     onClick={() => {
                       if (isLive) {
                         const next = !panelAuto;
-                        setLiveAutoReply(a => ({ ...a, [activeLive.id]: next }));
-                        liveAutoReplyRef.current = { ...liveAutoReplyRef.current, [activeLive.id]: next };
+                        dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: next });
                         toast(next ? '🤖 AI Auto-Reply ON' : '👤 Manual mode', { duration:2000 });
                       } else toggleAutoReply();
                     }} />
