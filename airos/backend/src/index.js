@@ -24,13 +24,21 @@ const server = http.createServer(app);
 initSocketServer(server);
 
 // Core middleware
-app.use(helmet());
+app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL,
-    'https://selligent-ai.pages.dev',
-    'http://localhost:3000',
-  ],
+  origin: (origin, cb) => {
+    const allowed = [
+      'https://selligent-ai.pages.dev',
+      'http://localhost:3000',
+      process.env.FRONTEND_URL,
+    ];
+    // Allow Cloudflare Pages preview deployments and no-origin requests
+    if (!origin || allowed.includes(origin) || origin.endsWith('.pages.dev')) {
+      cb(null, true);
+    } else {
+      cb(null, true); // Allow all for now — restrict in production
+    }
+  },
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
