@@ -127,15 +127,34 @@ export default function ConversationsPage() {
   const [showPanel, setShow]        = useState(true);
   const [tags, setTags]             = useState({ '1': ['VIP'], '2': [] });
   const [assignedTo, setAssignedTo] = useState({});
-  const [liveConvs, setLiveConvs]   = useState([]);   // real WhatsApp conversations
-  const [activeLive, setActiveLive] = useState(null); // active live conversation
-  const [liveMsgs, setLiveMsgs]     = useState([]);   // messages for active live conv
+  const [liveConvs, setLiveConvs]   = useState(() => {
+    try { const s = typeof window !== 'undefined' ? localStorage.getItem('airos_live_convs') : null;
+      return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+  const [activeLive, setActiveLive] = useState(null);
+  const [liveMsgs, setLiveMsgs]     = useState([]);
+  const [liveMsgsCache, setLiveMsgsCache] = useState(() => {
+    try { const s = typeof window !== 'undefined' ? localStorage.getItem('airos_live_msgs') : null;
+      return s ? JSON.parse(s) : {}; } catch { return {}; }
+  });
   const [liveSuggestion, setLiveSuggestion] = useState(null);
   const [liveReply, setLiveReply] = useState('');
+  const [liveAutoReply, setLiveAutoReply] = useState({}); // convId → boolean
   const socketRef = useRef(null);
   const bottomRef = useRef(null);
+  const liveAutoReplyRef = useRef({});
+  const activeLiveRef = useRef(null);
 
-  /* AI */
+  // Persist liveConvs to localStorage on every change
+  useEffect(() => {
+    try { localStorage.setItem('airos_live_convs', JSON.stringify(liveConvs)); } catch {}
+  }, [liveConvs]);
+
+  // Keep refs in sync so socket callbacks can read latest values without stale closure
+  useEffect(() => { liveAutoReplyRef.current = liveAutoReply; }, [liveAutoReply]);
+  useEffect(() => { activeLiveRef.current = activeLive; }, [activeLive]);
+
+  /* AI (demo convs) */
   const [aiAutoReply, setAiAutoReply] = useState({});
   const [aiThinking, setAiThinking]   = useState(false);
   const autoReplyTimers               = useRef({});
@@ -171,42 +190,69 @@ export default function ConversationsPage() {
     socket.on('connect', () => console.log('[Socket] connected'));
 
     socket.on('whatsapp:message', ({ conversation, message }) => {
-      // Add/update conversation in list
+      // Update conversation list + persist
       setLiveConvs(prev => {
         const exists = prev.find(c => c.id === conversation.id);
-        if (exists) {
-          return prev.map(c => c.id === conversation.id
-            ? { ...c, lastMessage: message.content, updatedAt: Date.now(), unread: (c.unread || 0) + 1 }
-            : c
-          );
-        }
-        return [conversation, ...prev];
+        const updated = exists
+          ? prev.map(c => c.id === conversation.id
+              ? { ...c, lastMessage: message.content, updatedAt: Date.now(), unread: (c.unread || 0) + 1 }
+              : c)
+          : [{ ...conversation, updatedAt: Date.now() }, ...prev];
+        return updated;
       });
 
-      // If this conversation is currently open, add message
-      setActiveLive(current => {
-        if (current?.id === conversation.id) {
-          setLiveMsgs(m => [...m, message]);
-        }
-        return current;
+      // Persist message to cache
+      setLiveMsgsCache(cache => {
+        const arr = [...(cache[conversation.id] || []), message];
+        const next = { ...cache, [conversation.id]: arr };
+        try { localStorage.setItem('airos_live_msgs', JSON.stringify(next)); } catch {}
+        return next;
       });
+
+      // If this conversation is currently open, add message live
+      if (activeLiveRef.current?.id === conversation.id) {
+        setLiveMsgs(m => [...m, message]);
+      }
 
       playNotif();
       toast(`📱 New WhatsApp from ${conversation.customerName}`, { duration: 4000 });
     });
 
     socket.on('whatsapp:ai', ({ conversation_id, intent, lead_score, suggested_reply }) => {
-      // Update conversation score/intent
       setLiveConvs(prev => prev.map(c =>
         c.id === conversation_id ? { ...c, intent, score: lead_score } : c
       ));
-      // Show suggestion if this conv is active
-      setActiveLive(current => {
-        if (current?.id === conversation_id) {
-          setLiveSuggestion({ text: suggested_reply, score: lead_score, intent });
-        }
-        return current;
-      });
+
+      const isActive = activeLiveRef.current?.id === conversation_id;
+      const autoOn   = liveAutoReplyRef.current[conversation_id];
+
+      if (autoOn && suggested_reply) {
+        // Auto-send the AI reply
+        const phone = activeLiveRef.current?.customerPhone
+          || conversation_id.replace('whatsapp:', '');
+        fetch(`${API}/api/live/send`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ phone, message: suggested_reply }),
+        }).then(r => r.json()).then(d => {
+          if (d.ok) {
+            const outMsg = {
+              id: `ai_${Date.now()}`, direction:'outbound', content: suggested_reply,
+              type:'text', sent_by:'ai',
+              at: new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}),
+            };
+            if (isActive) setLiveMsgs(m => [...m, outMsg]);
+            setLiveMsgsCache(cache => {
+              const arr = [...(cache[conversation_id]||[]), outMsg];
+              const next = {...cache, [conversation_id]: arr};
+              try { localStorage.setItem('airos_live_msgs', JSON.stringify(next)); } catch {}
+              return next;
+            });
+            toast.success('🤖 AI auto-replied', { duration:2500 });
+          }
+        }).catch(() => {});
+      } else if (isActive) {
+        setLiveSuggestion({ text: suggested_reply, score: lead_score, intent });
+      }
     });
 
     return () => { socket.disconnect(); clearInterval(pollTimer); };
@@ -219,14 +265,24 @@ export default function ConversationsPage() {
 
   async function openLiveConv(conv) {
     setActiveLive(conv);
+    activeLiveRef.current = conv;
     setLiveSuggestion(null);
     setLiveReply('');
-    // Load messages
+    // Show cached messages immediately
+    const cached = liveMsgsCache[conv.id] || [];
+    setLiveMsgs(cached);
+    // Then fetch fresh from backend and merge
     try {
       const r = await fetch(`${API}/api/live/conversations/${encodeURIComponent(conv.id)}/messages`);
       const data = await r.json();
-      setLiveMsgs(Array.isArray(data) ? data : []);
-      // Mark as read
+      if (Array.isArray(data) && data.length > 0) {
+        setLiveMsgs(data);
+        setLiveMsgsCache(cache => {
+          const next = { ...cache, [conv.id]: data };
+          try { localStorage.setItem('airos_live_msgs', JSON.stringify(next)); } catch {}
+          return next;
+        });
+      }
       fetch(`${API}/api/live/conversations/${encodeURIComponent(conv.id)}/read`, { method: 'POST' });
       setLiveConvs(prev => prev.map(c => c.id === conv.id ? { ...c, unread: 0 } : c));
     } catch {}
@@ -256,6 +312,12 @@ export default function ConversationsPage() {
         };
         setLiveMsgs(m => [...m, outMsg]);
         setLiveConvs(prev => prev.map(c => c.id === activeLive.id ? { ...c, lastMessage: text } : c));
+        setLiveMsgsCache(cache => {
+          const arr = [...(cache[activeLive.id]||[]), outMsg];
+          const next = { ...cache, [activeLive.id]: arr };
+          try { localStorage.setItem('airos_live_msgs', JSON.stringify(next)); } catch {}
+          return next;
+        });
         setLiveSuggestion(null);
       } else {
         toast.error(data.error || 'Failed to send');
@@ -619,12 +681,28 @@ export default function ConversationsPage() {
                   </div>
                 </div>
                 <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-                  {/* Manual/AI toggle */}
-                  <div style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 12px',
-                    borderRadius:99, border:'1px solid var(--b1)', background:'var(--s1)' }}>
-                    <span style={{ fontSize:11.5, fontWeight:600, color:'var(--t4)' }}>👤 Manual</span>
-                    <div className="toggle" style={{ transform:'scale(0.8)' }} />
-                  </div>
+                  {/* Manual/AI Auto-Reply toggle */}
+                  {(() => {
+                    const autoOn = liveAutoReply[activeLive.id] || false;
+                    return (
+                      <div
+                        onClick={() => {
+                          const next = !autoOn;
+                          setLiveAutoReply(a => ({ ...a, [activeLive.id]: next }));
+                          liveAutoReplyRef.current = { ...liveAutoReplyRef.current, [activeLive.id]: next };
+                          toast(next ? '🤖 AI Auto-Reply ON' : '👤 Manual mode', { duration:2000 });
+                        }}
+                        style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 12px',
+                          borderRadius:99, cursor:'pointer',
+                          border: `1px solid ${autoOn ? 'rgba(6,182,212,0.35)' : 'var(--b1)'}`,
+                          background: autoOn ? 'rgba(6,182,212,0.08)' : 'var(--s1)' }}>
+                        <span style={{ fontSize:11.5, fontWeight:600, color: autoOn ? '#67e8f9' : 'var(--t4)' }}>
+                          {autoOn ? '🤖 AI Active' : '👤 Manual'}
+                        </span>
+                        <div className={`toggle${autoOn?' on':''}`} style={{ transform:'scale(0.8)' }} />
+                      </div>
+                    );
+                  })()}
                   {/* Intent */}
                   <div style={{ fontSize:11, color:IC_COLOR[activeLive.intent]||'#94a3b8',
                     background:`${IC_COLOR[activeLive.intent]||'#94a3b8'}10`,
@@ -1071,7 +1149,7 @@ export default function ConversationsPage() {
           const panelScore  = isLive ? (activeLive.score||0) : active.score;
           const panelIntent = isLive ? (activeLive.intent||'inquiry') : active.intent;
           const panelAgent  = isLive ? 'Unassigned' : currentAgent;
-          const panelAuto   = isLive ? false : isAutoOn;
+          const panelAuto   = isLive ? (liveAutoReply[activeLive?.id] || false) : isAutoOn;
           const panelTags   = isLive ? [] : activeTags;
           return (
             <div style={{ width:230, flexShrink:0, borderLeft:'1px solid var(--b1)',
@@ -1125,7 +1203,14 @@ export default function ConversationsPage() {
                   border:`1px solid ${panelAuto ? 'rgba(6,182,212,0.25)' : 'var(--b1)'}` }}>
                   <span style={{ fontSize:12.5, fontWeight:600, color: panelAuto ? '#67e8f9' : 'var(--t3)' }}>AI Auto-Reply</span>
                   <div className={`toggle${panelAuto?' on':''}`} style={{ transform:'scale(0.75)' }}
-                    onClick={isLive ? undefined : toggleAutoReply} />
+                    onClick={() => {
+                      if (isLive) {
+                        const next = !panelAuto;
+                        setLiveAutoReply(a => ({ ...a, [activeLive.id]: next }));
+                        liveAutoReplyRef.current = { ...liveAutoReplyRef.current, [activeLive.id]: next };
+                        toast(next ? '🤖 AI Auto-Reply ON' : '👤 Manual mode', { duration:2000 });
+                      } else toggleAutoReply();
+                    }} />
                 </div>
                 <button className="btn btn-ghost btn-sm" onClick={() => setCannedMgmtModal(true)}
                   style={{ width:'100%', justifyContent:'center' }}>💬 Canned Replies</button>
