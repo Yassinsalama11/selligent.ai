@@ -315,7 +315,7 @@ Respond ONLY with valid JSON:
             { role: 'user',   content: userPrompt },
           ],
           temperature: cfg.temperature ?? 0.4,
-          max_tokens:  cfg.maxTokens  || 300,
+          max_tokens:  Math.min(cfg.maxTokens || 300, 4096),
           response_format: { type: 'json_object' },
         }),
       });
@@ -337,7 +337,7 @@ Respond ONLY with valid JSON:
         },
         body: JSON.stringify({
           model: cfg.model || 'claude-haiku-4-5-20251001',
-          max_tokens: cfg.maxTokens || 300,
+          max_tokens: Math.min(cfg.maxTokens || 300, 4096),
           system: cfg.systemPrompt || 'You are a helpful assistant. Reply in JSON only.',
           messages: [{ role: 'user', content: userPrompt }],
         }),
@@ -358,7 +358,7 @@ Respond ONLY with valid JSON:
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: userPrompt }] }],
-            generationConfig: { temperature: cfg.temperature ?? 0.4, maxOutputTokens: cfg.maxTokens || 300 },
+            generationConfig: { temperature: cfg.temperature ?? 0.4, maxOutputTokens: Math.min(cfg.maxTokens || 300, 4096) },
           }),
         }
       );
@@ -384,7 +384,7 @@ Respond ONLY with valid JSON:
             { role: 'user',   content: userPrompt },
           ],
           temperature: cfg.temperature ?? 0.4,
-          max_tokens:  cfg.maxTokens || 300,
+          max_tokens:  Math.min(cfg.maxTokens || 300, 4096),
           response_format: { type: 'json_object' },
         }),
       });
