@@ -62,6 +62,60 @@ app.use('/api/scan', scanRoutes);
 const onboardingRoutes = require('./api/onboarding');
 app.use('/api/onboarding', onboardingRoutes);
 
+// Live conversations (in-memory store — public for now)
+const { getAllConversations, getMessages, markRead } = require('./core/inMemoryStore');
+app.get('/api/live/conversations', (req, res) => {
+  res.json(getAllConversations());
+});
+app.get('/api/live/conversations/:id/messages', (req, res) => {
+  const msgs = getMessages(decodeURIComponent(req.params.id));
+  res.json(msgs);
+});
+app.post('/api/live/conversations/:id/read', (req, res) => {
+  markRead(decodeURIComponent(req.params.id));
+  res.json({ ok: true });
+});
+
+// Send WhatsApp message
+app.post('/api/live/send', async (req, res) => {
+  const { phone, message } = req.body;
+  if (!phone || !message) return res.status(400).json({ error: 'phone and message required' });
+  try {
+    const r = await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: phone,
+        type: 'text',
+        text: { body: message },
+      }),
+    });
+    const data = await r.json();
+    if (data.error) return res.status(400).json({ error: data.error.message });
+
+    // Save outbound message to store
+    const { getOrCreateConversation, addMessage } = require('./core/inMemoryStore');
+    const conv = getOrCreateConversation(phone, phone, 'whatsapp');
+    addMessage(conv.id, {
+      id: `out_${Date.now()}`,
+      direction: 'outbound',
+      content: message,
+      type: 'text',
+      sent_by: 'agent',
+      at: new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' }),
+      timestamp: new Date().toISOString(),
+    });
+
+    res.json({ ok: true, message_id: data.messages?.[0]?.id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Webhook routes (public — Meta verifies these)
 app.use('/webhooks', require('./channels/whatsapp/webhook'));
 app.use('/webhooks', require('./channels/instagram/webhook'));

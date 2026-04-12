@@ -2,8 +2,11 @@
 import { useState, useRef, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
+import { io } from 'socket.io-client';
 
-/* ── Static data ──────────────────────────────────────────────────────────── */
+const API = process.env.NEXT_PUBLIC_API_URL || 'https://selligentai-production.up.railway.app';
+
+/* -- Static data ------------------------------------------------------------ */
 const CONVS = [
   { id:'1', name:'Ahmed Mohamed', ch:'whatsapp',  last:'عايز أطلب اتنين',      ago:'2m',  score:91, intent:'ready_to_buy',   unread:2 },
   { id:'2', name:'Sara Khalil',   ch:'instagram', last:'Is this in red?',        ago:'8m',  score:62, intent:'interested',      unread:0 },
@@ -58,7 +61,7 @@ const AUTO_REPLIES = {
   default: 'شكراً على تواصلك! سأرد عليك في أقرب وقت 🙏',
 };
 
-/* ── Message renderer ─────────────────────────────────────────────────────── */
+/* -- Message renderer ----------------------------------------------------─-- */
 function MsgContent({ m }) {
   if (m.type === 'image') {
     return (
@@ -94,7 +97,7 @@ function MsgContent({ m }) {
   return <span dir="auto">{m.text}</span>;
 }
 
-/* ── Page ─────────────────────────────────────────────────────────────────── */
+/* -- Page ----------------------------------------------------------------─-- */
 export default function ConversationsPage() {
   const [convs, setConvs]           = useState(CONVS);
   const [active, setActive]         = useState(CONVS[0]);
@@ -105,11 +108,122 @@ export default function ConversationsPage() {
   const [showPanel, setShow]        = useState(true);
   const [tags, setTags]             = useState({ '1': ['VIP'], '2': [] });
   const [assignedTo, setAssignedTo] = useState({});
+  const [liveConvs, setLiveConvs]   = useState([]);   // real WhatsApp conversations
+  const [activeLive, setActiveLive] = useState(null); // active live conversation
+  const [liveMsgs, setLiveMsgs]     = useState([]);   // messages for active live conv
+  const [liveSuggestion, setLiveSuggestion] = useState(null);
+  const socketRef = useRef(null);
+  const bottomRef = useRef(null);
 
   /* AI */
   const [aiAutoReply, setAiAutoReply] = useState({});
   const [aiThinking, setAiThinking]   = useState(false);
   const autoReplyTimers               = useRef({});
+
+  /* -- Socket.io + live conversations -- */
+  useEffect(() => {
+    // Load existing live conversations
+    fetch(`${API}/api/live/conversations`)
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setLiveConvs(data); })
+      .catch(() => {});
+
+    // Connect Socket.io
+    const socket = io(API, { transports: ['websocket', 'polling'] });
+    socketRef.current = socket;
+
+    socket.on('connect', () => console.log('[Socket] connected'));
+
+    socket.on('whatsapp:message', ({ conversation, message }) => {
+      // Add/update conversation in list
+      setLiveConvs(prev => {
+        const exists = prev.find(c => c.id === conversation.id);
+        if (exists) {
+          return prev.map(c => c.id === conversation.id
+            ? { ...c, lastMessage: message.content, updatedAt: Date.now(), unread: (c.unread || 0) + 1 }
+            : c
+          );
+        }
+        return [conversation, ...prev];
+      });
+
+      // If this conversation is currently open, add message
+      setActiveLive(current => {
+        if (current?.id === conversation.id) {
+          setLiveMsgs(m => [...m, message]);
+        }
+        return current;
+      });
+
+      toast(`📱 New WhatsApp from ${conversation.customerName}`, { duration: 4000 });
+    });
+
+    socket.on('whatsapp:ai', ({ conversation_id, intent, lead_score, suggested_reply }) => {
+      // Update conversation score/intent
+      setLiveConvs(prev => prev.map(c =>
+        c.id === conversation_id ? { ...c, intent, score: lead_score } : c
+      ));
+      // Show suggestion if this conv is active
+      setActiveLive(current => {
+        if (current?.id === conversation_id) {
+          setLiveSuggestion({ text: suggested_reply, score: lead_score, intent });
+        }
+        return current;
+      });
+    });
+
+    return () => socket.disconnect();
+  }, []);
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [liveMsgs]);
+
+  async function openLiveConv(conv) {
+    setActiveLive(conv);
+    setLiveSuggestion(null);
+    // Load messages
+    try {
+      const r = await fetch(`${API}/api/live/conversations/${encodeURIComponent(conv.id)}/messages`);
+      const data = await r.json();
+      setLiveMsgs(Array.isArray(data) ? data : []);
+      // Mark as read
+      fetch(`${API}/api/live/conversations/${encodeURIComponent(conv.id)}/read`, { method: 'POST' });
+      setLiveConvs(prev => prev.map(c => c.id === conv.id ? { ...c, unread: 0 } : c));
+    } catch {}
+  }
+
+  async function sendLiveReply(text) {
+    if (!text.trim() || !activeLive) return;
+    // Send via WhatsApp API
+    try {
+      const res = await fetch(`${API}/api/live/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: activeLive.customerPhone,
+          message: text,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        const outMsg = {
+          id: `out_${Date.now()}`,
+          direction: 'outbound',
+          content: text,
+          type: 'text',
+          sent_by: 'agent',
+          at: new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' }),
+        };
+        setLiveMsgs(m => [...m, outMsg]);
+        setLiveConvs(prev => prev.map(c => c.id === activeLive.id ? { ...c, lastMessage: text } : c));
+        setLiveSuggestion(null);
+      } else {
+        toast.error(data.error || 'Failed to send');
+      }
+    } catch { toast.error('Connection error'); }
+  }
 
   /* Canned replies */
   const [cannedReplies, setCannedReplies]     = useState(DEFAULT_CANNED);
@@ -283,7 +397,7 @@ export default function ConversationsPage() {
   const activeTags    = tags[active?.id] || [];
   const currentAgent  = assignedTo[active?.id] || 'Unassigned';
 
-  /* ── Render ─────────────────────────────────────────────────────────────── */
+  /* -- Render ------------------------------------------------------------─-- */
   return (
     <>
       {/* hidden file inputs */}
@@ -294,9 +408,47 @@ export default function ConversationsPage() {
 
       <div style={{ display:'flex', height:'100%', overflow:'hidden' }}>
 
-        {/* ── Conversation list ────────────────────────────────────────── */}
+        {/* -- Conversation list ------------------------------------------ */}
         <div style={{ width:280, flexShrink:0, display:'flex', flexDirection:'column',
           borderRight:'1px solid var(--b1)', background:'var(--bg2)', overflow:'hidden' }}>
+
+          {/* Live WhatsApp conversations */}
+          {liveConvs.length > 0 && (
+            <div style={{ borderBottom:'1px solid var(--b1)' }}>
+              <div style={{ padding:'8px 14px 4px', fontSize:10, fontWeight:700,
+                color:'#25D366', letterSpacing:'0.08em', textTransform:'uppercase',
+                display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ width:6, height:6, borderRadius:'50%', background:'#25D366', display:'inline-block', animation:'blink 1.5s ease-in-out infinite' }} />
+                Live WhatsApp
+              </div>
+              {liveConvs.map(conv => (
+                <div key={conv.id}
+                  onClick={() => openLiveConv(conv)}
+                  style={{ padding:'10px 14px', cursor:'pointer', transition:'background 0.1s',
+                    background: activeLive?.id === conv.id ? 'rgba(37,211,102,0.08)' : 'transparent',
+                    borderLeft: activeLive?.id === conv.id ? '3px solid #25D366' : '3px solid transparent' }}
+                  onMouseEnter={e => { if (activeLive?.id !== conv.id) e.currentTarget.style.background = 'var(--s1)'; }}
+                  onMouseLeave={e => { if (activeLive?.id !== conv.id) e.currentTarget.style.background = 'transparent'; }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:9 }}>
+                    <div style={{ width:34, height:34, borderRadius:'50%', flexShrink:0,
+                      background:'rgba(37,211,102,0.15)', border:'1px solid rgba(37,211,102,0.3)',
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                      fontWeight:700, fontSize:13, color:'#25D366' }}>
+                      {conv.customerName?.[0]?.toUpperCase() || '?'}
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                        <span style={{ fontSize:13, fontWeight:600, color:'var(--t1)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{conv.customerName}</span>
+                        {conv.unread > 0 && <span style={{ fontSize:10, fontWeight:700, background:'#25D366', color:'#000', borderRadius:99, padding:'1px 6px', flexShrink:0 }}>{conv.unread}</span>}
+                      </div>
+                      <div style={{ fontSize:11, color:'var(--t4)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} dir="auto">{conv.lastMessage || '…'}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={{ padding:'14px 14px 10px' }}>
             <input className="input" style={{ fontSize:13 }}
               placeholder="Search conversations…"
@@ -375,9 +527,104 @@ export default function ConversationsPage() {
           </div>
         </div>
 
-        {/* ── Chat area ───────────────────────────────────────────────── */}
+        {/* -- Chat area ----------------------------------------------─-- */}
         <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
-          {active ? (
+
+          {/* -- Live WhatsApp chat -- */}
+          {activeLive ? (
+            <div style={{ display:'flex', flexDirection:'column', height:'100%' }}>
+              {/* Header */}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
+                padding:'0 16px', borderBottom:'1px solid var(--b1)', background:'var(--bg2)',
+                minHeight:56, flexShrink:0 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                  <div style={{ width:34, height:34, borderRadius:'50%', background:'rgba(37,211,102,0.15)',
+                    border:'1px solid rgba(37,211,102,0.3)', display:'flex', alignItems:'center',
+                    justifyContent:'center', fontWeight:700, color:'#25D366' }}>
+                    {activeLive.customerName?.[0]?.toUpperCase()}
+                  </div>
+                  <div>
+                    <p style={{ fontWeight:700, fontSize:14, color:'var(--t1)' }}>{activeLive.customerName}</p>
+                    <p style={{ fontSize:12, color:'#25D366' }}>📱 WhatsApp · {activeLive.customerPhone}</p>
+                  </div>
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  {activeLive.score > 0 && (
+                    <div style={{ padding:'4px 12px', borderRadius:99, fontSize:12, fontWeight:700,
+                      background: activeLive.score > 70 ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
+                      color: activeLive.score > 70 ? '#34d399' : '#fbbf24' }}>
+                      Score {activeLive.score}
+                    </div>
+                  )}
+                  {activeLive.intent && (
+                    <div style={{ padding:'4px 12px', borderRadius:99, fontSize:11, fontWeight:600,
+                      background:'rgba(99,102,241,0.1)', color:'#a5b4fc' }}>
+                      {activeLive.intent.replace(/_/g,' ')}
+                    </div>
+                  )}
+                  <button onClick={() => { setActiveLive(null); setLiveMsgs([]); }}
+                    style={{ padding:'6px 14px', borderRadius:8, border:'1px solid var(--b1)',
+                      background:'var(--s1)', color:'var(--t3)', cursor:'pointer', fontSize:12 }}>
+                    ← Back
+                  </button>
+                </div>
+              </div>
+
+              {/* Messages */}
+              <div style={{ flex:1, overflowY:'auto', padding:'16px', display:'flex', flexDirection:'column', gap:10 }}>
+                {liveMsgs.length === 0 && (
+                  <div style={{ textAlign:'center', color:'var(--t4)', fontSize:13, marginTop:40 }}>
+                    No messages yet. Waiting for customer…
+                  </div>
+                )}
+                {liveMsgs.map((m, i) => (
+                  <div key={m.id || i} style={{ display:'flex', justifyContent: m.direction === 'outbound' ? 'flex-end' : 'flex-start' }}>
+                    <div style={{ maxWidth:'68%', padding:'10px 14px', borderRadius: m.direction === 'outbound' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                      background: m.direction === 'outbound' ? '#6366f1' : 'var(--bg3)',
+                      border: m.direction === 'outbound' ? 'none' : '1px solid var(--b1)',
+                      color: m.direction === 'outbound' ? '#fff' : 'var(--t1)' }}>
+                      <p style={{ fontSize:14, lineHeight:1.5 }} dir="auto">{m.content}</p>
+                      <p style={{ fontSize:10, opacity:0.6, marginTop:4, textAlign:'right' }}>{m.at}</p>
+                    </div>
+                  </div>
+                ))}
+                <div ref={bottomRef} />
+              </div>
+
+              {/* AI suggestion */}
+              {liveSuggestion && (
+                <div style={{ margin:'0 16px', padding:'12px 16px', borderRadius:12,
+                  background:'rgba(99,102,241,0.07)', border:'1px solid rgba(99,102,241,0.2)',
+                  display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <p style={{ fontSize:11, fontWeight:700, color:'#a5b4fc', marginBottom:4 }}>🤖 AI Suggestion</p>
+                    <p style={{ fontSize:13, color:'var(--t2)' }} dir="auto">{liveSuggestion.text}</p>
+                  </div>
+                  <button onClick={() => { sendLiveReply(liveSuggestion.text); setLiveSuggestion(null); }}
+                    style={{ padding:'8px 16px', borderRadius:8, background:'#6366f1', color:'#fff',
+                      border:'none', cursor:'pointer', fontWeight:600, fontSize:12, flexShrink:0 }}>
+                    Use Reply
+                  </button>
+                </div>
+              )}
+
+              {/* Reply box */}
+              <div style={{ padding:'12px 16px', borderTop:'1px solid var(--b1)', display:'flex', gap:10 }}>
+                <input
+                  className="input" style={{ flex:1, fontSize:14 }}
+                  placeholder="Type a reply…"
+                  id="live-reply-input"
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const el = document.getElementById('live-reply-input'); sendLiveReply(el.value); el.value = ''; }}}
+                />
+                <button
+                  onClick={() => { const el = document.getElementById('live-reply-input'); sendLiveReply(el.value); el.value = ''; }}
+                  style={{ padding:'10px 20px', borderRadius:10, background:'#25D366', color:'#000',
+                    border:'none', cursor:'pointer', fontWeight:700, fontSize:13 }}>
+                  Send 📱
+                </button>
+              </div>
+            </div>
+          ) : active ? (
             <>
               {/* Chat header */}
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
@@ -640,8 +887,8 @@ export default function ConversationsPage() {
           )}
         </div>
 
-        {/* ── Customer panel ──────────────────────────────────────────── */}
-        {active && showPanel && (
+        {/* -- Customer panel -------------------------------------------- */}
+        {active && !activeLive && showPanel && (
           <div style={{ width:230, flexShrink:0, borderLeft:'1px solid var(--b1)',
             background:'var(--bg2)', padding:'20px 16px', overflowY:'auto',
             display:'flex', flexDirection:'column', gap:18 }} className="hide-sm">
@@ -703,7 +950,7 @@ export default function ConversationsPage() {
         )}
       </div>
 
-      {/* ── Canned Replies Management Modal ──────────────────────────────── */}
+      {/* -- Canned Replies Management Modal -------------------------------- */}
       <Modal open={cannedMgmtModal} onClose={() => { setCannedMgmtModal(false); setCannedFormMode(null); }}
         title="Canned Replies" width={560}>
 
@@ -798,7 +1045,7 @@ export default function ConversationsPage() {
         )}
       </Modal>
 
-      {/* ── Assign Modal ─────────────────────────────────────────────────── */}
+      {/* -- Assign Modal ------------------------------------------------─-- */}
       <Modal open={assignModal} onClose={() => setAssignModal(false)} title="Assign Conversation" width={380}>
         <p style={{ fontSize:13, color:'var(--t3)', marginTop:-8 }}>
           Assign <strong style={{ color:'var(--t1)' }}>{active?.name}</strong> to an agent
@@ -824,7 +1071,7 @@ export default function ConversationsPage() {
         </div>
       </Modal>
 
-      {/* ── Close Deal Modal ─────────────────────────────────────────────── */}
+      {/* -- Close Deal Modal --------------------------------------------─-- */}
       <Modal open={closeModal} onClose={() => setCloseModal(false)} title="Close Deal" width={400}>
         <div style={{ textAlign:'center', padding:'8px 0' }}>
           <div style={{ fontSize:48, marginBottom:12 }}>🎉</div>
@@ -839,7 +1086,7 @@ export default function ConversationsPage() {
         </div>
       </Modal>
 
-      {/* ── Tag Modal ────────────────────────────────────────────────────── */}
+      {/* -- Tag Modal ------------------------------------------------------ */}
       <Modal open={tagModal} onClose={() => setTagModal(false)} title="Add Tag" width={380}>
         <div style={{ display:'flex', gap:8 }}>
           <input className="input" style={{ flex:1, fontSize:13 }} placeholder="Custom tag…"
@@ -858,7 +1105,7 @@ export default function ConversationsPage() {
         </div>
       </Modal>
 
-      {/* ── History Modal ────────────────────────────────────────────────── */}
+      {/* -- History Modal -------------------------------------------------- */}
       <Modal open={historyModal} onClose={() => setHistoryModal(false)} title={`${active?.name} — History`} width={500}>
         <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
           {[
