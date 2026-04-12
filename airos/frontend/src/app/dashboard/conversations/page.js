@@ -123,10 +123,15 @@ export default function ConversationsPage() {
   /* -- Socket.io + live conversations -- */
   useEffect(() => {
     // Load existing live conversations
-    fetch(`${API}/api/live/conversations`)
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setLiveConvs(data); })
-      .catch(() => {});
+    function fetchConvs() {
+      fetch(`${API}/api/live/conversations`)
+        .then(r => r.json())
+        .then(data => { if (Array.isArray(data)) setLiveConvs(data); })
+        .catch(() => {});
+    }
+    fetchConvs();
+    // Poll every 5 seconds as fallback
+    const pollTimer = setInterval(fetchConvs, 5000);
 
     // Connect Socket.io
     const socket = io(API, { transports: ['websocket', 'polling'] });
@@ -172,7 +177,7 @@ export default function ConversationsPage() {
       });
     });
 
-    return () => socket.disconnect();
+    return () => { socket.disconnect(); clearInterval(pollTimer); };
   }, []);
 
   // Auto-scroll to bottom when new messages arrive
