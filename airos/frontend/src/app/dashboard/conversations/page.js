@@ -563,7 +563,34 @@ export default function ConversationsPage() {
         .then(data => {
           if (!Array.isArray(data)) return;
           log.ws('poll: received', data.length, 'convs');
+
+          // Read storeRef BEFORE dispatch — storeRef.current still has the pre-update state
+          // because the ref is synced in a useEffect (runs after render, not synchronously).
+          const activeId = storeRef.current.activeId;
+          const localConv = activeId ? storeRef.current.convs[activeId] : null;
+          const serverConv = activeId ? data.find(c => c.id === activeId) : null;
+
           dispatch({ type: 'LOAD_CONVS', convs: data });
+
+          // If the active conversation's lastMessage on the server differs from what we
+          // have locally, a socket event was missed. Fetch messages now so the chat
+          // window updates without requiring the user to re-click.
+          if (
+            activeId && serverConv && localConv &&
+            serverConv.lastMessage &&
+            serverConv.lastMessage !== (localConv.lastMessage || '')
+          ) {
+            log.ws('poll detected missed message for active conv — fetching messages');
+            fetch(`${API}/api/live/conversations/${encodeURIComponent(activeId)}/messages`)
+              .then(r => r.json())
+              .then(msgs => {
+                if (Array.isArray(msgs)) {
+                  dispatch({ type: 'LOAD_MESSAGES', convId: activeId, messages: msgs });
+                }
+              })
+              .catch(() => {});
+          }
+
           const newConv = data.some(c => !knownIds.has(c.id));
           const moreUnread = data.some(c => (c.unread||0) > (knownUnread[c.id]||0));
           if ((newConv || moreUnread) && knownIds.size > 0) playNotif();
