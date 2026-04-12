@@ -209,17 +209,13 @@ export default function ConversationsPage() {
         return next;
       });
 
-      // Always add to liveMsgs via functional update — guaranteed latest state
-      setActiveLive(cur => {
-        if (cur?.id === conversation.id) {
-          setLiveMsgs(m => {
-            // Avoid duplicate if already present
-            if (m.some(x => x.id === message.id)) return m;
-            return [...m, message];
-          });
-        }
-        return cur;
-      });
+      // Add to liveMsgs if this conversation is currently open
+      if (activeLiveRef.current?.id === conversation.id) {
+        setLiveMsgs(m => {
+          if (m.some(x => x.id === message.id)) return m; // dedup
+          return [...m, message];
+        });
+      }
 
       playNotif();
       toast(`📱 New WhatsApp from ${conversation.customerName}`, { duration: 4000 });
@@ -231,11 +227,12 @@ export default function ConversationsPage() {
       ));
 
       const autoOn = liveAutoReplyRef.current[conversation_id];
+      const currentConv = activeLiveRef.current;
+      const isOpen = currentConv?.id === conversation_id;
 
       if (autoOn && suggested_reply) {
-        // Auto-send the AI reply
-        const phone = activeLiveRef.current?.customerPhone
-          || conversation_id.replace('whatsapp:', '');
+        // Auto-send the AI reply directly
+        const phone = currentConv?.customerPhone || conversation_id.replace('whatsapp:', '');
         fetch(`${API}/api/live/send`, {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ phone, message: suggested_reply }),
@@ -246,27 +243,22 @@ export default function ConversationsPage() {
               type:'text', sent_by:'ai',
               at: new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}),
             };
-            setActiveLive(cur => {
-              if (cur?.id === conversation_id) setLiveMsgs(m => [...m, outMsg]);
-              return cur;
-            });
+            if (isOpen) setLiveMsgs(m => [...m, outMsg]);
             setLiveMsgsCache(cache => {
               const arr = [...(cache[conversation_id]||[]), outMsg];
               const next = {...cache, [conversation_id]: arr};
               try { localStorage.setItem('airos_live_msgs', JSON.stringify(next)); } catch {}
               return next;
             });
+            setLiveConvs(prev => prev.map(c =>
+              c.id === conversation_id ? { ...c, lastMessage: suggested_reply } : c
+            ));
             toast.success('🤖 AI auto-replied', { duration:2500 });
           }
         }).catch(() => {});
-      } else {
-        // Manual mode — show suggestion regardless of which conv is open
-        setActiveLive(cur => {
-          if (cur?.id === conversation_id && suggested_reply) {
-            setLiveSuggestion({ text: suggested_reply, score: lead_score, intent });
-          }
-          return cur;
-        });
+      } else if (isOpen && suggested_reply) {
+        // Manual mode — show suggestion bar
+        setLiveSuggestion({ text: suggested_reply, score: lead_score, intent });
       }
     });
 
@@ -275,8 +267,10 @@ export default function ConversationsPage() {
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [liveMsgs]);
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [liveMsgs, activeLive]);
 
   async function openLiveConv(conv) {
     setActiveLive(conv);
@@ -311,36 +305,31 @@ export default function ConversationsPage() {
   }
 
   async function sendLiveReply(text) {
-    if (!text.trim() || !activeLive) return;
-    // Send via WhatsApp API
+    const conv = activeLiveRef.current;
+    if (!text.trim() || !conv) return;
     try {
       const res = await fetch(`${API}/api/live/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: activeLive.customerPhone,
-          message: text,
-        }),
+        body: JSON.stringify({ phone: conv.customerPhone, message: text }),
       });
       const data = await res.json();
       if (data.ok) {
         const outMsg = {
           id: `out_${Date.now()}`,
-          direction: 'outbound',
-          content: text,
-          type: 'text',
-          sent_by: 'agent',
+          direction: 'outbound', content: text, type: 'text', sent_by: 'agent',
           at: new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' }),
         };
         setLiveMsgs(m => [...m, outMsg]);
-        setLiveConvs(prev => prev.map(c => c.id === activeLive.id ? { ...c, lastMessage: text } : c));
+        setLiveConvs(prev => prev.map(c => c.id === conv.id ? { ...c, lastMessage: text } : c));
         setLiveMsgsCache(cache => {
-          const arr = [...(cache[activeLive.id]||[]), outMsg];
-          const next = { ...cache, [activeLive.id]: arr };
+          const arr = [...(cache[conv.id]||[]), outMsg];
+          const next = { ...cache, [conv.id]: arr };
           try { localStorage.setItem('airos_live_msgs', JSON.stringify(next)); } catch {}
           return next;
         });
         setLiveSuggestion(null);
+        setLiveReply('');
       } else {
         toast.error(data.error || 'Failed to send');
       }
@@ -744,11 +733,13 @@ export default function ConversationsPage() {
                 </div>
               </div>
 
-              {/* Messages */}
+              {/* Messages — spacer pushes messages to bottom */}
               <div style={{ flex:1, overflowY:'auto', padding:'20px', display:'flex',
                 flexDirection:'column', gap:12 }}>
+                {/* Spacer — pushes all messages to bottom when few msgs */}
+                <div style={{ flex:1 }} />
                 {liveMsgs.length === 0 && (
-                  <div style={{ textAlign:'center', color:'var(--t4)', fontSize:13, marginTop:40 }}>
+                  <div style={{ textAlign:'center', color:'var(--t4)', fontSize:13, paddingBottom:20 }}>
                     No messages yet. Waiting for customer…
                   </div>
                 )}
@@ -970,6 +961,7 @@ export default function ConversationsPage() {
               {/* Messages */}
               <div style={{ flex:1, overflowY:'auto', padding:'20px', display:'flex',
                 flexDirection:'column', gap:12 }}>
+                <div style={{ flex:1 }} />
                 {msgs.map(m => (
                   <div key={m.id} style={{ display:'flex',
                     justifyContent: m.dir==='out' ? 'flex-end' : 'flex-start',
