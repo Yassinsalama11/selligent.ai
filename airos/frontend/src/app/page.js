@@ -311,7 +311,7 @@ function Pricing() {
   async function handleCheckout(plan) {
     setLoading(plan);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://selligentai-production.up.railway.app';
       const res = await fetch(`${apiUrl}/api/stripe/create-checkout-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -25,7 +25,14 @@ initSocketServer(server);
 
 // Core middleware
 app.use(helmet());
-app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true }));
+app.use(cors({
+  origin: [
+    process.env.FRONTEND_URL,
+    'https://selligent-ai.pages.dev',
+    'http://localhost:3000',
+  ],
+  credentials: true,
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(morgan('dev'));
 
