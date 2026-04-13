@@ -273,6 +273,23 @@ function getAiConfig() {
   } catch { return null; }
 }
 
+function parseAiJson(content) {
+  if (!content && content !== '') return null;
+  if (typeof content === 'object' && content !== null) return content;
+  if (typeof content !== 'string') return null;
+
+  try {
+    return JSON.parse(content);
+  } catch {
+    try {
+      const cleaned = content.trim().replace(/^[^\{\[]+/, '').replace(/[^\}\]]+$/, '');
+      return JSON.parse(cleaned);
+    } catch {
+      return null;
+    }
+  }
+}
+
 async function runFrontendAI(conv, inboundMessage, recentMessages = []) {
   const cfg = getAiConfig();
   if (!cfg) {
@@ -324,7 +341,7 @@ Respond ONLY with valid JSON:
         throw new Error(err.error?.message || `OpenAI ${res.status}`);
       }
       const data = await res.json();
-      result = JSON.parse(data.choices[0].message.content);
+      result = parseAiJson(data.choices?.[0]?.message?.content);
 
     } else if (cfg.provider === 'anthropic') {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -347,7 +364,7 @@ Respond ONLY with valid JSON:
         throw new Error(err.error?.message || `Anthropic ${res.status}`);
       }
       const data = await res.json();
-      result = JSON.parse(data.content[0].text);
+      result = parseAiJson(data.content?.[0]?.text);
 
     } else if (cfg.provider === 'google') {
       const model = cfg.model || 'gemini-2.0-flash';
@@ -367,8 +384,8 @@ Respond ONLY with valid JSON:
         throw new Error(err.error?.message || `Google ${res.status}`);
       }
       const data = await res.json();
-      const text = data.candidates[0].content.parts[0].text;
-      result = JSON.parse(text.replace(/```json\n?|\n?```/g, '').trim());
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      result = parseAiJson(text?.replace(/```json\n?|\n?```/g, '').trim());
 
     } else if (cfg.provider === 'mistral') {
       const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
@@ -393,7 +410,7 @@ Respond ONLY with valid JSON:
         throw new Error(err.error?.message || `Mistral ${res.status}`);
       }
       const data = await res.json();
-      result = JSON.parse(data.choices[0].message.content);
+      result = parseAiJson(data.choices?.[0]?.message?.content);
     }
 
     log.ai('result', result);

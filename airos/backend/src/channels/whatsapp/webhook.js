@@ -113,12 +113,19 @@ Return this exact JSON:
     response_format: { type: 'json_object' },
   });
 
-  let ai;
-  try {
-    ai = JSON.parse(completion.choices[0].message.content);
-  } catch {
-    return;
+  const content = completion.choices?.[0]?.message?.content;
+  let ai = null;
+  if (typeof content === 'object' && content !== null) {
+    ai = content;
+  } else if (typeof content === 'string') {
+    try {
+      ai = JSON.parse(content);
+    } catch {
+      return;
+    }
   }
+
+  if (!ai || typeof ai !== 'object') return;
 
   // Update conversation with AI analysis
   updateConversation(conv.id, {
