@@ -2,10 +2,10 @@
  * Syncs Shopify store data to AIROS via the Catalog API.
  */
 export class AirosSync {
-  constructor(session) {
+  constructor(session, config = {}) {
     this.session  = session;
-    this.apiKey   = session.airos_api_key;   // stored in session metafield after setup
-    this.tenantId = session.airos_tenant_id;
+    this.apiKey   = config.apiKey ?? session.airos_api_key ?? '';
+    this.tenantId = config.tenantId ?? session.airos_tenant_id ?? '';
     this.baseUrl  = process.env.AIROS_API_BASE || 'https://api.airos.io/v1';
   }
 

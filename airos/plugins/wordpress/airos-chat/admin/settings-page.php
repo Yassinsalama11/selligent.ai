@@ -18,17 +18,35 @@ class AIROS_Settings_Page {
     public static function render(): void {
         if (!current_user_can('manage_options')) return;
 
+        $api_key   = esc_attr(get_option('airos_api_key', ''));
+        $tenant_id = esc_attr(get_option('airos_tenant_id', ''));
+
         // Handle manual sync button
         if (isset($_POST['airos_manual_sync']) && check_admin_referer('airos_manual_sync_nonce')) {
-            $sync = new AIROS_Sync(get_option('airos_api_key'), get_option('airos_tenant_id'));
-            $sync->sync_products();
-            $sync->sync_shipping_zones();
-            $sync->sync_coupons();
-            echo '<div class="notice notice-success"><p>' . __('Sync complete!', 'airos-chat') . '</p></div>';
+            if (!$api_key || !$tenant_id) {
+                echo '<div class="notice notice-error"><p>' . esc_html__(
+                    'Enter your AIROS API key and Tenant ID before running a sync.',
+                    'airos-chat'
+                ) . '</p></div>';
+            } else {
+                try {
+                    $sync = new AIROS_Sync($api_key, $tenant_id);
+                    $sync->sync_products();
+                    $sync->sync_shipping_zones();
+                    $sync->sync_coupons();
+                    echo '<div class="notice notice-success"><p>' . esc_html__(
+                        'Sync complete!',
+                        'airos-chat'
+                    ) . '</p></div>';
+                } catch (Throwable $error) {
+                    echo '<div class="notice notice-error"><p>' . esc_html__(
+                        'Sync failed. Please verify your configuration and try again.',
+                        'airos-chat'
+                    ) . '</p></div>';
+                }
+            }
         }
 
-        $api_key        = esc_attr(get_option('airos_api_key', ''));
-        $tenant_id      = esc_attr(get_option('airos_tenant_id', ''));
         $widget_enabled = get_option('airos_widget_enabled', 1);
         $last_sync      = get_option('airos_last_sync', __('Never', 'airos-chat'));
         $synced_count   = get_option('airos_synced_count', 0);
@@ -61,6 +79,7 @@ class AIROS_Settings_Page {
                         <th scope="row"><?php esc_html_e('Enable Widget', 'airos-chat'); ?></th>
                         <td>
                             <label>
+                                <input name="airos_widget_enabled" type="hidden" value="0" />
                                 <input name="airos_widget_enabled" type="checkbox" value="1"
                                     <?php checked($widget_enabled, 1); ?> />
                                 <?php esc_html_e('Show live chat bubble on all pages', 'airos-chat'); ?>

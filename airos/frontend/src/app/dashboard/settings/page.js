@@ -100,6 +100,53 @@ const NAV = [
   ]},
 ];
 
+const SETTINGS_STORAGE_KEY = 'airos_dashboard_settings_v1';
+const ALL_SETTINGS_IDS = new Set(NAV.flatMap((group) => group.items.map((item) => item.id)));
+
+function isRecord(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function mergeSavedObject(defaults, saved) {
+  return isRecord(saved) ? { ...defaults, ...saved } : defaults;
+}
+
+function mergeSavedArray(defaults, saved) {
+  return Array.isArray(saved) ? saved : defaults;
+}
+
+function mergeSavedChannels(defaults, saved) {
+  if (!isRecord(saved)) return defaults;
+
+  return Object.fromEntries(
+    Object.entries(defaults).map(([key, value]) => [key, mergeSavedObject(value, saved[key])]),
+  );
+}
+
+function readSettingsStorage() {
+  if (typeof window === 'undefined') return {};
+
+  try {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw);
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeSettingsStorage(snapshot) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(snapshot));
+}
+
+function getSettingsIdFromHash(hash) {
+  const id = typeof hash === 'string' ? hash.replace(/^#/, '') : '';
+  return ALL_SETTINGS_IDS.has(id) ? id : null;
+}
+
 /* ─── Seed data ───────────────────────────────────────────────────────────── */
 const INIT_OPERATORS = [
   { id:'o1', name:'Ahmed Mohamed', email:'ahmed@store.com',  role:'owner',   dept:'Management',  status:'online',  avatar:'A' },
@@ -187,10 +234,23 @@ const COLORS  = ['#6366f1','#10b981','#f59e0b','#ef4444','#38bdf8','#ec4899','#8
 export default function SettingsPage() {
   const [activeId, setActiveId]   = useState('profile');
   const [collapsed, setCollapsed] = useState({});
+  const [hydrated, setHydrated]   = useState(false);
 
   /* ── shared save simulation ── */
   const [saving, setSaving] = useState(false);
-  function save(msg = 'Changes saved') {
+  function save(msg = 'Changes saved', options = {}) {
+    if (options.persistUser && typeof window !== 'undefined') {
+      try {
+        const currentUser = JSON.parse(localStorage.getItem('airos_user') || '{}');
+        localStorage.setItem('airos_user', JSON.stringify({
+          ...currentUser,
+          name: profile.name,
+          email: profile.email,
+          phone: profile.phone,
+        }));
+      } catch {}
+    }
+
     setSaving(true);
     setTimeout(() => { setSaving(false); toast.success(msg); }, 700);
   }
@@ -247,6 +307,10 @@ export default function SettingsPage() {
   /* ── Personalize: Profanity ── */
   const [profanity, setProfanity] = useState(['spam','scam','fake','غش','نصب']);
   const [profInput, setProfInput] = useState('');
+  const [profanityControls, setProfanityControls] = useState({
+    flagForReview: true,
+    autoBlockAfterThree: false,
+  });
 
   /* ── Personalize: Email Templates ── */
   const [emailTpls, setEmailTpls] = useState(INIT_EMAIL_TPLS);
@@ -365,6 +429,16 @@ export default function SettingsPage() {
   const [igTab, setIgTab]               = useState('connection');
   const [fbmTab, setFbmTab]             = useState('connection');
   const [metaConnecting, setMetaConnecting] = useState('');
+  const [igSettings, setIgSettings] = useState({
+    storyMentionsAutoReply: true,
+    typingIndicator: true,
+    readReceipts: true,
+  });
+  const [messengerSettings, setMessengerSettings] = useState({
+    persistentMenu: true,
+    getStartedButton: true,
+    readReceipts: true,
+  });
   const CHANNEL_STATS = {
     whatsapp:  { conversations:420, deals:38, rate:'42%', response:'1.2m', satisfaction:'4.8' },
     instagram: { conversations:280, deals:22, rate:'28%', response:'2.1m', satisfaction:'4.5' },
@@ -546,6 +620,135 @@ export default function SettingsPage() {
   const activeGroup = NAV.find(g => g.items.some(i => i.id === activeId));
   const activeLabel = allItems.find(i => i.id === activeId)?.label || '';
 
+  useEffect(() => {
+    const saved = readSettingsStorage();
+
+    if (typeof window !== 'undefined' && !window.location.hash && ALL_SETTINGS_IDS.has(saved.activeId)) {
+      setActiveId(saved.activeId);
+    }
+
+    if (isRecord(saved.collapsed)) setCollapsed(saved.collapsed);
+    if (isRecord(saved.profile)) {
+      setProfile((current) => {
+        const merged = mergeSavedObject(current, saved.profile);
+        return { ...merged, avatar: (merged.name?.[0] || 'A').toUpperCase() };
+      });
+    }
+    if (isRecord(saved.company)) setCompany((current) => mergeSavedObject(current, saved.company));
+    if (Array.isArray(saved.operators)) setOperators(mergeSavedArray(INIT_OPERATORS, saved.operators));
+    if (Array.isArray(saved.depts)) setDepts(mergeSavedArray(INIT_DEPTS, saved.depts));
+    if (Array.isArray(saved.tags)) setTags(mergeSavedArray(INIT_TAGS, saved.tags));
+    if (Array.isArray(saved.brands)) setBrands(mergeSavedArray(INIT_BRANDS, saved.brands));
+    if (isRecord(saved.global)) setGlobal((current) => mergeSavedObject(current, saved.global));
+    if (Array.isArray(saved.profanity)) setProfanity(mergeSavedArray(['spam','scam','fake','غش','نصب'], saved.profanity));
+    if (isRecord(saved.profanityControls)) {
+      setProfanityControls((current) => mergeSavedObject(current, saved.profanityControls));
+    }
+    if (Array.isArray(saved.emailTpls)) setEmailTpls(mergeSavedArray(INIT_EMAIL_TPLS, saved.emailTpls));
+    if (isRecord(saved.layout)) setLayout((current) => mergeSavedObject(current, saved.layout));
+    if (isRecord(saved.channels)) setChannels((current) => mergeSavedChannels(current, saved.channels));
+    if (isRecord(saved.waSettings)) setWaSettings((current) => mergeSavedObject(current, saved.waSettings));
+    if (isRecord(saved.igSettings)) setIgSettings((current) => mergeSavedObject(current, saved.igSettings));
+    if (isRecord(saved.messengerSettings)) {
+      setMessengerSettings((current) => mergeSavedObject(current, saved.messengerSettings));
+    }
+    if (Array.isArray(saved.triggers)) setTriggers(mergeSavedArray(INIT_TRIGGERS, saved.triggers));
+    if (Array.isArray(saved.routing)) setRouting(mergeSavedArray(INIT_ROUTING, saved.routing));
+    if (isRecord(saved.visitorRouting)) setVR((current) => mergeSavedObject(current, saved.visitorRouting));
+    if (Array.isArray(saved.leadRules)) setLeadRules(mergeSavedArray(INIT_LEAD_RULES, saved.leadRules));
+    if (isRecord(saved.compScore)) setCompScore((current) => mergeSavedObject(current, saved.compScore));
+    if (Array.isArray(saved.schedReports)) setSchedReports(mergeSavedArray(INIT_SCHED, saved.schedReports));
+    if (Array.isArray(saved.spammers)) setSpammers(mergeSavedArray(INIT_SPAMMERS, saved.spammers));
+    if (Array.isArray(saved.profileFields)) setProfileFields(mergeSavedArray(INIT_PROFILES, saved.profileFields));
+    if (Array.isArray(saved.recycled)) setRecycled(mergeSavedArray(RECYCLED, saved.recycled));
+
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const syncFromHash = () => {
+      const nextId = getSettingsIdFromHash(window.location.hash);
+      if (nextId) setActiveId(nextId);
+    };
+
+    syncFromHash();
+    window.addEventListener('hashchange', syncFromHash);
+    return () => window.removeEventListener('hashchange', syncFromHash);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !activeId) return;
+
+    const nextHash = `#${activeId}`;
+    if (window.location.hash === nextHash) return;
+
+    const nextUrl = `${window.location.pathname}${window.location.search}${nextHash}`;
+    window.history.replaceState({}, '', nextUrl);
+  }, [activeId]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    writeSettingsStorage({
+      activeId,
+      collapsed,
+      profile: { ...profile, avatar: (profile.name?.[0] || 'A').toUpperCase() },
+      company,
+      operators,
+      depts,
+      tags,
+      brands,
+      global,
+      profanity,
+      profanityControls,
+      emailTpls,
+      layout,
+      channels,
+      waSettings,
+      igSettings,
+      messengerSettings,
+      triggers,
+      routing,
+      visitorRouting,
+      leadRules,
+      compScore,
+      schedReports,
+      spammers,
+      profileFields,
+      recycled,
+    });
+  }, [
+    hydrated,
+    activeId,
+    collapsed,
+    profile,
+    company,
+    operators,
+    depts,
+    tags,
+    brands,
+    global,
+    profanity,
+    profanityControls,
+    emailTpls,
+    layout,
+    channels,
+    waSettings,
+    igSettings,
+    messengerSettings,
+    triggers,
+    routing,
+    visitorRouting,
+    leadRules,
+    compScore,
+    schedReports,
+    spammers,
+    profileFields,
+    recycled,
+  ]);
+
   /* ═══════════════════════════════════════════════════
      SECTION RENDERERS
      ═══════════════════════════════════════════════════ */
@@ -573,7 +776,7 @@ export default function SettingsPage() {
                 </select>
               </Field>
             </div>
-            <SaveRow onSave={() => save('Profile updated')} saving={saving} />
+            <SaveRow onSave={() => save('Profile updated', { persistUser: true })} saving={saving} />
           </Section>
 
           <Section title="Change Password" sub="Use a strong password of at least 8 characters">
@@ -953,8 +1156,16 @@ export default function SettingsPage() {
           </Section>
           <Section title="Auto-Action">
             <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-              <Toggle value={true} onChange={()=>{}} label="Flag messages containing blocked words for agent review" />
-              <Toggle value={false} onChange={()=>{}} label="Auto-block contacts who use profanity 3+ times" />
+              <Toggle
+                value={profanityControls.flagForReview}
+                onChange={(value) => setProfanityControls((current) => ({ ...current, flagForReview: value }))}
+                label="Flag messages containing blocked words for agent review"
+              />
+              <Toggle
+                value={profanityControls.autoBlockAfterThree}
+                onChange={(value) => setProfanityControls((current) => ({ ...current, autoBlockAfterThree: value }))}
+                label="Auto-block contacts who use profanity 3+ times"
+              />
             </div>
             <SaveRow onSave={()=>save('Profanity settings saved')} saving={saving} />
           </Section>
@@ -1077,12 +1288,24 @@ export default function SettingsPage() {
 
             {igTab === 'settings' && (
               <Section title="Instagram Settings" sub="Messaging behaviour for your Instagram DM channel.">
-                <Toggle label="Auto-reply to Story Mentions" value={true} onChange={()=>toast('Saved')} />
+                <Toggle
+                  label="Auto-reply to Story Mentions"
+                  value={igSettings.storyMentionsAutoReply}
+                  onChange={(value) => setIgSettings((current) => ({ ...current, storyMentionsAutoReply: value }))}
+                />
                 <div style={{ marginTop:10 }}>
-                  <Toggle label="Show Typing Indicator" value={true} onChange={()=>toast('Saved')} />
+                  <Toggle
+                    label="Show Typing Indicator"
+                    value={igSettings.typingIndicator}
+                    onChange={(value) => setIgSettings((current) => ({ ...current, typingIndicator: value }))}
+                  />
                 </div>
                 <div style={{ marginTop:10 }}>
-                  <Toggle label="Read Receipts" value={true} onChange={()=>toast('Saved')} />
+                  <Toggle
+                    label="Read Receipts"
+                    value={igSettings.readReceipts}
+                    onChange={(value) => setIgSettings((current) => ({ ...current, readReceipts: value }))}
+                  />
                 </div>
                 <SaveRow onSave={()=>save('Instagram settings saved')} saving={saving} />
               </Section>
@@ -1174,12 +1397,24 @@ export default function SettingsPage() {
 
             {fbmTab === 'settings' && (
               <Section title="Messenger Settings" sub="Messaging behaviour for your Facebook Messenger channel.">
-                <Toggle label="Persistent Menu" value={true} onChange={()=>toast('Saved')} />
+                <Toggle
+                  label="Persistent Menu"
+                  value={messengerSettings.persistentMenu}
+                  onChange={(value) => setMessengerSettings((current) => ({ ...current, persistentMenu: value }))}
+                />
                 <div style={{ marginTop:10 }}>
-                  <Toggle label="Get Started Button" value={true} onChange={()=>toast('Saved')} />
+                  <Toggle
+                    label="Get Started Button"
+                    value={messengerSettings.getStartedButton}
+                    onChange={(value) => setMessengerSettings((current) => ({ ...current, getStartedButton: value }))}
+                  />
                 </div>
                 <div style={{ marginTop:10 }}>
-                  <Toggle label="Read Receipts" value={true} onChange={()=>toast('Saved')} />
+                  <Toggle
+                    label="Read Receipts"
+                    value={messengerSettings.readReceipts}
+                    onChange={(value) => setMessengerSettings((current) => ({ ...current, readReceipts: value }))}
+                  />
                 </div>
                 <SaveRow onSave={()=>save('Messenger settings saved')} saving={saving} />
               </Section>
@@ -2064,7 +2299,7 @@ export default function SettingsPage() {
 
         {/* ── OAuth flow modal ── */}
         {waOAuthModal && (
-          <Modal title="Connecting to Meta" onClose={()=>{ if(waOAuthStep!=='authorizing') setWaOAuthModal(false); }}>
+          <Modal open={waOAuthModal} title="Connecting to Meta" onClose={()=>{ if(waOAuthStep!=='authorizing') setWaOAuthModal(false); }}>
             <div style={{ padding:'8px 0 4px', textAlign:'center' }}>
               {waOAuthStep === 'authorizing' && (
                 <>
@@ -2106,51 +2341,13 @@ export default function SettingsPage() {
     );
   }
 
-  /* ── Channel panel component (inline) ── */
-  function ChannelPanel({ id, label, icon, color, fields, note }) {
-    const ch = channels[id];
-    return (
-      <div>
-        <Section title={`${icon} ${label}`} sub={note}>
-          <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
-            <div style={{ width:46, height:46, borderRadius:12, background:`${color}15`,
-              display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, border:`1px solid ${color}25` }}>
-              {icon}
-            </div>
-            <div>
-              <p style={{ fontSize:14, fontWeight:600, color:'var(--t1)' }}>{label}</p>
-              <p style={{ fontSize:12, color: ch.connected ? '#34d399' : 'var(--t4)' }}>
-                {ch.connected ? `● Connected${ch.verified ? ' · Verified' : ''}` : '○ Not connected'}
-              </p>
-            </div>
-            <button onClick={()=>{ setChannels(cs=>({...cs,[id]:{...cs[id],connected:!cs[id].connected}})); toast.success(ch.connected?'Disconnected':'Connected!'); }}
-              className={`btn btn-sm ${ch.connected ? 'btn-ghost' : 'btn-primary'}`}
-              style={{ marginLeft:'auto', color: ch.connected ? '#fca5a5' : undefined }}>
-              {ch.connected ? 'Disconnect' : 'Connect'}
-            </button>
-          </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-            {fields.map(f => (
-              <Field key={f.key} label={f.label}>
-                <input className="input" style={{ fontSize:13, fontFamily: f.mono ? 'monospace' : 'inherit' }}
-                  placeholder={f.ph} value={channels[id][f.key] || ''}
-                  onChange={e=>setChannels(cs=>({...cs,[id]:{...cs[id],[f.key]:e.target.value}}))} />
-              </Field>
-            ))}
-          </div>
-          <SaveRow onSave={()=>save(`${label} settings saved`)} saving={saving} />
-        </Section>
-      </div>
-    );
-  }
-
   /* ── Shared Facebook OAuth Modal (Instagram + Messenger) ── */
   function FbOAuthModal() {
     if (!fbModal) return null;
     const oauthChannel = activeId === 'ch_instagram' ? 'instagram' : 'messenger';
     const isConnecting = metaConnecting === oauthChannel;
     return (
-      <Modal title="Connect with Facebook" onClose={()=>setFbModal(false)}>
+      <Modal open={fbModal} title="Connect with Facebook" onClose={()=>setFbModal(false)}>
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div style={{ padding:'16px 18px', borderRadius:10,
             background:'rgba(0,153,255,0.06)', border:'1px solid rgba(0,153,255,0.18)' }}>
