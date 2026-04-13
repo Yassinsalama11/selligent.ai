@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const OpenAI  = require('openai');
 const { getOrCreateConversation, addMessage, getMessages, updateConversation } = require('../../core/inMemoryStore');
+const { getTenantByPageId } = require('../../core/tenantManager');
 const { getIO } = require('../livechat/socket');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -84,15 +85,23 @@ async function processInstagramMessage(msg, entryId) {
   const senderId = msg.sender.id;
   const text     = msg.message?.text || '';
   const msgId    = msg.message?.mid || `ig_${Date.now()}`;
+  const pageId   = msg.recipient?.id || entryId;
 
-  const token = process.env.INSTAGRAM_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
-  const pageId = msg.recipient?.id || entryId;
+  const tenant = await getTenantByPageId(pageId, 'instagram');
+  const token = tenant?.credentials?.access_token || process.env.INSTAGRAM_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
+
+  if (!tenant) {
+    console.warn(`[Instagram] tenant not found for page ${pageId}`);
+  }
+  if (!token) {
+    console.warn(`[Instagram] missing Instagram page token for page ${pageId}`);
+  }
 
   // Fetch real customer name
   const realName = token ? await fetchIgName(senderId, token) : null;
   const displayName = realName || `IG_${senderId.slice(-6)}`;
 
-  console.log(`[Instagram] Message from ${displayName} (${senderId}): ${text}`);
+  console.log(`[Instagram] Message from ${displayName} (${senderId}) page=${pageId}: ${text}`);
 
   const conv = getOrCreateConversation(senderId, displayName, 'instagram');
 
@@ -116,13 +125,13 @@ async function processInstagramMessage(msg, entryId) {
   } catch {}
 
   if (text) {
-    runAI(conv, msgRecord, senderId, pageId, displayName).catch(err =>
+    runAI(conv, msgRecord, senderId, pageId, displayName, token).catch(err =>
       console.error('[Instagram AI]', err.message)
     );
   }
 }
 
-async function runAI(conv, msgRecord, senderId, pageId, customerName) {
+async function runAI(conv, msgRecord, senderId, pageId, customerName, token) {
   const history = getMessages(conv.id).slice(-8);
 
   const prompt = `You are an AI assistant for an Arabic eCommerce business.
@@ -155,7 +164,6 @@ Return this exact JSON:
   updateConversation(conv.id, { intent: ai.intent, score: ai.lead_score, language: ai.language });
 
   // BOT MODE: auto-send reply via Instagram API
-  const token = process.env.INSTAGRAM_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
   if (ai.suggested_reply && token) {
     try {
       const sendRes = await fetch(
