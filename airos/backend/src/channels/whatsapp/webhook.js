@@ -134,7 +134,47 @@ Return this exact JSON:
     language:  ai.language,
   });
 
-  // Emit AI suggestion to dashboard
+  // BOT MODE: auto-send reply via WhatsApp
+  if (ai.suggested_reply && process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID) {
+    try {
+      const sendRes = await fetch(
+        `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            to: conv.customerPhone,
+            type: 'text',
+            text: { body: ai.suggested_reply },
+          }),
+        }
+      );
+      const sendData = await sendRes.json();
+      if (!sendData.error) {
+        const { addMessage: addMsg } = require('../../core/inMemoryStore');
+        addMsg(conv.id, {
+          id: `ai_${Date.now()}`,
+          direction: 'outbound',
+          content: ai.suggested_reply,
+          type: 'text',
+          sent_by: 'ai',
+          at: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          timestamp: new Date().toISOString(),
+        });
+        console.log(`[WhatsApp Bot] ✅ auto-replied to ${conv.customerPhone}: "${ai.suggested_reply}"`);
+      } else {
+        console.error('[WhatsApp Bot] send error:', sendData.error.message);
+      }
+    } catch (sendErr) {
+      console.error('[WhatsApp Bot] send failed:', sendErr.message);
+    }
+  }
+
+  // Emit AI data to dashboard
   try {
     const io = getIO();
     io.emit('whatsapp:ai', {
