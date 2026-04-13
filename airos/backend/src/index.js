@@ -135,12 +135,14 @@ app.use('/webhooks', require('./channels/messenger/webhook'));
 // Public catalog API (for plugins)
 app.use('/v1/catalog', catalogRoutes);
 
+// Channel routes expose a public Meta callback and protect the rest internally
+app.use('/api/channels', channelsRoutes);
+
 // Protected routes — require JWT + tenant context
 app.use('/api', authMiddleware, tenantMiddleware);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/deals', dealsRoutes);
 app.use('/api/conversations', conversationsRoutes);
-app.use('/api/channels', channelsRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/reports', reportsRoutes);
 

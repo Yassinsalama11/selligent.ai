@@ -7,6 +7,8 @@ const { authMiddleware } = require('../middleware/auth');
 const router = express.Router();
 
 const ALGO = 'aes-256-gcm';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const DEFAULT_RETURN_TO = '/dashboard/settings';
 
 function encrypt(text) {
   const key = Buffer.from(process.env.ENCRYPTION_KEY, 'utf8').slice(0, 32);
@@ -16,6 +18,41 @@ function encrypt(text) {
   const tag = cipher.getAuthTag();
   return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
 }
+
+function sanitizeReturnTo(value) {
+  if (typeof value !== 'string' || !value.startsWith('/')) return DEFAULT_RETURN_TO;
+  return value;
+}
+
+function encodeState(payload) {
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+}
+
+function decodeState(rawState) {
+  if (!rawState) return {};
+
+  try {
+    return JSON.parse(Buffer.from(rawState, 'base64url').toString('utf8'));
+  } catch {
+    const [channel, tenantId] = decodeURIComponent(rawState).split(':');
+    return { channel, tenantId };
+  }
+}
+
+function buildFrontendRedirect(returnTo, params = {}) {
+  const url = new URL(sanitizeReturnTo(returnTo), FRONTEND_URL);
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value) url.searchParams.set(key, value);
+  }
+
+  return url.toString();
+}
+
+router.use((req, res, next) => {
+  if (req.path === '/meta/callback') return next();
+  return authMiddleware(req, res, next);
+});
 
 // GET /api/channels — list connected channels
 router.get('/', async (req, res, next) => {
@@ -58,23 +95,51 @@ router.delete('/:id', async (req, res, next) => {
 // GET /api/channels/meta/connect?channel=instagram|messenger
 router.get('/meta/connect', (req, res) => {
   const channel = req.query.channel || 'instagram';
-  // Store tenant_id in session/state for callback — here we embed it in a simple signed param
-  const state = `${channel}:${req.user.tenant_id}`;
-  const url = getOAuthUrl(channel).replace('state=' + channel, 'state=' + encodeURIComponent(state));
+  const returnTo = sanitizeReturnTo(req.query.return_to);
+  const state = encodeState({ channel, tenantId: req.user.tenant_id, returnTo });
+  const url = getOAuthUrl(channel, state);
   res.redirect(url);
 });
 
+// GET /api/channels/meta/oauth-url?channel=instagram|messenger
+router.get('/meta/oauth-url', (req, res) => {
+  const channel = req.query.channel || 'instagram';
+  const returnTo = sanitizeReturnTo(req.query.return_to);
+  const state = encodeState({ channel, tenantId: req.user.tenant_id, returnTo });
+
+  res.json({ url: getOAuthUrl(channel, state) });
+});
+
 // GET /api/channels/meta/callback (public — Meta redirects here)
-router.get('/meta/callback', async (req, res, next) => {
+router.get('/meta/callback', async (req, res) => {
+  const state = decodeState(req.query.state);
+  const channel = state.channel || 'instagram';
+  const returnTo = sanitizeReturnTo(state.returnTo);
+
+  if (req.query.error) {
+    return res.redirect(buildFrontendRedirect(returnTo, {
+      channel,
+      channel_error: req.query.error_description || req.query.error,
+    }));
+  }
+
+  if (!req.query.code || !state.tenantId) {
+    return res.redirect(buildFrontendRedirect(returnTo, {
+      channel,
+      channel_error: 'Missing authorization code or tenant context',
+    }));
+  }
+
   try {
-    const { code, state, error } = req.query;
-    if (error) return res.status(400).json({ error: req.query.error_description || error });
-
-    const [channel, tenantId] = decodeURIComponent(state).split(':');
-    await handleOAuthCallback(tenantId, code, channel);
-
-    res.redirect(`${process.env.FRONTEND_URL}/dashboard?channel_connected=${channel}`);
-  } catch (err) { next(err); }
+    await handleOAuthCallback(state.tenantId, req.query.code, channel);
+    return res.redirect(buildFrontendRedirect(returnTo, { channel_connected: channel }));
+  } catch (err) {
+    console.error('[Meta OAuth callback]', err);
+    return res.redirect(buildFrontendRedirect(returnTo, {
+      channel,
+      channel_error: err.message || 'Meta OAuth failed',
+    }));
+  }
 });
 
 module.exports = router;

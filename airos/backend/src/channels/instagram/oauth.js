@@ -8,7 +8,7 @@ const BASE = 'https://graph.facebook.com/v19.0';
  * Step 1 — Redirect user to Meta OAuth dialog.
  * GET /api/channels/meta/connect?channel=instagram
  */
-function getOAuthUrl(channel) {
+function getOAuthUrl(channel, state = channel) {
   const params = new URLSearchParams({
     client_id: process.env.META_APP_ID,
     redirect_uri: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/channels/meta/callback`,
@@ -16,7 +16,7 @@ function getOAuthUrl(channel) {
       ? 'instagram_basic,instagram_manage_messages,pages_manage_metadata,pages_read_engagement'
       : 'pages_messaging,pages_manage_metadata,pages_read_engagement',
     response_type: 'code',
-    state: channel,
+    state,
   });
   return `https://www.facebook.com/dialog/oauth?${params.toString()}`;
 }
@@ -36,7 +36,14 @@ async function handleOAuthCallback(tenantId, code, channel) {
   const pages = await getPages(longToken);
   if (!pages.length) throw new Error('No pages found for this account');
 
-  const page = pages[0]; // In production: let user pick the page
+  const page = pickPageForChannel(pages, channel);
+  if (!page) {
+    throw new Error(
+      channel === 'instagram'
+        ? 'No Facebook Page linked to an Instagram Business account was found'
+        : 'No Facebook Page found for this account'
+    );
+  }
 
   // Encrypt and store
   const credentials = {
@@ -48,13 +55,33 @@ async function handleOAuthCallback(tenantId, code, channel) {
 
   const encrypted = encryptCredentials(credentials);
 
-  await query(`
-    INSERT INTO channel_connections (tenant_id, channel, credentials)
-    VALUES ($1, $2, $3)
-    ON CONFLICT (tenant_id, channel) DO UPDATE SET credentials = $3, status = 'active'
-  `, [tenantId, channel, JSON.stringify({ encrypted })]);
+  await upsertChannelConnection(tenantId, channel, JSON.stringify({ encrypted }));
 
   return { page_id: page.id, page_name: page.name };
+}
+
+function pickPageForChannel(pages, channel) {
+  if (channel !== 'instagram') return pages[0];
+  return pages.find((page) => page.instagram_business_account?.id) || null;
+}
+
+async function upsertChannelConnection(tenantId, channel, credentials) {
+  const updated = await query(`
+    UPDATE channel_connections
+    SET credentials = $3, status = 'active'
+    WHERE tenant_id = $1 AND channel = $2
+    RETURNING id
+  `, [tenantId, channel, credentials]);
+
+  if (updated.rowCount > 0) return updated.rows[0];
+
+  const inserted = await query(`
+    INSERT INTO channel_connections (tenant_id, channel, status, credentials)
+    VALUES ($1, $2, 'active', $3)
+    RETURNING id
+  `, [tenantId, channel, credentials]);
+
+  return inserted.rows[0];
 }
 
 async function exchangeCode(code) {

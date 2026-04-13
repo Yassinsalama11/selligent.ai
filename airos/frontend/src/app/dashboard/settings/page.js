@@ -1,7 +1,8 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
+import { api } from '@/lib/api';
 
 /* ─── Shared UI helpers ───────────────────────────────────────────────────── */
 function Label({ children, sub }) {
@@ -338,7 +339,7 @@ export default function SettingsPage() {
       /* partner notice acknowledged */
       partnerAck:true,
     },
-    instagram: { connected:true,  token:'IGAAT123…',     page:'mystore.official',  verified:true  },
+    instagram: { connected:false, token:'',              page:'',                  verified:false },
     messenger: { connected:false, token:'',              page:'',                  verified:false },
     livechat:  { connected:true,  widgetId:'WGT-001',   domain:'mystore.com',      color:'#6366f1' },
   });
@@ -363,6 +364,7 @@ export default function SettingsPage() {
   const [fbModal, setFbModal]           = useState(false);
   const [igTab, setIgTab]               = useState('connection');
   const [fbmTab, setFbmTab]             = useState('connection');
+  const [metaConnecting, setMetaConnecting] = useState('');
   const CHANNEL_STATS = {
     whatsapp:  { conversations:420, deals:38, rate:'42%', response:'1.2m', satisfaction:'4.8' },
     instagram: { conversations:280, deals:22, rate:'28%', response:'2.1m', satisfaction:'4.5' },
@@ -370,6 +372,103 @@ export default function SettingsPage() {
     livechat:  { conversations:95,  deals:12, rate:'35%', response:'0.8m', satisfaction:'4.9' },
   };
   const webhookUrl = (ch) => `https://api.selligent.ai/webhooks/${ch}`;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadChannelConnections() {
+      try {
+        const rows = await api.get('/api/channels');
+        if (!rows || cancelled) return;
+
+        const activeChannels = new Set(
+          rows.filter((row) => row.status === 'active').map((row) => row.channel)
+        );
+
+        setChannels((current) => ({
+          ...current,
+          instagram: {
+            ...current.instagram,
+            connected: activeChannels.has('instagram'),
+            verified: activeChannels.has('instagram'),
+          },
+          messenger: {
+            ...current.messenger,
+            connected: activeChannels.has('messenger'),
+            verified: activeChannels.has('messenger'),
+          },
+        }));
+      } catch {}
+    }
+
+    loadChannelConnections();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get('channel_connected');
+    const error = params.get('channel_error');
+    const channel = params.get('channel') || connected;
+
+    if (!connected && !error) return;
+
+    if (connected === 'instagram' || connected === 'messenger') {
+      const sectionId = connected === 'instagram' ? 'ch_instagram' : 'ch_fb';
+      const label = connected === 'instagram' ? 'Instagram' : 'Messenger';
+
+      setActiveId(sectionId);
+      setChannels((current) => ({
+        ...current,
+        [connected]: {
+          ...current[connected],
+          connected: true,
+          verified: true,
+        },
+      }));
+      toast.success(`${label} connected successfully`);
+    }
+
+    if (error) {
+      const failedChannel = channel === 'messenger' ? 'messenger' : 'instagram';
+      const sectionId = failedChannel === 'instagram' ? 'ch_instagram' : 'ch_fb';
+      const label = failedChannel === 'instagram' ? 'Instagram' : 'Messenger';
+
+      setActiveId(sectionId);
+      toast.error(`${label} connection failed: ${error}`);
+    }
+
+    params.delete('channel_connected');
+    params.delete('channel_error');
+    params.delete('channel');
+
+    const nextQuery = params.toString();
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', nextUrl);
+  }, []);
+
+  async function beginMetaOAuth(channel) {
+    setMetaConnecting(channel);
+    try {
+      const query = new URLSearchParams({
+        channel,
+        return_to: '/dashboard/settings',
+      });
+      const data = await api.get(`/api/channels/meta/oauth-url?${query.toString()}`);
+
+      if (!data?.url) throw new Error('Could not start Meta OAuth');
+
+      window.location.href = data.url;
+    } catch (err) {
+      setMetaConnecting('');
+      toast.error(err.message || 'Could not start Meta OAuth');
+    }
+  }
 
   /* ── Conversation Layout ── */
   const [layout, setLayout] = useState({
@@ -2048,6 +2147,8 @@ export default function SettingsPage() {
   /* ── Shared Facebook OAuth Modal (Instagram + Messenger) ── */
   function FbOAuthModal() {
     if (!fbModal) return null;
+    const oauthChannel = activeId === 'ch_instagram' ? 'instagram' : 'messenger';
+    const isConnecting = metaConnecting === oauthChannel;
     return (
       <Modal title="Connect with Facebook" onClose={()=>setFbModal(false)}>
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -2077,15 +2178,13 @@ export default function SettingsPage() {
             ⚠ This integration will not work if Selligent.ai is later removed from your Meta partner list.
           </div>
           <div style={{ display:'flex', gap:10 }}>
-            <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>setFbModal(false)}>Cancel</button>
-            <button className="btn btn-primary" style={{ flex:1 }}
+            <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>setFbModal(false)} disabled={isConnecting}>Cancel</button>
+            <button className="btn btn-primary" style={{ flex:1, opacity:isConnecting ? 0.75 : 1 }}
+              disabled={isConnecting}
               onClick={()=>{
-                setFbModal(false);
-                const id = activeId === 'ch_instagram' ? 'instagram' : 'messenger';
-                setChannels(cs=>({...cs,[id]:{...cs[id],connected:true,verified:true}}));
-                toast.success('Connected via Facebook OAuth!');
+                beginMetaOAuth(oauthChannel);
               }}>
-              Continue to Facebook →
+              {isConnecting ? 'Opening Facebook…' : 'Continue to Facebook →'}
             </button>
           </div>
         </div>
