@@ -6,6 +6,17 @@ const { getIO } = require('../livechat/socket');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+/* ── Fetch real customer name from Meta Graph API ───────────────────────────── */
+async function fetchFbName(userId, token) {
+  try {
+    const r = await fetch(
+      `https://graph.facebook.com/v19.0/${userId}?fields=name&access_token=${token}`
+    );
+    const d = await r.json();
+    return d.name || null;
+  } catch { return null; }
+}
+
 /* ── GET /webhooks/messenger — Meta verification ───────────────────────────── */
 router.get('/messenger', (req, res) => {
   const { 'hub.mode': mode, 'hub.verify_token': token, 'hub.challenge': challenge } = req.query;
@@ -39,9 +50,18 @@ async function processMessengerMessage(msg, pageId) {
   const text     = msg.message?.text || '';
   const msgId    = msg.message?.mid || `fb_${Date.now()}`;
 
-  console.log(`[Messenger] Message from ${senderId}: ${text}`);
+  const token = process.env.MESSENGER_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
 
-  const conv = getOrCreateConversation(senderId, senderId, 'messenger');
+  // Fetch real customer name
+  const realName = token ? await fetchFbName(senderId, token) : null;
+  const displayName = realName || `FB_${senderId.slice(-6)}`;
+
+  console.log(`[Messenger] Message from ${displayName} (${senderId}): ${text}`);
+
+  const conv = getOrCreateConversation(senderId, displayName, 'messenger');
+
+  // Update name if we got a real one
+  if (realName) updateConversation(conv.id, { customerName: realName });
 
   const msgRecord = {
     id:        msgId,
@@ -50,27 +70,27 @@ async function processMessengerMessage(msg, pageId) {
     content:   text,
     sent_by:   'customer',
     at:        new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-    timestamp: new Date((msg.timestamp || Date.now())).toISOString(),
+    timestamp: new Date(msg.timestamp || Date.now()).toISOString(),
   };
   addMessage(conv.id, msgRecord);
 
   try {
     const io = getIO();
-    io.emit('messenger:message', { conversation: conv, message: msgRecord });
+    io.emit('messenger:message', { conversation: { ...conv, customerName: displayName }, message: msgRecord });
   } catch {}
 
   if (text) {
-    runAI(conv, msgRecord, senderId, pageId).catch(err =>
+    runAI(conv, msgRecord, senderId, pageId, displayName).catch(err =>
       console.error('[Messenger AI]', err.message)
     );
   }
 }
 
-async function runAI(conv, msgRecord, senderId, pageId) {
+async function runAI(conv, msgRecord, senderId, pageId, customerName) {
   const history = getMessages(conv.id).slice(-8);
 
   const prompt = `You are an AI assistant for an Arabic eCommerce business.
-Customer ID: ${senderId}
+Customer: ${customerName} (Messenger)
 Message: "${msgRecord.content}"
 
 Recent history:
@@ -122,7 +142,7 @@ Return this exact JSON:
           at: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
           timestamp: new Date().toISOString(),
         });
-        console.log(`[Messenger Bot] ✅ replied to ${senderId}: "${ai.suggested_reply}"`);
+        console.log(`[Messenger Bot] ✅ replied to ${customerName}: "${ai.suggested_reply}"`);
       } else {
         console.error('[Messenger Bot] send error:', d.error.message);
       }

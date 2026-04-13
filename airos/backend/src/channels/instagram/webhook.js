@@ -6,6 +6,17 @@ const { getIO } = require('../livechat/socket');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+/* ── Fetch real customer name from Meta Graph API ───────────────────────────── */
+async function fetchIgName(userId, token) {
+  try {
+    const r = await fetch(
+      `https://graph.facebook.com/v19.0/${userId}?fields=name&access_token=${token}`
+    );
+    const d = await r.json();
+    return d.name || null;
+  } catch { return null; }
+}
+
 /* ── GET /webhooks/instagram — Meta verification ───────────────────────────── */
 router.get('/instagram', (req, res) => {
   const { 'hub.mode': mode, 'hub.verify_token': token, 'hub.challenge': challenge } = req.query;
@@ -21,9 +32,11 @@ router.post('/instagram', async (req, res) => {
   res.sendStatus(200);
   try {
     const body = req.body;
-    if (body.object !== 'instagram') return;
+    // Meta sends object: 'instagram' OR 'page' depending on app setup
+    if (body.object !== 'instagram' && body.object !== 'page') return;
 
     for (const entry of body.entry || []) {
+      // Instagram DMs come in entry.messaging[]
       for (const msg of entry.messaging || []) {
         if (!msg.message || msg.message.is_echo) continue;
         await processInstagramMessage(msg, entry.id);
@@ -39,9 +52,18 @@ async function processInstagramMessage(msg, pageId) {
   const text     = msg.message?.text || '';
   const msgId    = msg.message?.mid || `ig_${Date.now()}`;
 
-  console.log(`[Instagram] Message from ${senderId}: ${text}`);
+  const token = process.env.INSTAGRAM_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
 
-  const conv = getOrCreateConversation(senderId, senderId, 'instagram');
+  // Fetch real customer name
+  const realName = token ? await fetchIgName(senderId, token) : null;
+  const displayName = realName || `IG_${senderId.slice(-6)}`;
+
+  console.log(`[Instagram] Message from ${displayName} (${senderId}): ${text}`);
+
+  const conv = getOrCreateConversation(senderId, displayName, 'instagram');
+
+  // Update name if we got a real one
+  if (realName) updateConversation(conv.id, { customerName: realName });
 
   const msgRecord = {
     id:        msgId,
@@ -56,21 +78,21 @@ async function processInstagramMessage(msg, pageId) {
 
   try {
     const io = getIO();
-    io.emit('instagram:message', { conversation: conv, message: msgRecord });
+    io.emit('instagram:message', { conversation: { ...conv, customerName: displayName }, message: msgRecord });
   } catch {}
 
   if (text) {
-    runAI(conv, msgRecord, senderId, pageId).catch(err =>
+    runAI(conv, msgRecord, senderId, pageId, displayName).catch(err =>
       console.error('[Instagram AI]', err.message)
     );
   }
 }
 
-async function runAI(conv, msgRecord, senderId, pageId) {
+async function runAI(conv, msgRecord, senderId, pageId, customerName) {
   const history = getMessages(conv.id).slice(-8);
 
   const prompt = `You are an AI assistant for an Arabic eCommerce business.
-Customer ID: ${senderId}
+Customer: ${customerName} (Instagram)
 Message: "${msgRecord.content}"
 
 Recent history:
@@ -122,7 +144,7 @@ Return this exact JSON:
           at: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
           timestamp: new Date().toISOString(),
         });
-        console.log(`[Instagram Bot] ✅ replied to ${senderId}: "${ai.suggested_reply}"`);
+        console.log(`[Instagram Bot] ✅ replied to ${customerName}: "${ai.suggested_reply}"`);
       } else {
         console.error('[Instagram Bot] send error:', d.error.message);
       }

@@ -1807,7 +1807,7 @@ export default function ConversationsPage() {
         {(active || activeLive) && showPanel && (() => {
           const isLive = !!activeLive;
           const panelName   = isLive ? activeLive.customerName : active.name;
-          const panelCh     = isLive ? 'whatsapp' : active.ch;
+          const panelCh     = isLive ? (activeLive.channel || 'whatsapp') : active.ch;
           const panelScore  = isLive ? (activeLive.score||0) : active.score;
           const panelIntent = isLive ? (activeLive.intent||'inquiry') : active.intent;
           const panelAgent  = isLive ? 'Unassigned' : currentAgent;
