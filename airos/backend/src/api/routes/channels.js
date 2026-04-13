@@ -21,13 +21,19 @@ function summarizeCredentials(channel, rawCredentials) {
 
   if (channel === 'whatsapp') {
     return {
-      displayName: credentials.display_name || credentials.displayName || '',
-      phone: credentials.phone || credentials.business_phone || '',
+      displayName: credentials.display_name || credentials.displayName || credentials.verified_name || '',
+      phone: credentials.phone || credentials.display_phone_number || credentials.business_phone || '',
       businessName: credentials.business_name || credentials.businessName || '',
       businessId: credentials.business_id || credentials.businessId || '',
       wabaId: credentials.waba_id || credentials.wabaId || '',
       phoneNumberId: credentials.phone_number_id || credentials.phoneNumberId || '',
-      verified: Boolean(credentials.phone_number_id || credentials.phoneNumberId),
+      verified: Boolean(
+        credentials.phone_number_id ||
+        credentials.phoneNumberId ||
+        credentials.code_verification_status === 'VERIFIED'
+      ),
+      qualityRating: credentials.quality_rating || '',
+      nameStatus: credentials.name_status || '',
       accessTokenMasked: maskToken(credentials.access_token || credentials.accessToken || ''),
     };
   }
@@ -94,6 +100,9 @@ function buildFrontendRedirect(returnTo, params = {}) {
 
 router.use((req, res, next) => {
   if (req.path === '/meta/callback') return next();
+  if (!req.headers.authorization && typeof req.query.token === 'string' && req.query.token.trim()) {
+    req.headers.authorization = `Bearer ${req.query.token.trim()}`;
+  }
   return authMiddleware(req, res, next);
 });
 
@@ -160,22 +169,34 @@ router.delete('/:id', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /api/channels/meta/connect?channel=instagram|messenger
-router.get('/meta/connect', (req, res) => {
+// GET /api/channels/meta/connect?channel=instagram|messenger|whatsapp
+router.get('/meta/connect', (req, res, next) => {
   const channel = req.query.channel || 'instagram';
   const returnTo = sanitizeReturnTo(req.query.return_to);
-  const state = encodeState({ channel, tenantId: req.user.tenant_id, returnTo });
-  const url = getOAuthUrl(channel, state);
-  res.redirect(url);
+
+  try {
+    const state = encodeState({ channel, tenantId: req.user.tenant_id, returnTo });
+    const url = getOAuthUrl(channel, state);
+    res.redirect(url);
+  } catch (err) {
+    res.redirect(buildFrontendRedirect(returnTo, {
+      channel,
+      channel_error: err.message || 'Could not start Meta OAuth',
+    }));
+  }
 });
 
-// GET /api/channels/meta/oauth-url?channel=instagram|messenger
-router.get('/meta/oauth-url', (req, res) => {
-  const channel = req.query.channel || 'instagram';
-  const returnTo = sanitizeReturnTo(req.query.return_to);
-  const state = encodeState({ channel, tenantId: req.user.tenant_id, returnTo });
+// GET /api/channels/meta/oauth-url?channel=instagram|messenger|whatsapp
+router.get('/meta/oauth-url', (req, res, next) => {
+  try {
+    const channel = req.query.channel || 'instagram';
+    const returnTo = sanitizeReturnTo(req.query.return_to);
+    const state = encodeState({ channel, tenantId: req.user.tenant_id, returnTo });
 
-  res.json({ url: getOAuthUrl(channel, state) });
+    res.json({ url: getOAuthUrl(channel, state) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // GET /api/channels/meta/callback (public — Meta redirects here)

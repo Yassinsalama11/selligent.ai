@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
-import { api } from '@/lib/api';
+import { api, API_BASE } from '@/lib/api';
 
 /* ─── Shared UI helpers ───────────────────────────────────────────────────── */
 function Label({ children, sub }) {
@@ -603,22 +603,51 @@ export default function SettingsPage() {
 
     if (!connected && !error) return;
 
-    if (connected === 'instagram' || connected === 'messenger') {
-      const sectionId = connected === 'instagram' ? 'ch_instagram' : 'ch_fb';
-      const label = connected === 'instagram' ? 'Instagram' : 'Messenger';
+    if (connected) {
+      const sectionByChannel = {
+        instagram: 'ch_instagram',
+        messenger: 'ch_fb',
+        whatsapp: 'ch_whatsapp',
+      };
+      const labelByChannel = {
+        instagram: 'Instagram',
+        messenger: 'Messenger',
+        whatsapp: 'WhatsApp',
+      };
 
-      setActiveId(sectionId);
+      const sectionId = sectionByChannel[connected];
+      const label = labelByChannel[connected] || 'Meta channel';
+
+      if (sectionId) setActiveId(sectionId);
+      if (connected === 'whatsapp') {
+        setWaTab('connection');
+        setWaOAuthStep('success');
+        setWaOAuthModal(true);
+      }
       refreshChannelConnections();
       toast.success(`${label} connected successfully`);
     }
 
     if (error) {
-      const failedChannel = channel === 'messenger' ? 'messenger' : 'instagram';
-      const sectionId = failedChannel === 'instagram' ? 'ch_instagram' : 'ch_fb';
-      const label = failedChannel === 'instagram' ? 'Instagram' : 'Messenger';
+      const failedChannel = channel === 'messenger' || channel === 'whatsapp' ? channel : 'instagram';
+      const sectionByChannel = {
+        instagram: 'ch_instagram',
+        messenger: 'ch_fb',
+        whatsapp: 'ch_whatsapp',
+      };
+      const labelByChannel = {
+        instagram: 'Instagram',
+        messenger: 'Messenger',
+        whatsapp: 'WhatsApp',
+      };
 
-      setActiveId(sectionId);
-      toast.error(`${label} connection failed: ${error}`);
+      if (sectionByChannel[failedChannel]) setActiveId(sectionByChannel[failedChannel]);
+      if (failedChannel === 'whatsapp') {
+        setWaTab('connection');
+        setWaOAuthStep('idle');
+        setWaOAuthModal(false);
+      }
+      toast.error(`${labelByChannel[failedChannel]} connection failed: ${error}`);
     }
 
     params.delete('channel_connected');
@@ -631,19 +660,29 @@ export default function SettingsPage() {
   }, []);
 
   async function beginMetaOAuth(channel) {
-    setMetaConnecting(channel);
     try {
+      const token = localStorage.getItem('airos_token');
+      if (!token) throw new Error('Your session expired. Please sign in again.');
+
+      setMetaConnecting(channel);
+      if (channel === 'whatsapp') {
+        setWaOAuthStep('authorizing');
+        setWaOAuthModal(true);
+      }
+
       const query = new URLSearchParams({
         channel,
         return_to: '/dashboard/settings',
+        token,
       });
-      const data = await api.get(`/api/channels/meta/oauth-url?${query.toString()}`);
 
-      if (!data?.url) throw new Error('Could not start Meta OAuth');
-
-      window.location.href = data.url;
+      window.location.href = `${API_BASE}/api/channels/meta/connect?${query.toString()}`;
     } catch (err) {
       setMetaConnecting('');
+      if (channel === 'whatsapp') {
+        setWaOAuthStep('idle');
+        setWaOAuthModal(false);
+      }
       toast.error(err.message || 'Could not start Meta OAuth');
     }
   }
@@ -1058,30 +1097,7 @@ export default function SettingsPage() {
   }
 
   async function saveWhatsAppConnection() {
-    const wa = channels.whatsapp;
-    if (!wa.phoneNumberId?.trim() || !wa.accessToken?.trim()) {
-      toast.error('Phone Number ID and Access Token are required');
-      return;
-    }
-    if (isMaskedSecret(wa.accessToken)) {
-      toast.error('Re-enter the full WhatsApp access token before updating this connection');
-      return;
-    }
-
-    try {
-      await upsertChannelConnection('whatsapp', {
-        waba_id: wa.wabaId,
-        phone_number_id: wa.phoneNumberId,
-        display_name: wa.displayName,
-        phone: wa.phone,
-        business_name: wa.businessName,
-        business_id: wa.businessId,
-        access_token: wa.accessToken.trim(),
-      }, 'WhatsApp connected');
-      await save('WhatsApp connection saved');
-    } catch (err) {
-      toast.error(err.message || 'Could not save WhatsApp connection');
-    }
+    await beginMetaOAuth('whatsapp');
   }
 
   async function takeOverConversation(conversationId) {
@@ -2658,11 +2674,12 @@ export default function SettingsPage() {
   function WhatsAppPanel() {
     const wa = channels.whatsapp;
     const stats = channelStats.whatsapp;
+    const isConnecting = metaConnecting === 'whatsapp';
     const WA_STEPS = [
-      { id:1, title:'Create Meta Business Account', desc:'Go to business.facebook.com and verify your business', done:true },
-      { id:2, title:'Set up WhatsApp Business API',  desc:'In Meta Developer portal, create a WhatsApp app',    done:true },
-      { id:3, title:'Add Phone Number',              desc:'Register and verify your WhatsApp business number',  done:true },
-      { id:4, title:'Connect to Selligent.ai',       desc:'Save your production phone number ID and access token below', done:wa.connected },
+      { id:1, title:'Business portfolio found', desc:'Meta returned a Business account that this operator can manage.', done:Boolean(wa.businessId) },
+      { id:2, title:'WhatsApp account found',  desc:'AIROS discovered a WhatsApp Business Account from that Meta business.', done:Boolean(wa.wabaId) },
+      { id:3, title:'Phone number linked',     desc:'The production phone number and phone number ID were fetched automatically.', done:Boolean(wa.phoneNumberId) },
+      { id:4, title:'Channel ready',           desc:'Credentials are stored encrypted and ready for webhook routing and outbound sends.', done:Boolean(wa.connected && wa.verified) },
     ];
 
     return (
@@ -2674,10 +2691,10 @@ export default function SettingsPage() {
           <div>
             <p style={{ fontSize:13, fontWeight:600, color:'#4ade80', marginBottom:5 }}>How this connection works</p>
             <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.7 }}>
-              Save the production <strong style={{ color:'var(--t2)' }}>Phone Number ID</strong> and
-              <strong style={{ color:'var(--t2)' }}> Access Token</strong> from your Meta WhatsApp app here.
-              The backend stores them in encrypted channel credentials and uses them for inbound tenant routing
-              and outbound AI replies. Keep this token server-side only and rotate it if it is exposed.
+              Connect your Meta Business account with OAuth and AIROS will automatically discover the
+              <strong style={{ color:'var(--t2)' }}> Business ID</strong>, <strong style={{ color:'var(--t2)' }}>WABA ID</strong>,
+              <strong style={{ color:'var(--t2)' }}> Phone Number ID</strong>, and a usable access token. The backend stores them
+              in encrypted channel credentials and uses them for inbound tenant routing and outbound AI replies.
             </p>
           </div>
         </div>
@@ -2691,7 +2708,7 @@ export default function SettingsPage() {
             <div style={{ flex:1 }}>
               <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>WhatsApp Business</p>
               <p style={{ fontSize:12, color: wa.connected ? '#34d399' : 'var(--t4)' }}>
-                {wa.connected ? `● Connected · ${wa.displayName || wa.phone} · Verified` : '○ Not connected'}
+                {wa.connected ? `● Connected · ${wa.displayName || wa.businessName || wa.phone || 'WhatsApp'} · Verified` : '○ Not connected'}
               </p>
             </div>
             {wa.connected
@@ -2705,9 +2722,10 @@ export default function SettingsPage() {
                   accessToken:'',
                   partnerAck:false,
                 })} style={{ color:'#fca5a5' }}>Disconnect</button>
-              : <button className="btn btn-sm btn-primary" onClick={saveWhatsAppConnection}
+              : <button className="btn btn-sm btn-primary" onClick={()=>beginMetaOAuth('whatsapp')}
+                  disabled={isConnecting}
                   style={{ background:'#25D366', borderColor:'#25D366', color:'#fff', display:'flex', alignItems:'center', gap:7 }}>
-                  🔗 Save Connection
+                  {isConnecting ? 'Opening Meta…' : '🔐 Connect with Meta'}
                 </button>}
           </div>
           {wa.connected && (
@@ -2739,8 +2757,27 @@ export default function SettingsPage() {
 
         {/* ── Connection tab ── */}
         {waTab === 'connection' && (
-          <Section title="Setup Progress"
-            sub="Complete all steps to activate WhatsApp messaging.">
+          <Section title="WhatsApp OAuth"
+            sub="Connect with Meta once and AIROS will fetch the production identifiers automatically.">
+            <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(37,211,102,0.05)',
+              border:'1px solid rgba(37,211,102,0.18)', marginBottom:18 }}>
+              <p style={{ fontSize:13, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Recommended: Meta OAuth</p>
+              <p style={{ fontSize:12.5, color:'var(--t4)', marginBottom:12, lineHeight:1.6 }}>
+                This flow avoids manual entry. After you approve access in Meta, AIROS stores the selected business,
+                WhatsApp Business Account, phone number ID, and token in the backend connection record.
+              </p>
+              <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
+                <button className="btn btn-sm" style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:8 }}
+                  disabled={isConnecting}
+                  onClick={()=>beginMetaOAuth('whatsapp')}>
+                  {isConnecting ? 'Opening Meta…' : wa.connected ? 'Reconnect with Meta' : '🔐 Connect with Meta'}
+                </button>
+                {wa.connected && (
+                  <button className="btn btn-sm btn-ghost" onClick={refreshChannelConnections}>Refresh Status</button>
+                )}
+              </div>
+            </div>
+
             <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
               {WA_STEPS.map(step=>(
                 <div key={step.id} style={{ display:'flex', alignItems:'flex-start', gap:14,
@@ -2764,27 +2801,27 @@ export default function SettingsPage() {
 
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:20 }}>
               <Field label="Display Name">
-                <input className="input" value={wa.displayName || ''} onChange={e=>setChannels(cs=>({...cs,whatsapp:{...cs.whatsapp,displayName:e.target.value}}))} />
+                <input className="input" value={wa.displayName || ''} readOnly placeholder="Will be filled from Meta OAuth" />
               </Field>
               <Field label="Phone Number">
-                <input className="input" value={wa.phone || ''} onChange={e=>setChannels(cs=>({...cs,whatsapp:{...cs.whatsapp,phone:e.target.value}}))} />
+                <input className="input" value={wa.phone || ''} readOnly placeholder="Will be filled from Meta OAuth" />
               </Field>
               <Field label="Business Name">
-                <input className="input" value={wa.businessName || ''} onChange={e=>setChannels(cs=>({...cs,whatsapp:{...cs.whatsapp,businessName:e.target.value}}))} />
+                <input className="input" value={wa.businessName || ''} readOnly placeholder="Will be filled from Meta OAuth" />
               </Field>
               <Field label="Business ID">
-                <input className="input" value={wa.businessId || ''} onChange={e=>setChannels(cs=>({...cs,whatsapp:{...cs.whatsapp,businessId:e.target.value}}))} />
+                <input className="input" value={wa.businessId || ''} readOnly placeholder="Will be filled from Meta OAuth" />
               </Field>
               <Field label="WABA ID">
-                <input className="input" value={wa.wabaId || ''} onChange={e=>setChannels(cs=>({...cs,whatsapp:{...cs.whatsapp,wabaId:e.target.value}}))} />
+                <input className="input" value={wa.wabaId || ''} readOnly placeholder="Will be filled from Meta OAuth" />
               </Field>
-              <Field label="Phone Number ID" sub="Required for webhook routing and outbound sends.">
-                <input className="input" value={wa.phoneNumberId || ''} onChange={e=>setChannels(cs=>({...cs,whatsapp:{...cs.whatsapp,phoneNumberId:e.target.value}}))} />
+              <Field label="Phone Number ID" sub="Used for webhook routing and outbound sends.">
+                <input className="input" value={wa.phoneNumberId || ''} readOnly placeholder="Will be filled from Meta OAuth" />
               </Field>
             </div>
-            <Field label="Access Token" sub="Stored encrypted in the backend channel connection.">
+            <Field label="Access Token" sub="Stored encrypted in the backend channel connection after Meta OAuth.">
               <input className="input" style={{ fontFamily:'monospace', fontSize:12 }} value={wa.accessToken || ''}
-                onChange={e=>setChannels(cs=>({...cs,whatsapp:{...cs.whatsapp,accessToken:e.target.value}}))} />
+                readOnly placeholder="Will be stored after Meta OAuth" />
             </Field>
 
             {/* Webhook URL */}
@@ -2806,7 +2843,6 @@ export default function SettingsPage() {
               Costs are deducted from your broadcast credits.
               Rates: 🇪🇬 EG $0.025 · 🇦🇪 AE $0.036 · 🇸🇦 SA $0.041 per conversation.
             </div>
-            <SaveRow onSave={saveWhatsAppConnection} saving={saving} />
           </Section>
         )}
 
