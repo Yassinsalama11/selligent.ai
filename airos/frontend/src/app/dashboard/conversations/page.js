@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
 import { io } from 'socket.io-client';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'https://selligentai-production.up.railway.app';
+const API = process.env.NEXT_PUBLIC_API_URL || 'https://api.selligent.ai';
 
 // Module-level auto-reply map — updated synchronously when toggle changes.
 // This bypasses React's async useEffect/storeRef update cycle so socket

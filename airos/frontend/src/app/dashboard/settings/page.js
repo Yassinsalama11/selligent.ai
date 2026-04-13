@@ -572,7 +572,6 @@ export default function SettingsPage() {
     livechat:  { conversations:95,  deals:12, rate:'35%', response:'0.8m', satisfaction:'4.9' },
   };
   const [channelStats, setChannelStats] = useState(CHANNEL_STATS);
-  const webhookUrl = (ch) => `https://api.selligent.ai/webhooks/${ch}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -1050,36 +1049,10 @@ export default function SettingsPage() {
   }
 
   async function saveInstagramSettings() {
-    if (channels.instagram.page?.trim() && channels.instagram.token?.trim() && !isMaskedSecret(channels.instagram.token)) {
-      try {
-        await upsertChannelConnection('instagram', {
-          page_id: channels.instagram.page.trim(),
-          page_name: channels.instagram.page.trim(),
-          access_token: channels.instagram.token.trim(),
-        }, 'Instagram connected');
-      } catch (err) {
-        toast.error(err.message || 'Could not save Instagram connection');
-        return;
-      }
-    }
-
     await save('Instagram settings saved');
   }
 
   async function saveMessengerSettings() {
-    if (channels.messenger.page?.trim() && channels.messenger.token?.trim() && !isMaskedSecret(channels.messenger.token)) {
-      try {
-        await upsertChannelConnection('messenger', {
-          page_id: channels.messenger.page.trim(),
-          page_name: channels.messenger.page.trim(),
-          access_token: channels.messenger.token.trim(),
-        }, 'Messenger connected');
-      } catch (err) {
-        toast.error(err.message || 'Could not save Messenger connection');
-        return;
-      }
-    }
-
     await save('Messenger settings saved');
   }
 
@@ -1929,38 +1902,42 @@ export default function SettingsPage() {
             </div>
 
             {igTab === 'connection' && (
-              <Section title="📸 Instagram Business" sub="Connect via Meta Graph API. Requires Instagram Business or Creator account linked to a Facebook Page.">
+              <Section title="📸 Instagram Business" sub="Connect via Meta OAuth. AIROS handles the page token and account linking automatically.">
                 <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(225,48,108,0.05)',
                   border:'1px solid rgba(225,48,108,0.18)', marginBottom:18 }}>
-                  <p style={{ fontSize:13, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Recommended: OAuth (no manual keys)</p>
+                  <p style={{ fontSize:13, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Fully automatic Meta connection</p>
                   <p style={{ fontSize:12.5, color:'var(--t4)', marginBottom:12, lineHeight:1.5 }}>
-                    Selligent.ai will be added as a partner in your Meta Business account and receive permission to read/send Instagram DMs.
+                    AIROS opens Meta Business Login, lets you pick the connected assets, then stores the page token and account link in the backend automatically.
                   </p>
-                  <button className="btn btn-sm" style={{ background:'#E1306C', color:'#fff', border:'none', borderRadius:8 }}
-                    onClick={()=>setFbModal(true)}>🔐 Connect with Facebook</button>
-                </div>
-                <Field label="Instagram Page / Account ID" sub="Enter the page ID used by Meta webhooks, or use OAuth above.">
-                  <input className="input" placeholder="1784..." value={ig.page||''}
-                    onChange={e=>setChannels(cs=>({...cs,instagram:{...cs.instagram,page:e.target.value}}))} />
-                </Field>
-                <div style={{ marginTop:14 }}>
-                  <Field label="Meta Access Token">
-                    <input className="input" style={{ fontFamily:'monospace', fontSize:12 }} placeholder="IGAAT123…" value={ig.token||''}
-                      onChange={e=>setChannels(cs=>({...cs,instagram:{...cs.instagram,token:e.target.value}}))} />
-                  </Field>
-                </div>
-                <div style={{ marginTop:16 }}>
-                  <p style={{ fontSize:11.5, fontWeight:700, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>
-                    Callback URL
-                  </p>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
-                    padding:'10px 14px', borderRadius:9, background:'rgba(0,0,0,0.3)', border:'1px solid var(--b1)' }}>
-                    <code style={{ fontFamily:'monospace', fontSize:13, color:'var(--t2)' }}>{webhookUrl('instagram')}</code>
-                    <button style={{ fontSize:12, color:'#818cf8', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}
-                      onClick={()=>{ navigator.clipboard?.writeText(webhookUrl('instagram')); toast.success('Copied!'); }}>Copy</button>
+                  <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
+                    <button className="btn btn-sm" style={{ background:'#E1306C', color:'#fff', border:'none', borderRadius:8 }}
+                      onClick={()=>setFbModal(true)}>
+                      {ig.connected ? 'Reconnect with Facebook' : '🔐 Connect with Facebook'}
+                    </button>
+                    {ig.connected && (
+                      <button className="btn btn-sm btn-ghost" onClick={refreshChannelConnections}>Refresh Status</button>
+                    )}
                   </div>
                 </div>
-                <SaveRow onSave={saveInstagramSettings} saving={saving} />
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:12 }}>
+                  <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
+                    <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Connected Account</p>
+                    <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>{ig.page || 'Waiting for Meta OAuth'}</p>
+                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>No page IDs or access tokens are entered manually.</p>
+                  </div>
+                  <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
+                    <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Connection Status</p>
+                    <p style={{ fontSize:14, fontWeight:700, color:ig.connected ? '#34d399' : 'var(--t1)' }}>
+                      {ig.connected ? 'Verified and active' : 'Not connected yet'}
+                    </p>
+                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>AIROS uses the stored Meta page token after OAuth completes.</p>
+                  </div>
+                  <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
+                    <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Webhook Setup</p>
+                    <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>Managed by AIROS</p>
+                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>The connection flow now stays inside the product instead of asking operators for callback URLs.</p>
+                  </div>
+                </div>
               </Section>
             )}
 
@@ -2038,38 +2015,42 @@ export default function SettingsPage() {
             </div>
 
             {fbmTab === 'connection' && (
-              <Section title="💬 Facebook Messenger" sub="Connect your Facebook Page to receive and send Messenger conversations. Requires page admin access.">
+              <Section title="💬 Facebook Messenger" sub="Connect your Facebook Page with Meta OAuth. AIROS handles the page token automatically.">
                 <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(0,153,255,0.05)',
                   border:'1px solid rgba(0,153,255,0.18)', marginBottom:18 }}>
-                  <p style={{ fontSize:13, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Recommended: OAuth (no manual keys)</p>
+                  <p style={{ fontSize:13, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Fully automatic Meta connection</p>
                   <p style={{ fontSize:12.5, color:'var(--t4)', marginBottom:12, lineHeight:1.5 }}>
-                    Selligent.ai will be added as a partner in your Meta Business account and receive permission to manage Messenger on your Page.
+                    AIROS opens Meta Business Login, lets you pick the Page, then stores the page token and Messenger connection in the backend automatically.
                   </p>
-                  <button className="btn btn-sm" style={{ background:'#0099FF', color:'#fff', border:'none', borderRadius:8 }}
-                    onClick={()=>setFbModal(true)}>🔐 Connect with Facebook</button>
-                </div>
-                <Field label="Facebook Page ID" sub="Enter the page ID used by Messenger webhooks, or use OAuth above.">
-                  <input className="input" placeholder="1234567890" value={fbm.page||''}
-                    onChange={e=>setChannels(cs=>({...cs,messenger:{...cs.messenger,page:e.target.value}}))} />
-                </Field>
-                <div style={{ marginTop:14 }}>
-                  <Field label="Page Access Token">
-                    <input className="input" style={{ fontFamily:'monospace', fontSize:12 }} placeholder="EAAFbG…" value={fbm.token||''}
-                      onChange={e=>setChannels(cs=>({...cs,messenger:{...cs.messenger,token:e.target.value}}))} />
-                  </Field>
-                </div>
-                <div style={{ marginTop:16 }}>
-                  <p style={{ fontSize:11.5, fontWeight:700, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>
-                    Callback URL
-                  </p>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
-                    padding:'10px 14px', borderRadius:9, background:'rgba(0,0,0,0.3)', border:'1px solid var(--b1)' }}>
-                    <code style={{ fontFamily:'monospace', fontSize:13, color:'var(--t2)' }}>{webhookUrl('messenger')}</code>
-                    <button style={{ fontSize:12, color:'#818cf8', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}
-                      onClick={()=>{ navigator.clipboard?.writeText(webhookUrl('messenger')); toast.success('Copied!'); }}>Copy</button>
+                  <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
+                    <button className="btn btn-sm" style={{ background:'#0099FF', color:'#fff', border:'none', borderRadius:8 }}
+                      onClick={()=>setFbModal(true)}>
+                      {fbm.connected ? 'Reconnect with Facebook' : '🔐 Connect with Facebook'}
+                    </button>
+                    {fbm.connected && (
+                      <button className="btn btn-sm btn-ghost" onClick={refreshChannelConnections}>Refresh Status</button>
+                    )}
                   </div>
                 </div>
-                <SaveRow onSave={saveMessengerSettings} saving={saving} />
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:12 }}>
+                  <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
+                    <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Connected Page</p>
+                    <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>{fbm.page || 'Waiting for Meta OAuth'}</p>
+                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>No page IDs or page tokens are entered manually.</p>
+                  </div>
+                  <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
+                    <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Connection Status</p>
+                    <p style={{ fontSize:14, fontWeight:700, color:fbm.connected ? '#34d399' : 'var(--t1)' }}>
+                      {fbm.connected ? 'Verified and active' : 'Not connected yet'}
+                    </p>
+                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>AIROS uses the stored Meta page token after OAuth completes.</p>
+                  </div>
+                  <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
+                    <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Webhook Setup</p>
+                    <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>Managed by AIROS</p>
+                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>Operators no longer need to paste callback URLs into the settings page.</p>
+                  </div>
+                </div>
               </Section>
             )}
 
@@ -2678,7 +2659,7 @@ export default function SettingsPage() {
     const WA_STEPS = [
       { id:1, title:'Business portfolio found', desc:'Meta returned a Business account that this operator can manage.', done:Boolean(wa.businessId) },
       { id:2, title:'WhatsApp account found',  desc:'AIROS discovered a WhatsApp Business Account from that Meta business.', done:Boolean(wa.wabaId) },
-      { id:3, title:'Phone number linked',     desc:'The production phone number and phone number ID were fetched automatically.', done:Boolean(wa.phoneNumberId) },
+      { id:3, title:'Phone number linked',     desc:'The production number and technical routing details were fetched automatically.', done:Boolean(wa.phoneNumberId) },
       { id:4, title:'Channel ready',           desc:'Credentials are stored encrypted and ready for webhook routing and outbound sends.', done:Boolean(wa.connected && wa.verified) },
     ];
 
@@ -2692,8 +2673,8 @@ export default function SettingsPage() {
             <p style={{ fontSize:13, fontWeight:600, color:'#4ade80', marginBottom:5 }}>How this connection works</p>
             <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.7 }}>
               Connect your Meta Business account with OAuth and AIROS will automatically discover the
-              <strong style={{ color:'var(--t2)' }}> Business ID</strong>, <strong style={{ color:'var(--t2)' }}>WABA ID</strong>,
-              <strong style={{ color:'var(--t2)' }}> Phone Number ID</strong>, and a usable access token. The backend stores them
+              <strong style={{ color:'var(--t2)' }}> business</strong>, <strong style={{ color:'var(--t2)' }}> connected number</strong>,
+              and a usable access token. The backend stores them
               in encrypted channel credentials and uses them for inbound tenant routing and outbound AI replies.
             </p>
           </div>
@@ -2764,7 +2745,7 @@ export default function SettingsPage() {
               <p style={{ fontSize:13, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Recommended: Meta OAuth</p>
               <p style={{ fontSize:12.5, color:'var(--t4)', marginBottom:12, lineHeight:1.6 }}>
                 This flow avoids manual entry. After you approve access in Meta, AIROS stores the selected business,
-                WhatsApp Business Account, phone number ID, and token in the backend connection record.
+                number, and credentials automatically in the backend connection record.
               </p>
               <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
                 <button className="btn btn-sm" style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:8 }}
@@ -2799,40 +2780,27 @@ export default function SettingsPage() {
               ))}
             </div>
 
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:20 }}>
-              <Field label="Display Name">
-                <input className="input" value={wa.displayName || ''} readOnly placeholder="Will be filled from Meta OAuth" />
-              </Field>
-              <Field label="Phone Number">
-                <input className="input" value={wa.phone || ''} readOnly placeholder="Will be filled from Meta OAuth" />
-              </Field>
-              <Field label="Business Name">
-                <input className="input" value={wa.businessName || ''} readOnly placeholder="Will be filled from Meta OAuth" />
-              </Field>
-              <Field label="Business ID">
-                <input className="input" value={wa.businessId || ''} readOnly placeholder="Will be filled from Meta OAuth" />
-              </Field>
-              <Field label="WABA ID">
-                <input className="input" value={wa.wabaId || ''} readOnly placeholder="Will be filled from Meta OAuth" />
-              </Field>
-              <Field label="Phone Number ID" sub="Used for webhook routing and outbound sends.">
-                <input className="input" value={wa.phoneNumberId || ''} readOnly placeholder="Will be filled from Meta OAuth" />
-              </Field>
-            </div>
-            <Field label="Access Token" sub="Stored encrypted in the backend channel connection after Meta OAuth.">
-              <input className="input" style={{ fontFamily:'monospace', fontSize:12 }} value={wa.accessToken || ''}
-                readOnly placeholder="Will be stored after Meta OAuth" />
-            </Field>
-
-            {/* Webhook URL */}
-            <div style={{ marginTop:20 }}>
-              <p style={{ fontSize:11.5, fontWeight:700, color:'var(--t4)', textTransform:'uppercase',
-                letterSpacing:'0.08em', marginBottom:8 }}>Callback URL — paste this in Meta Dashboard</p>
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
-                padding:'10px 14px', borderRadius:9, background:'rgba(0,0,0,0.3)', border:'1px solid var(--b1)' }}>
-                <code style={{ fontFamily:'monospace', fontSize:13, color:'var(--t2)' }}>{webhookUrl('whatsapp')}</code>
-                <button style={{ fontSize:12, color:'#818cf8', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}
-                  onClick={()=>{ navigator.clipboard?.writeText(webhookUrl('whatsapp')); toast.success('Copied!'); }}>Copy</button>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:12, marginBottom:20 }}>
+              <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
+                <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Business</p>
+                <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>{wa.businessName || 'Waiting for Meta OAuth'}</p>
+                <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>Your business portfolio is discovered from Meta automatically.</p>
+              </div>
+              <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
+                <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>WhatsApp Number</p>
+                <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>{wa.displayName || wa.phone || 'Waiting for Meta OAuth'}</p>
+                <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>
+                  {wa.phone ? `Connected number ${wa.phone}` : 'The production number is fetched from your WhatsApp Business Account.'}
+                </p>
+              </div>
+              <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
+                <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Connection Status</p>
+                <p style={{ fontSize:14, fontWeight:700, color:wa.connected ? '#34d399' : 'var(--t1)' }}>
+                  {wa.connected ? 'Verified and active' : 'Not connected yet'}
+                </p>
+                <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>
+                  {wa.connected ? 'Credentials are stored server-side and used automatically by AIROS.' : 'No technical Meta values are entered manually by operators.'}
+                </p>
               </div>
             </div>
 

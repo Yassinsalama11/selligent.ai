@@ -5,7 +5,7 @@ import Image from 'next/image';
 
 const SERVICES = [
   { name: 'Web Application', desc: 'selligent-ai.pages.dev', status: 'operational' },
-  { name: 'API Backend', desc: 'selligentai-production.up.railway.app', status: 'operational' },
+  { name: 'API Backend', desc: 'api.selligent.ai', status: 'operational' },
   { name: 'AI Engine', desc: 'Intent detection & reply generation', status: 'operational' },
   { name: 'WhatsApp Webhooks', desc: 'Meta Cloud API integration', status: 'operational' },
   { name: 'Instagram Webhooks', desc: 'Instagram Messaging API', status: 'operational' },

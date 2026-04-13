@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'https://selligentai-production.up.railway.app';
+const API = process.env.NEXT_PUBLIC_API_URL || 'https://api.selligent.ai';
 
 const STEPS = [
   { n: 1, label: 'Account'  },

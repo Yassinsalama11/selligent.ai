@@ -1,4 +1,4 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://api.selligent.ai';
 
 export function isDemo() {
   if (typeof window === 'undefined') return false;

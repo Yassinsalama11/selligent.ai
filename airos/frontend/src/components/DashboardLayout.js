@@ -18,7 +18,7 @@ const NAV = [
   { href: '/dashboard/settings',      icon: '⚙',  label: 'Settings'                    },
 ];
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'https://selligentai-production.up.railway.app';
+const API = process.env.NEXT_PUBLIC_API_URL || 'https://api.selligent.ai';
 
 export default function DashboardLayout({ children }) {
   const pathname = usePathname();
