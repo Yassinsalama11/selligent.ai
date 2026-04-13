@@ -2,7 +2,6 @@ const express = require('express');
 const router  = express.Router();
 const OpenAI  = require('openai');
 const { getOrCreateConversation, addMessage, getMessages, updateConversation } = require('../../core/inMemoryStore');
-const { getTenantByPageId } = require('../../core/tenantManager');
 const { getIO } = require('../livechat/socket');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -87,15 +86,8 @@ async function processInstagramMessage(msg, entryId) {
   const msgId    = msg.message?.mid || `ig_${Date.now()}`;
   const pageId   = msg.recipient?.id || entryId;
 
-  const tenant = await getTenantByPageId(pageId, 'instagram');
-  const token = tenant?.credentials?.access_token || process.env.INSTAGRAM_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
-
-  if (!tenant) {
-    console.warn(`[Instagram] tenant not found for page ${pageId}`);
-  }
-  if (!token) {
-    console.warn(`[Instagram] missing Instagram page token for page ${pageId}`);
-  }
+  const token = process.env.INSTAGRAM_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
+  if (!token) console.warn(`[Instagram] missing INSTAGRAM_PAGE_TOKEN env var`);
 
   // Fetch real customer name
   const realName = token ? await fetchIgName(senderId, token) : null;
