@@ -121,6 +121,12 @@ app.use('/webhooks', require('./channels/whatsapp/webhook'));
 app.use('/webhooks', require('./channels/instagram/webhook'));
 app.use('/webhooks', require('./channels/messenger/webhook'));
 
+// Debug: log any unmatched webhook hits
+app.all('/webhooks/*', (req, res) => {
+  console.log(`[Webhook DEBUG] ${req.method} ${req.path} body:`, JSON.stringify(req.body).slice(0, 300));
+  res.sendStatus(200);
+});
+
 // Public catalog API (for plugins)
 app.use('/v1/catalog', catalogRoutes);
 

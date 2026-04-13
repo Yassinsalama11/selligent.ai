@@ -32,8 +32,12 @@ router.post('/instagram', async (req, res) => {
   res.sendStatus(200);
   try {
     const body = req.body;
+    console.log('[Instagram] RAW BODY:', JSON.stringify(body).slice(0, 500));
     // Meta sends object: 'instagram' OR 'page' depending on app setup
-    if (body.object !== 'instagram' && body.object !== 'page') return;
+    if (body.object !== 'instagram' && body.object !== 'page') {
+      console.log('[Instagram] Ignored — object type:', body.object);
+      return;
+    }
 
     for (const entry of body.entry || []) {
       // Instagram DMs come in entry.messaging[]
