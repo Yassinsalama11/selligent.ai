@@ -116,16 +116,21 @@ app.post('/api/live/send', async (req, res) => {
   }
 });
 
+// Webhook debug store — last 10 hits
+const _webhookLog = [];
+app.use('/webhooks', (req, res, next) => {
+  if (req.method === 'POST') {
+    _webhookLog.unshift({ path: req.path, body: req.body, ts: new Date().toISOString() });
+    if (_webhookLog.length > 10) _webhookLog.pop();
+  }
+  next();
+});
+app.get('/debug/webhooks', (req, res) => res.json(_webhookLog));
+
 // Webhook routes (public — Meta verifies these)
 app.use('/webhooks', require('./channels/whatsapp/webhook'));
 app.use('/webhooks', require('./channels/instagram/webhook'));
 app.use('/webhooks', require('./channels/messenger/webhook'));
-
-// Debug: log any unmatched webhook hits
-app.all('/webhooks/*', (req, res) => {
-  console.log(`[Webhook DEBUG] ${req.method} ${req.path} body:`, JSON.stringify(req.body).slice(0, 300));
-  res.sendStatus(200);
-});
 
 // Public catalog API (for plugins)
 app.use('/v1/catalog', catalogRoutes);
