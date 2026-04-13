@@ -57,26 +57,35 @@ router.post('/instagram', async (req, res) => {
 
 function getInstagramMessages(entry) {
   const messages = [];
+
+  // Format 1: entry.messaging[] (older API)
   if (Array.isArray(entry.messaging)) {
     messages.push(...entry.messaging);
   }
+
+  // Format 2: entry.changes[].value IS the message object directly
   if (Array.isArray(entry.changes)) {
     for (const change of entry.changes) {
-      const valueMessages = change.value?.messages;
-      if (Array.isArray(valueMessages)) {
-        messages.push(...valueMessages.map(msg => {
-          if (!msg.sender && msg.from) {
-            return {
-              ...msg,
-              sender: { id: msg.from.id || msg.from },
-              recipient: { id: msg.recipient?.id || entry.id },
-            };
-          }
-          return msg;
-        }));
+      if (change.field !== 'messages') continue;
+      const v = change.value;
+      if (!v) continue;
+
+      // value is a single message object with sender + message fields
+      if (v.sender && v.message) {
+        messages.push(v);
+        continue;
+      }
+
+      // value has a messages array (WhatsApp-style)
+      if (Array.isArray(v.messages)) {
+        for (const msg of v.messages) {
+          const sender = msg.sender || (msg.from ? { id: msg.from.id || msg.from } : null);
+          messages.push({ ...msg, sender, recipient: msg.recipient || { id: entry.id } });
+        }
       }
     }
   }
+
   return messages;
 }
 
