@@ -4,6 +4,14 @@ const OpenAI    = require('openai');
 const { normalizeWhatsApp } = require('./normalizer');
 const { getOrCreateConversation, addMessage, getMessages, updateConversation } = require('../../core/inMemoryStore');
 const { getIO } = require('../livechat/socket');
+const { getTenantByWhatsAppPhoneId } = require('../../core/tenantManager');
+const { query } = require('../../db/pool');
+const {
+  normalizeTenantSettings,
+  buildCompanyContext,
+  isWithinWorkingHours,
+  isBlockedSpammer,
+} = require('../../core/tenantSettings');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -43,9 +51,27 @@ router.post('/whatsapp', async (req, res) => {
 
 /* ── Core message processor ─────────────────────────────────────────────────── */
 async function processWhatsAppMessage(rawMsg, contacts, metadata) {
+  const tenantMatch = metadata?.phone_number_id
+    ? await getTenantByWhatsAppPhoneId(metadata.phone_number_id)
+    : null;
+  const tenantRow = tenantMatch?.tenant_id
+    ? await query('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantMatch.tenant_id]).then((result) => result.rows[0] || null)
+    : null;
+  const settings = normalizeTenantSettings(tenantRow?.settings);
+  const company = buildCompanyContext(tenantRow || {});
+
   // 1. Normalize
   const unified = normalizeWhatsApp('default', rawMsg, contacts);
   const { customer, message } = unified;
+
+  if (isBlockedSpammer({
+    phone: customer.phone,
+    channelCustomerId: customer.id,
+    name: customer.name,
+  }, settings.spammers)) {
+    console.warn(`[WhatsApp] blocked message from configured spammer ${customer.phone}`);
+    return;
+  }
 
   console.log(`[WhatsApp] Message from ${customer.name} (${customer.phone}): ${message.content}`);
 
@@ -79,18 +105,26 @@ async function processWhatsAppMessage(rawMsg, contacts, metadata) {
 
   // 5. AI intent + reply suggestion (async, non-blocking)
   if (message.content && message.type === 'text') {
-    runAI(conv, msgRecord, customer).catch(err =>
+    runAI(conv, msgRecord, customer, {
+      settings,
+      company,
+      token: tenantMatch?.credentials?.access_token || process.env.WHATSAPP_TOKEN,
+      phoneNumberId: metadata?.phone_number_id || tenantMatch?.credentials?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID,
+    }).catch(err =>
       console.error('[WhatsApp AI]', err.message)
     );
   }
 }
 
-async function runAI(conv, msgRecord, customer) {
+async function runAI(conv, msgRecord, customer, tenantContext = {}) {
   const history = getMessages(conv.id).slice(-8);
+  const settings = tenantContext.settings || normalizeTenantSettings();
+  const company = tenantContext.company || { name: 'our store' };
 
-  const prompt = `You are an AI assistant for an Arabic eCommerce business.
+  const prompt = `${settings.aiConfig?.systemPrompt || 'You are an AI assistant for an Arabic eCommerce business.'}
 Analyze this customer message and respond with JSON only.
 
+Business: ${company.name}
 Customer: ${customer.name} (${customer.phone})
 Message: "${msgRecord.content}"
 
@@ -135,21 +169,26 @@ Return this exact JSON:
   });
 
   // BOT MODE: auto-send reply via WhatsApp
-  if (ai.suggested_reply && process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID) {
+  const withinHours = isWithinWorkingHours(settings.global);
+  const outboundText = !withinHours && settings.waSettings?.away_msg
+    ? settings.waSettings.away_msg
+    : ai.suggested_reply;
+
+  if (settings.aiConfig?.autoReply && outboundText && tenantContext.token && tenantContext.phoneNumberId) {
     try {
       const sendRes = await fetch(
-        `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+        `https://graph.facebook.com/v19.0/${tenantContext.phoneNumberId}/messages`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`,
+            'Authorization': `Bearer ${tenantContext.token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
             messaging_product: 'whatsapp',
             to: conv.customerPhone,
             type: 'text',
-            text: { body: ai.suggested_reply },
+            text: { body: outboundText },
           }),
         }
       );
@@ -159,13 +198,13 @@ Return this exact JSON:
         addMsg(conv.id, {
           id: `ai_${Date.now()}`,
           direction: 'outbound',
-          content: ai.suggested_reply,
+          content: outboundText,
           type: 'text',
           sent_by: 'ai',
           at: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
           timestamp: new Date().toISOString(),
         });
-        console.log(`[WhatsApp Bot] ✅ auto-replied to ${conv.customerPhone}: "${ai.suggested_reply}"`);
+        console.log(`[WhatsApp Bot] ✅ auto-replied to ${conv.customerPhone}: "${outboundText}"`);
       } else {
         console.error('[WhatsApp Bot] send error:', sendData.error.message);
       }

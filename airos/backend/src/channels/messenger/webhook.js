@@ -3,6 +3,9 @@ const router  = express.Router();
 const OpenAI  = require('openai');
 const { getOrCreateConversation, addMessage, getMessages, updateConversation } = require('../../core/inMemoryStore');
 const { getIO } = require('../livechat/socket');
+const { getTenantByPageId } = require('../../core/tenantManager');
+const { query } = require('../../db/pool');
+const { normalizeTenantSettings, buildCompanyContext, isBlockedSpammer } = require('../../core/tenantSettings');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -49,12 +52,25 @@ async function processMessengerMessage(msg, pageId) {
   const senderId = msg.sender.id;
   const text     = msg.message?.text || '';
   const msgId    = msg.message?.mid || `fb_${Date.now()}`;
-
-  const token = process.env.MESSENGER_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
+  const tenantMatch = pageId ? await getTenantByPageId(pageId, 'messenger') : null;
+  const tenantRow = tenantMatch?.tenant_id
+    ? await query('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantMatch.tenant_id]).then((result) => result.rows[0] || null)
+    : null;
+  const settings = normalizeTenantSettings(tenantRow?.settings);
+  const company = buildCompanyContext(tenantRow || {});
+  const token = tenantMatch?.credentials?.access_token || process.env.MESSENGER_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
 
   // Fetch real customer name
   const realName = token ? await fetchFbName(senderId, token) : null;
   const displayName = realName || `FB_${senderId.slice(-6)}`;
+
+  if (isBlockedSpammer({
+    channelCustomerId: senderId,
+    name: displayName,
+  }, settings.spammers)) {
+    console.warn(`[Messenger] blocked message from configured spammer ${senderId}`);
+    return;
+  }
 
   console.log(`[Messenger] Message from ${displayName} (${senderId}): ${text}`);
 
@@ -80,16 +96,19 @@ async function processMessengerMessage(msg, pageId) {
   } catch {}
 
   if (text) {
-    runAI(conv, msgRecord, senderId, pageId, displayName).catch(err =>
+    runAI(conv, msgRecord, senderId, pageId, displayName, { settings, company, token }).catch(err =>
       console.error('[Messenger AI]', err.message)
     );
   }
 }
 
-async function runAI(conv, msgRecord, senderId, pageId, customerName) {
+async function runAI(conv, msgRecord, senderId, pageId, customerName, tenantContext = {}) {
   const history = getMessages(conv.id).slice(-8);
+  const settings = tenantContext.settings || normalizeTenantSettings();
+  const company = tenantContext.company || { name: 'our store' };
 
-  const prompt = `You are an AI assistant for an Arabic eCommerce business.
+  const prompt = `${settings.aiConfig?.systemPrompt || 'You are an AI assistant for an Arabic eCommerce business.'}
+Business: ${company.name}
 Customer: ${customerName} (Messenger)
 Message: "${msgRecord.content}"
 
@@ -119,8 +138,8 @@ Return this exact JSON:
   updateConversation(conv.id, { intent: ai.intent, score: ai.lead_score, language: ai.language });
 
   // BOT MODE: auto-send reply via Messenger API
-  const token = process.env.MESSENGER_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
-  if (ai.suggested_reply && token) {
+  const token = tenantContext.token;
+  if (settings.aiConfig?.autoReply && ai.suggested_reply && token) {
     try {
       const sendRes = await fetch(
         `https://graph.facebook.com/v19.0/${pageId}/messages`,

@@ -12,6 +12,7 @@ const channelsRoutes = require('./api/routes/channels');
 const productsRoutes = require('./api/routes/products');
 const reportsRoutes = require('./api/routes/reports');
 const catalogRoutes = require('./api/routes/catalog');
+const settingsRoutes = require('./api/routes/settings');
 
 const { authMiddleware } = require('./api/middleware/auth');
 const { tenantMiddleware } = require('./api/middleware/tenant');
@@ -145,6 +146,7 @@ app.use('/api/deals', dealsRoutes);
 app.use('/api/conversations', conversationsRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {

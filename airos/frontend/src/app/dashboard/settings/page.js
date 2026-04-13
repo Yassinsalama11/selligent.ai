@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
 import { api } from '@/lib/api';
@@ -102,6 +102,11 @@ const NAV = [
 
 const SETTINGS_STORAGE_KEY = 'airos_dashboard_settings_v1';
 const ALL_SETTINGS_IDS = new Set(NAV.flatMap((group) => group.items.map((item) => item.id)));
+const PLAN_PRICING = {
+  starter: '$49/mo',
+  growth: '$149/mo',
+  pro: '$399/mo',
+};
 
 function isRecord(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -145,6 +150,75 @@ function writeSettingsStorage(snapshot) {
 function getSettingsIdFromHash(hash) {
   const id = typeof hash === 'string' ? hash.replace(/^#/, '') : '';
   return ALL_SETTINGS_IDS.has(id) ? id : null;
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.readAsText(file);
+  });
+}
+
+function parseCsvText(text) {
+  const rows = [];
+  let current = '';
+  let row = [];
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      row.push(current);
+      current = '';
+      continue;
+    }
+
+    if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && next === '\n') index += 1;
+      row.push(current);
+      if (row.some((cell) => String(cell || '').trim() !== '')) rows.push(row);
+      row = [];
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current || row.length > 0) {
+    row.push(current);
+    if (row.some((cell) => String(cell || '').trim() !== '')) rows.push(row);
+  }
+
+  if (rows.length < 2) return [];
+
+  const headers = rows[0].map((header) => String(header || '').trim());
+  return rows.slice(1).map((values) => Object.fromEntries(
+    headers.map((header, index) => [header, values[index] ?? '']),
+  ));
+}
+
+function formatPlanLabel(plan) {
+  const normalized = String(plan || 'growth').trim().toLowerCase();
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function isMaskedSecret(value) {
+  return typeof value === 'string' && value.includes('…');
 }
 
 /* ─── Seed data ───────────────────────────────────────────────────────────── */
@@ -229,16 +303,42 @@ const USAGE_STATS = {
 
 const ROLES   = ['owner','admin','agent','viewer'];
 const COLORS  = ['#6366f1','#10b981','#f59e0b','#ef4444','#38bdf8','#ec4899','#8b5cf6','#06b6d4'];
+const CH_ICON = { whatsapp:'📱', instagram:'📸', messenger:'💬', livechat:'⚡', import:'📂' };
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
 export default function SettingsPage() {
   const [activeId, setActiveId]   = useState('profile');
   const [collapsed, setCollapsed] = useState({});
   const [hydrated, setHydrated]   = useState(false);
+  const serverSyncRef             = useRef({ primed: false, snapshot: '' });
 
   /* ── shared save simulation ── */
   const [saving, setSaving] = useState(false);
-  function save(msg = 'Changes saved', options = {}) {
+  const [usageStats, setUsageStats] = useState(null);
+  const [usageLoading, setUsageLoading] = useState(true);
+  const [monitorData, setMonitorData] = useState({ summary: { active: 0, bot: 0, waiting: 0 }, conversations: [] });
+  const [monitorLoading, setMonitorLoading] = useState(true);
+  const [channelConnections, setChannelConnections] = useState({});
+  async function persistSettingsSnapshot(snapshot, options = {}) {
+    const { message = 'Changes saved', showToast = false, showSaving = false } = options;
+    const serialized = JSON.stringify(snapshot);
+
+    if (showSaving) setSaving(true);
+
+    try {
+      await api.put('/api/settings', snapshot);
+      serverSyncRef.current = { primed: true, snapshot: serialized };
+      if (showToast) toast.success(message);
+      return true;
+    } catch (err) {
+      if (showToast) toast.error(err.message || 'Could not save settings');
+      return false;
+    } finally {
+      if (showSaving) setSaving(false);
+    }
+  }
+
+  async function save(msg = 'Changes saved', options = {}) {
     if (options.persistUser && typeof window !== 'undefined') {
       try {
         const currentUser = JSON.parse(localStorage.getItem('airos_user') || '{}');
@@ -251,8 +351,34 @@ export default function SettingsPage() {
       } catch {}
     }
 
-    setSaving(true);
-    setTimeout(() => { setSaving(false); toast.success(msg); }, 700);
+    if (options.persistUser) {
+      try {
+        const response = await api.patch('/api/auth/me', {
+          name: profile.name,
+          email: profile.email,
+        });
+
+        if (response?.user && typeof window !== 'undefined') {
+          try {
+            const currentUser = JSON.parse(localStorage.getItem('airos_user') || '{}');
+            localStorage.setItem('airos_user', JSON.stringify({
+              ...currentUser,
+              ...response.user,
+              phone: profile.phone,
+            }));
+          } catch {}
+        }
+      } catch (err) {
+        toast.error(err.message || 'Could not update profile');
+        return false;
+      }
+    }
+
+    return persistSettingsSnapshot(buildSettingsSnapshot(), {
+      message: msg,
+      showToast: true,
+      showSaving: true,
+    });
   }
 
   /* ── General: My Profile ── */
@@ -394,18 +520,18 @@ export default function SettingsPage() {
   /* ── Channels ── */
   const [channels, setChannels] = useState({
     whatsapp:  {
-      connected:true,
+      connected:false,
       /* Meta Partner OAuth fields — populated after Embedded Signup */
-      wabaId:'239801234567890', phoneNumberId:'107543210987654',
-      displayName:'MyStore Official', phone:'+20 100 123 0000',
-      businessName:'MyStore Egypt', businessId:'123456789012345',
-      accessToken:'EAABcDEFghIJ…', verified:true,
+      wabaId:'', phoneNumberId:'',
+      displayName:'', phone:'',
+      businessName:'', businessId:'',
+      accessToken:'', verified:false,
       /* partner notice acknowledged */
-      partnerAck:true,
+      partnerAck:false,
     },
     instagram: { connected:false, token:'',              page:'',                  verified:false },
     messenger: { connected:false, token:'',              page:'',                  verified:false },
-    livechat:  { connected:true,  widgetId:'WGT-001',   domain:'mystore.com',      color:'#6366f1' },
+    livechat:  { connected:false,  widgetId:'WGT-001',   domain:'mystore.com',      color:'#6366f1' },
   });
   /* WhatsApp Meta OAuth state */
   const [waOAuthStep, setWaOAuthStep] = useState('idle');
@@ -445,6 +571,7 @@ export default function SettingsPage() {
     messenger: { conversations:0,   deals:0,  rate:'—',   response:'—',    satisfaction:'—'   },
     livechat:  { conversations:95,  deals:12, rate:'35%', response:'0.8m', satisfaction:'4.9' },
   };
+  const [channelStats, setChannelStats] = useState(CHANNEL_STATS);
   const webhookUrl = (ch) => `https://api.selligent.ai/webhooks/${ch}`;
 
   useEffect(() => {
@@ -453,25 +580,9 @@ export default function SettingsPage() {
     async function loadChannelConnections() {
       try {
         const rows = await api.get('/api/channels');
-        if (!rows || cancelled) return;
-
-        const activeChannels = new Set(
-          rows.filter((row) => row.status === 'active').map((row) => row.channel)
-        );
-
-        setChannels((current) => ({
-          ...current,
-          instagram: {
-            ...current.instagram,
-            connected: activeChannels.has('instagram'),
-            verified: activeChannels.has('instagram'),
-          },
-          messenger: {
-            ...current.messenger,
-            connected: activeChannels.has('messenger'),
-            verified: activeChannels.has('messenger'),
-          },
-        }));
+        if (!Array.isArray(rows) || cancelled) return;
+        setChannelConnections(Object.fromEntries(rows.map((row) => [row.channel, row])));
+        setChannels((current) => buildChannelsFromConnectionDetails(current, rows));
       } catch {}
     }
 
@@ -497,14 +608,7 @@ export default function SettingsPage() {
       const label = connected === 'instagram' ? 'Instagram' : 'Messenger';
 
       setActiveId(sectionId);
-      setChannels((current) => ({
-        ...current,
-        [connected]: {
-          ...current[connected],
-          connected: true,
-          verified: true,
-        },
-      }));
+      refreshChannelConnections();
       toast.success(`${label} connected successfully`);
     }
 
@@ -586,15 +690,259 @@ export default function SettingsPage() {
   const [recycled, setRecycled] = useState(RECYCLED);
 
   /* ── Controls: Conversation Monitor ── */
-  const LIVE_CONVS = [
-    { id:'1', agent:'Ahmed', customer:'Youssef Ali',   ch:'📱', duration:'4m', msgs:7, status:'active'   },
-    { id:'2', agent:'Sara',  customer:'Nour Adel',     ch:'📸', duration:'2m', msgs:3, status:'active'   },
-    { id:'3', agent:'AI Bot',customer:'Ahmed Mohamed', ch:'📱', duration:'8m', msgs:12, status:'bot'    },
-    { id:'4', agent:'—',     customer:'Layla Samir',   ch:'⚡', duration:'12m', msgs:2, status:'waiting' },
-  ];
+  const LIVE_CONVS = monitorData.conversations;
 
   /* ─── helpers ─── */
-  function saveOp() { save('Operator invited'); setInviteModal(false); setInviteForm({ name:'', email:'', role:'agent', dept:'Sales' }); }
+  function makeDeptId(name) {
+    return `dept-${String(name || 'general').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'general'}`;
+  }
+
+  function syncDepartmentsWithOperators(nextOperators, currentDepts = []) {
+    const deptMap = new Map(
+      (Array.isArray(currentDepts) ? currentDepts : []).map((dept) => [
+        String(dept.name || '').trim().toLowerCase(),
+        { ...dept, id: dept.id || makeDeptId(dept.name), operators: [] },
+      ]).filter(([key]) => key),
+    );
+
+    nextOperators.forEach((operator, index) => {
+      const deptName = String(operator.dept || '').trim();
+      if (!deptName) return;
+
+      const key = deptName.toLowerCase();
+      if (!deptMap.has(key)) {
+        deptMap.set(key, {
+          id: makeDeptId(deptName),
+          name: deptName,
+          color: COLORS[index % COLORS.length],
+          sla: 8,
+          operators: [],
+        });
+      }
+
+      deptMap.get(key).operators.push(operator.id);
+    });
+
+    return Array.from(deptMap.values()).map((dept) => ({
+      ...dept,
+      operators: [...new Set(dept.operators)],
+    }));
+  }
+
+  function mergeOperatorsFromTeam(team, currentOperators = []) {
+    const byId = new Map(currentOperators.map((operator) => [operator.id, operator]));
+    const byEmail = new Map(currentOperators.map((operator) => [operator.email, operator]));
+    let currentUserId = null;
+
+    if (typeof window !== 'undefined') {
+      try {
+        currentUserId = JSON.parse(localStorage.getItem('airos_user') || '{}')?.id || null;
+      } catch {}
+    }
+
+    return team.map((user) => {
+      const existing = byId.get(user.id) || byEmail.get(user.email) || {};
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        dept: existing.dept || 'Sales',
+        status: user.id === currentUserId ? 'online' : (existing.status || 'offline'),
+        avatar: (user.name?.[0] || 'U').toUpperCase(),
+      };
+    });
+  }
+
+  async function loadUsageData() {
+    setUsageLoading(true);
+    try {
+      const data = await api.get('/api/settings/usage');
+      setUsageStats(data);
+    } catch {
+      setUsageStats(null);
+    } finally {
+      setUsageLoading(false);
+    }
+  }
+
+  async function loadMonitorData() {
+    setMonitorLoading(true);
+    try {
+      const data = await api.get('/api/settings/monitor');
+      setMonitorData(data || { summary: { active: 0, bot: 0, waiting: 0 }, conversations: [] });
+    } catch {
+      setMonitorData({ summary: { active: 0, bot: 0, waiting: 0 }, conversations: [] });
+    } finally {
+      setMonitorLoading(false);
+    }
+  }
+
+  async function loadChannelStats() {
+    try {
+      const rows = await api.get('/api/reports/channels');
+      if (!Array.isArray(rows) || rows.length === 0) return;
+
+      const next = { ...CHANNEL_STATS };
+      rows.forEach((row) => {
+        const channel = row.channel;
+        if (!next[channel]) return;
+        next[channel] = {
+          ...next[channel],
+          conversations: Number(row.conversations || 0),
+          deals: Number(row.deals_won || 0),
+          rate: row.conversion_rate != null ? `${Math.round(Number(row.conversion_rate))}%` : '—',
+          response: '—',
+          satisfaction: '—',
+        };
+      });
+      setChannelStats(next);
+    } catch {}
+  }
+
+  function buildChannelsFromConnectionDetails(currentChannels, rows = []) {
+    const registry = Object.fromEntries(rows.map((row) => [row.channel, row]));
+    return {
+      whatsapp: {
+        ...currentChannels.whatsapp,
+        connected: Boolean(registry.whatsapp),
+        wabaId: registry.whatsapp?.details?.wabaId || currentChannels.whatsapp.wabaId,
+        phoneNumberId: registry.whatsapp?.details?.phoneNumberId || currentChannels.whatsapp.phoneNumberId,
+        displayName: registry.whatsapp?.details?.displayName || currentChannels.whatsapp.displayName,
+        phone: registry.whatsapp?.details?.phone || currentChannels.whatsapp.phone,
+        businessName: registry.whatsapp?.details?.businessName || currentChannels.whatsapp.businessName,
+        businessId: registry.whatsapp?.details?.businessId || currentChannels.whatsapp.businessId,
+        accessToken: currentChannels.whatsapp.accessToken && !isMaskedSecret(currentChannels.whatsapp.accessToken)
+          ? currentChannels.whatsapp.accessToken
+          : (registry.whatsapp?.details?.accessTokenMasked || currentChannels.whatsapp.accessToken),
+        verified: Boolean(registry.whatsapp?.details?.verified),
+        partnerAck: Boolean(registry.whatsapp),
+      },
+      instagram: {
+        ...currentChannels.instagram,
+        connected: Boolean(registry.instagram),
+        page: registry.instagram?.details?.pageName || registry.instagram?.details?.pageId || currentChannels.instagram.page,
+        verified: Boolean(registry.instagram?.details?.verified),
+        token: currentChannels.instagram.token && !isMaskedSecret(currentChannels.instagram.token)
+          ? currentChannels.instagram.token
+          : (registry.instagram?.details?.accessTokenMasked || currentChannels.instagram.token),
+      },
+      messenger: {
+        ...currentChannels.messenger,
+        connected: Boolean(registry.messenger),
+        page: registry.messenger?.details?.pageName || registry.messenger?.details?.pageId || currentChannels.messenger.page,
+        verified: Boolean(registry.messenger?.details?.verified),
+        token: currentChannels.messenger.token && !isMaskedSecret(currentChannels.messenger.token)
+          ? currentChannels.messenger.token
+          : (registry.messenger?.details?.accessTokenMasked || currentChannels.messenger.token),
+      },
+      livechat: {
+        ...currentChannels.livechat,
+        connected: Boolean(registry.livechat),
+        widgetId: registry.livechat?.details?.widgetId || currentChannels.livechat.widgetId,
+        domain: registry.livechat?.details?.domain || currentChannels.livechat.domain,
+        color: registry.livechat?.details?.color || currentChannels.livechat.color,
+      },
+    };
+  }
+
+  async function refreshChannelConnections() {
+    try {
+      const rows = await api.get('/api/channels');
+      if (!Array.isArray(rows)) return;
+      setChannelConnections(Object.fromEntries(rows.map((row) => [row.channel, row])));
+      setChannels((current) => buildChannelsFromConnectionDetails(current, rows));
+    } catch {}
+  }
+
+  async function upsertChannelConnection(channel, credentials, successMessage) {
+    await api.post('/api/channels', { channel, credentials });
+    await refreshChannelConnections();
+    if (successMessage) toast.success(successMessage);
+  }
+
+  async function disconnectChannel(channel, fallbackState) {
+    const connection = channelConnections[channel];
+
+    try {
+      if (connection?.id) await api.delete(`/api/channels/${connection.id}`);
+
+      setChannelConnections((current) => {
+        const next = { ...current };
+        delete next[channel];
+        return next;
+      });
+      setChannels((current) => ({
+        ...current,
+        [channel]: {
+          ...current[channel],
+          ...fallbackState,
+          connected: false,
+          verified: false,
+        },
+      }));
+      toast.success(`${channel.charAt(0).toUpperCase() + channel.slice(1)} disconnected`);
+    } catch (err) {
+      toast.error(err.message || `Could not disconnect ${channel}`);
+    }
+  }
+
+  async function savePassword() {
+    if (!pwForm.current || !pwForm.next || !pwForm.confirm) {
+      toast.error('Fill all password fields');
+      return;
+    }
+    if (pwForm.next !== pwForm.confirm) {
+      toast.error('Passwords do not match');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await api.patch('/api/auth/password', {
+        currentPassword: pwForm.current,
+        newPassword: pwForm.next,
+      });
+      setPwForm({ current:'', next:'', confirm:'' });
+      toast.success('Password updated');
+    } catch (err) {
+      toast.error(err.message || 'Could not update password');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveOp() {
+    if (!inviteForm.name || !inviteForm.email) { toast.error('Fill all fields'); return; }
+
+    try {
+      const response = await api.post('/api/auth/invite', {
+        name: inviteForm.name,
+        email: inviteForm.email,
+        role: inviteForm.role,
+      });
+
+      if (response?.user) {
+        const team = await api.get('/api/auth/team');
+        if (Array.isArray(team) && team.length > 0) {
+          setOperators((current) => {
+            const merged = mergeOperatorsFromTeam(team, current);
+            return merged.map((operator) => (
+              operator.id === response.user.id
+                ? { ...operator, dept: inviteForm.dept, status: 'offline' }
+                : operator
+            ));
+          });
+        }
+      }
+
+      await save('Operator invited');
+      setInviteModal(false);
+      setInviteForm({ name:'', email:'', role:'agent', dept:'Sales' });
+    } catch (err) {
+      toast.error(err.message || 'Could not invite operator');
+    }
+  }
   function saveDept() { if (!deptForm.name) { toast.error('Name required'); return; }
     setDepts(d => [...d, { id:'d'+Date.now(), operators:[], ...deptForm }]);
     setDeptModal(false); toast.success('Department created'); }
@@ -607,27 +955,158 @@ export default function SettingsPage() {
 
   function simulateImport() {
     if (!importFile) { toast.error('Select a file first'); return; }
-    setImporting(true);
-    setTimeout(() => {
-      setImporting(false);
-      setImportResult({ imported:48, skipped:3, errors:1, total:52 });
-      toast.success('Import complete!');
-    }, 1800);
-  }
-
-  /* ─── sidebar helpers ─── */
-  const allItems = NAV.flatMap(g => g.items);
-  const activeGroup = NAV.find(g => g.items.some(i => i.id === activeId));
-  const activeLabel = allItems.find(i => i.id === activeId)?.label || '';
-
-  useEffect(() => {
-    const saved = readSettingsStorage();
-
-    if (typeof window !== 'undefined' && !window.location.hash && ALL_SETTINGS_IDS.has(saved.activeId)) {
-      setActiveId(saved.activeId);
+    if (importFile.name.toLowerCase().endsWith('.xlsx')) {
+      toast.error('XLSX import is not supported yet. Please upload CSV.');
+      return;
     }
 
-    if (isRecord(saved.collapsed)) setCollapsed(saved.collapsed);
+    setImporting(true);
+    readFileAsText(importFile)
+      .then((text) => {
+        const rows = parseCsvText(text);
+        if (rows.length === 0) throw new Error('The CSV file is empty or invalid');
+        return api.post('/api/settings/import/contacts', { rows });
+      })
+      .then(async (result) => {
+        setImportResult(result);
+        toast.success('Contacts imported');
+        await loadUsageData();
+      })
+      .catch((err) => {
+        toast.error(err.message || 'Could not import contacts');
+      })
+      .finally(() => {
+        setImporting(false);
+      });
+  }
+
+  async function updateOperatorRole(operatorId, role) {
+    setOperators((current) => current.map((operator) => (
+      operator.id === operatorId ? { ...operator, role } : operator
+    )));
+
+    try {
+      await api.patch(`/api/auth/team/${operatorId}`, { role });
+      toast.success('Operator role updated');
+    } catch (err) {
+      toast.error(err.message || 'Could not update operator role');
+    }
+  }
+
+  function updateOperatorDept(operatorId, deptName) {
+    setOperators((current) => current.map((operator) => (
+      operator.id === operatorId ? { ...operator, dept: deptName } : operator
+    )));
+    toast.success('Operator department updated');
+  }
+
+  async function removeOperator(operatorId) {
+    try {
+      await api.delete(`/api/auth/team/${operatorId}`);
+      setOperators((current) => current.filter((operator) => operator.id !== operatorId));
+      toast.success('Operator removed');
+    } catch (err) {
+      toast.error(err.message || 'Could not remove operator');
+    }
+  }
+
+  async function saveInstagramSettings() {
+    if (channels.instagram.page?.trim() && channels.instagram.token?.trim() && !isMaskedSecret(channels.instagram.token)) {
+      try {
+        await upsertChannelConnection('instagram', {
+          page_id: channels.instagram.page.trim(),
+          page_name: channels.instagram.page.trim(),
+          access_token: channels.instagram.token.trim(),
+        }, 'Instagram connected');
+      } catch (err) {
+        toast.error(err.message || 'Could not save Instagram connection');
+        return;
+      }
+    }
+
+    await save('Instagram settings saved');
+  }
+
+  async function saveMessengerSettings() {
+    if (channels.messenger.page?.trim() && channels.messenger.token?.trim() && !isMaskedSecret(channels.messenger.token)) {
+      try {
+        await upsertChannelConnection('messenger', {
+          page_id: channels.messenger.page.trim(),
+          page_name: channels.messenger.page.trim(),
+          access_token: channels.messenger.token.trim(),
+        }, 'Messenger connected');
+      } catch (err) {
+        toast.error(err.message || 'Could not save Messenger connection');
+        return;
+      }
+    }
+
+    await save('Messenger settings saved');
+  }
+
+  async function saveLiveChatSettings() {
+    try {
+      await upsertChannelConnection('livechat', {
+        widget_id: channels.livechat.widgetId,
+        domain: channels.livechat.domain,
+        color: channels.livechat.color,
+      }, channels.livechat.connected ? 'Live Chat updated' : 'Live Chat enabled');
+      await save('Live Chat settings saved');
+    } catch (err) {
+      toast.error(err.message || 'Could not save Live Chat settings');
+    }
+  }
+
+  async function saveWhatsAppConnection() {
+    const wa = channels.whatsapp;
+    if (!wa.phoneNumberId?.trim() || !wa.accessToken?.trim()) {
+      toast.error('Phone Number ID and Access Token are required');
+      return;
+    }
+    if (isMaskedSecret(wa.accessToken)) {
+      toast.error('Re-enter the full WhatsApp access token before updating this connection');
+      return;
+    }
+
+    try {
+      await upsertChannelConnection('whatsapp', {
+        waba_id: wa.wabaId,
+        phone_number_id: wa.phoneNumberId,
+        display_name: wa.displayName,
+        phone: wa.phone,
+        business_name: wa.businessName,
+        business_id: wa.businessId,
+        access_token: wa.accessToken.trim(),
+      }, 'WhatsApp connected');
+      await save('WhatsApp connection saved');
+    } catch (err) {
+      toast.error(err.message || 'Could not save WhatsApp connection');
+    }
+  }
+
+  async function takeOverConversation(conversationId) {
+    let currentUserId = null;
+    try {
+      currentUserId = JSON.parse(localStorage.getItem('airos_user') || '{}')?.id || null;
+    } catch {}
+
+    if (!currentUserId) {
+      toast.error('Could not identify current operator');
+      return;
+    }
+
+    try {
+      await api.patch(`/api/conversations/${conversationId}/assign`, { user_id: currentUserId });
+      toast.success('Conversation assigned to you');
+      await loadMonitorData();
+    } catch (err) {
+      toast.error(err.message || 'Could not take over conversation');
+    }
+  }
+
+  function applySettingsSnapshot(saved) {
+    if (!isRecord(saved)) return;
+
     if (isRecord(saved.profile)) {
       setProfile((current) => {
         const merged = mergeSavedObject(current, saved.profile);
@@ -661,8 +1140,101 @@ export default function SettingsPage() {
     if (Array.isArray(saved.spammers)) setSpammers(mergeSavedArray(INIT_SPAMMERS, saved.spammers));
     if (Array.isArray(saved.profileFields)) setProfileFields(mergeSavedArray(INIT_PROFILES, saved.profileFields));
     if (Array.isArray(saved.recycled)) setRecycled(mergeSavedArray(RECYCLED, saved.recycled));
+    if (isRecord(saved.aiConfig)) setAiCfg((current) => ({ ...current, ...saved.aiConfig }));
+  }
 
-    setHydrated(true);
+  function buildSettingsSnapshot() {
+    const { apiKey, ...persistedAiConfig } = aiCfg;
+    const persistedChannels = {
+      whatsapp: {
+        connected: channels.whatsapp.connected,
+        wabaId: channels.whatsapp.wabaId,
+        phoneNumberId: channels.whatsapp.phoneNumberId,
+        displayName: channels.whatsapp.displayName,
+        phone: channels.whatsapp.phone,
+        businessName: channels.whatsapp.businessName,
+        businessId: channels.whatsapp.businessId,
+        verified: channels.whatsapp.verified,
+        partnerAck: channels.whatsapp.partnerAck,
+      },
+      instagram: {
+        connected: channels.instagram.connected,
+        page: channels.instagram.page,
+        verified: channels.instagram.verified,
+      },
+      messenger: {
+        connected: channels.messenger.connected,
+        page: channels.messenger.page,
+        verified: channels.messenger.verified,
+      },
+      livechat: {
+        connected: channels.livechat.connected,
+        widgetId: channels.livechat.widgetId,
+        domain: channels.livechat.domain,
+        color: channels.livechat.color,
+      },
+    };
+
+    return {
+      profile: { ...profile, avatar: (profile.name?.[0] || 'A').toUpperCase() },
+      company,
+      operators,
+      depts,
+      tags,
+      brands,
+      global,
+      profanity,
+      profanityControls,
+      emailTpls,
+      layout,
+      channels: persistedChannels,
+      waSettings,
+      igSettings,
+      messengerSettings,
+      triggers,
+      routing,
+      visitorRouting,
+      leadRules,
+      compScore,
+      schedReports,
+      spammers,
+      profileFields,
+      recycled,
+      aiConfig: persistedAiConfig,
+    };
+  }
+
+  /* ─── sidebar helpers ─── */
+  const allItems = NAV.flatMap(g => g.items);
+  const activeGroup = NAV.find(g => g.items.some(i => i.id === activeId));
+  const activeLabel = allItems.find(i => i.id === activeId)?.label || '';
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPersistedSettings() {
+      const saved = readSettingsStorage();
+
+      if (typeof window !== 'undefined' && !window.location.hash && ALL_SETTINGS_IDS.has(saved.activeId)) {
+        setActiveId(saved.activeId);
+      }
+
+      if (isRecord(saved.collapsed)) setCollapsed(saved.collapsed);
+      applySettingsSnapshot(saved);
+
+      try {
+        const remoteSettings = await api.get('/api/settings');
+        if (!cancelled && remoteSettings) applySettingsSnapshot(remoteSettings);
+      } catch {}
+
+      if (!cancelled) setHydrated(true);
+    }
+
+    loadPersistedSettings();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -694,30 +1266,7 @@ export default function SettingsPage() {
     writeSettingsStorage({
       activeId,
       collapsed,
-      profile: { ...profile, avatar: (profile.name?.[0] || 'A').toUpperCase() },
-      company,
-      operators,
-      depts,
-      tags,
-      brands,
-      global,
-      profanity,
-      profanityControls,
-      emailTpls,
-      layout,
-      channels,
-      waSettings,
-      igSettings,
-      messengerSettings,
-      triggers,
-      routing,
-      visitorRouting,
-      leadRules,
-      compScore,
-      schedReports,
-      spammers,
-      profileFields,
-      recycled,
+      ...buildSettingsSnapshot(),
     });
   }, [
     hydrated,
@@ -747,6 +1296,95 @@ export default function SettingsPage() {
     spammers,
     profileFields,
     recycled,
+  ]);
+
+  useEffect(() => {
+    loadUsageData();
+    loadMonitorData();
+    loadChannelStats();
+  }, []);
+
+  useEffect(() => {
+    if (activeId !== 'conv_monitor') return undefined;
+
+    loadMonitorData();
+    const timer = setInterval(() => {
+      loadMonitorData();
+    }, 15000);
+
+    return () => clearInterval(timer);
+  }, [activeId]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    setDepts((current) => syncDepartmentsWithOperators(operators, current));
+  }, [hydrated, operators]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+
+    async function loadOperatorsFromBackend() {
+      try {
+        const team = await api.get('/api/auth/team');
+        if (!cancelled && Array.isArray(team) && team.length > 0) {
+          setOperators((current) => mergeOperatorsFromTeam(team, current));
+        }
+      } catch {}
+    }
+
+    loadOperatorsFromBackend();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    const snapshot = buildSettingsSnapshot();
+    const serialized = JSON.stringify(snapshot);
+
+    if (!serverSyncRef.current.primed) {
+      serverSyncRef.current = { primed: true, snapshot: serialized };
+      return;
+    }
+
+    if (serialized === serverSyncRef.current.snapshot) return;
+
+    const timer = setTimeout(() => {
+      persistSettingsSnapshot(snapshot);
+    }, 900);
+
+    return () => clearTimeout(timer);
+  }, [
+    hydrated,
+    profile,
+    company,
+    operators,
+    depts,
+    tags,
+    brands,
+    global,
+    profanity,
+    profanityControls,
+    emailTpls,
+    layout,
+    channels,
+    waSettings,
+    igSettings,
+    messengerSettings,
+    triggers,
+    routing,
+    visitorRouting,
+    leadRules,
+    compScore,
+    schedReports,
+    spammers,
+    profileFields,
+    recycled,
+    aiCfg,
   ]);
 
   /* ═══════════════════════════════════════════════════
@@ -785,7 +1423,7 @@ export default function SettingsPage() {
               <Field label="New Password"><input className="input" type="password" placeholder="••••••••" value={pwForm.next} onChange={e=>setPwForm(p=>({...p,next:e.target.value}))} /></Field>
               <Field label="Confirm New Password"><input className="input" type="password" placeholder="••••••••" value={pwForm.confirm} onChange={e=>setPwForm(p=>({...p,confirm:e.target.value}))} /></Field>
             </div>
-            <SaveRow onSave={() => { if (pwForm.next !== pwForm.confirm) { toast.error('Passwords do not match'); return; } save('Password updated'); setPwForm({current:'',next:'',confirm:''}); }} saving={saving} />
+            <SaveRow onSave={savePassword} saving={saving} />
           </Section>
 
           <Section title="Notification Preferences">
@@ -855,12 +1493,18 @@ export default function SettingsPage() {
                   <p style={{ fontSize:12, color:'var(--t4)' }}>{op.email} · {op.dept}</p>
                 </div>
                 <div style={{ display:'flex', gap:6 }}>
+                  <select className="input" style={{ fontSize:12, padding:'4px 8px', width:120 }}
+                    value={op.dept || ''}
+                    onChange={e => updateOperatorDept(op.id, e.target.value)}>
+                    <option value="">Unassigned</option>
+                    {depts.map(d=><option key={d.id} value={d.name}>{d.name}</option>)}
+                  </select>
                   <select className="input" style={{ fontSize:12, padding:'4px 8px', width:90 }}
-                    value={op.role} onChange={e => setOperators(ops=>ops.map(o=>o.id===op.id?{...o,role:e.target.value}:o))}>
+                    value={op.role} onChange={e => updateOperatorRole(op.id, e.target.value)}>
                     {ROLES.map(r=><option key={r}>{r}</option>)}
                   </select>
                   {op.role !== 'owner' && (
-                    <button onClick={()=>{ setOperators(o=>o.filter(x=>x.id!==op.id)); toast.success('Operator removed'); }}
+                    <button onClick={()=>removeOperator(op.id)}
                       style={{ fontSize:12, padding:'4px 10px', borderRadius:8, cursor:'pointer', fontWeight:600,
                         background:'rgba(239,68,68,0.08)', color:'#fca5a5', border:'1px solid rgba(239,68,68,0.15)' }}>
                       Remove
@@ -892,7 +1536,13 @@ export default function SettingsPage() {
                       <span style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>{d.name}</span>
                       <span style={{ fontSize:11, color:'var(--t4)' }}>SLA: {d.sla}h</span>
                     </div>
-                    <button onClick={()=>{ setDepts(ds=>ds.filter(x=>x.id!==d.id)); toast.success('Deleted'); }}
+                    <button onClick={()=>{
+                      setOperators((current) => current.map((operator) => (
+                        operator.dept === d.name ? { ...operator, dept: '' } : operator
+                      )));
+                      setDepts(ds=>ds.filter(x=>x.id!==d.id));
+                      toast.success('Deleted');
+                    }}
                       style={{ fontSize:11, padding:'3px 9px', borderRadius:7, cursor:'pointer',
                         background:'rgba(239,68,68,0.07)', color:'#fca5a5', border:'1px solid rgba(239,68,68,0.15)' }}>
                       Delete
@@ -917,10 +1567,18 @@ export default function SettingsPage() {
       );
 
       /* ────── Usage Statistics ────── */
-      case 'usage': return (
+      case 'usage': {
+        const stats = usageStats || {
+          ...USAGE_STATS,
+          plan: 'growth',
+          cycleStart: '',
+          cycleEnd: '',
+        };
+        return (
         <div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:24 }}>
-            {Object.entries(USAGE_STATS).map(([key, stat]) => {
+            {Object.entries(USAGE_STATS).map(([key]) => {
+              const stat = stats[key] || USAGE_STATS[key];
               const pct = Math.round(stat.used / stat.limit * 100);
               const label = key.replace(/([A-Z])/g,' $1').replace(/^./,s=>s.toUpperCase());
               const color = pct > 85 ? '#ef4444' : pct > 60 ? '#f59e0b' : '#34d399';
@@ -940,12 +1598,16 @@ export default function SettingsPage() {
               );
             })}
           </div>
+          {usageLoading && (
+            <div style={{ marginBottom:14, fontSize:12.5, color:'var(--t4)' }}>Loading current tenant usage…</div>
+          )}
           <div style={{ padding:'14px 18px', borderRadius:12, background:'rgba(99,102,241,0.06)',
             border:'1px solid rgba(99,102,241,0.15)', fontSize:13, color:'var(--t3)' }}>
-            📅 Current billing cycle: Apr 1 – Apr 30, 2025 · <strong style={{ color:'var(--t1)' }}>Growth Plan — $149/mo</strong>
+            📅 Current billing cycle: {stats.cycleStart || '—'} – {stats.cycleEnd || '—'} · <strong style={{ color:'var(--t1)' }}>{formatPlanLabel(stats.plan)} Plan — {PLAN_PRICING[String(stats.plan || 'growth').toLowerCase()] || PLAN_PRICING.growth}</strong>
           </div>
         </div>
       );
+      }
 
       /* ────── Recycle Bin ────── */
       case 'recycle': return (
@@ -1207,7 +1869,7 @@ export default function SettingsPage() {
 
       case 'ch_instagram': {
         const ig = channels.instagram;
-        const igStats = CHANNEL_STATS.instagram;
+        const igStats = channelStats.instagram;
         return (
           <div>
             {/* Header + stats */}
@@ -1224,7 +1886,7 @@ export default function SettingsPage() {
                 </div>
                 {ig.connected
                   ? <button className="btn btn-sm btn-ghost" style={{ color:'#fca5a5' }}
-                      onClick={()=>{ setChannels(cs=>({...cs,instagram:{...cs.instagram,connected:false}})); toast('Instagram disconnected'); }}>
+                      onClick={()=>disconnectChannel('instagram', { token:'', page:'' })}>
                       Disconnect
                     </button>
                   : <button className="btn btn-sm btn-primary" style={{ background:'#E1306C', borderColor:'#E1306C', color:'#fff' }}
@@ -1261,8 +1923,8 @@ export default function SettingsPage() {
                   <button className="btn btn-sm" style={{ background:'#E1306C', color:'#fff', border:'none', borderRadius:8 }}
                     onClick={()=>setFbModal(true)}>🔐 Connect with Facebook</button>
                 </div>
-                <Field label="Instagram Business Account" sub="Or enter manually if you have an existing token.">
-                  <input className="input" placeholder="@mystore.official" value={ig.page||''}
+                <Field label="Instagram Page / Account ID" sub="Enter the page ID used by Meta webhooks, or use OAuth above.">
+                  <input className="input" placeholder="1784..." value={ig.page||''}
                     onChange={e=>setChannels(cs=>({...cs,instagram:{...cs.instagram,page:e.target.value}}))} />
                 </Field>
                 <div style={{ marginTop:14 }}>
@@ -1282,7 +1944,7 @@ export default function SettingsPage() {
                       onClick={()=>{ navigator.clipboard?.writeText(webhookUrl('instagram')); toast.success('Copied!'); }}>Copy</button>
                   </div>
                 </div>
-                <SaveRow onSave={()=>save('Instagram settings saved')} saving={saving} />
+                <SaveRow onSave={saveInstagramSettings} saving={saving} />
               </Section>
             )}
 
@@ -1307,7 +1969,7 @@ export default function SettingsPage() {
                     onChange={(value) => setIgSettings((current) => ({ ...current, readReceipts: value }))}
                   />
                 </div>
-                <SaveRow onSave={()=>save('Instagram settings saved')} saving={saving} />
+                <SaveRow onSave={saveInstagramSettings} saving={saving} />
               </Section>
             )}
           </div>
@@ -1316,7 +1978,7 @@ export default function SettingsPage() {
 
       case 'ch_fb': {
         const fbm = channels.messenger;
-        const fbmStats = CHANNEL_STATS.messenger;
+        const fbmStats = channelStats.messenger;
         return (
           <div>
             {/* Header + stats */}
@@ -1333,7 +1995,7 @@ export default function SettingsPage() {
                 </div>
                 {fbm.connected
                   ? <button className="btn btn-sm btn-ghost" style={{ color:'#fca5a5' }}
-                      onClick={()=>{ setChannels(cs=>({...cs,messenger:{...cs.messenger,connected:false}})); toast('Messenger disconnected'); }}>
+                      onClick={()=>disconnectChannel('messenger', { token:'', page:'' })}>
                       Disconnect
                     </button>
                   : <button className="btn btn-sm btn-primary" style={{ background:'#0099FF', borderColor:'#0099FF', color:'#fff' }}
@@ -1370,8 +2032,8 @@ export default function SettingsPage() {
                   <button className="btn btn-sm" style={{ background:'#0099FF', color:'#fff', border:'none', borderRadius:8 }}
                     onClick={()=>setFbModal(true)}>🔐 Connect with Facebook</button>
                 </div>
-                <Field label="Facebook Page Name" sub="Or enter manually if you have an existing token.">
-                  <input className="input" placeholder="My Store Official" value={fbm.page||''}
+                <Field label="Facebook Page ID" sub="Enter the page ID used by Messenger webhooks, or use OAuth above.">
+                  <input className="input" placeholder="1234567890" value={fbm.page||''}
                     onChange={e=>setChannels(cs=>({...cs,messenger:{...cs.messenger,page:e.target.value}}))} />
                 </Field>
                 <div style={{ marginTop:14 }}>
@@ -1391,7 +2053,7 @@ export default function SettingsPage() {
                       onClick={()=>{ navigator.clipboard?.writeText(webhookUrl('messenger')); toast.success('Copied!'); }}>Copy</button>
                   </div>
                 </div>
-                <SaveRow onSave={()=>save('Messenger settings saved')} saving={saving} />
+                <SaveRow onSave={saveMessengerSettings} saving={saving} />
               </Section>
             )}
 
@@ -1416,7 +2078,7 @@ export default function SettingsPage() {
                     onChange={(value) => setMessengerSettings((current) => ({ ...current, readReceipts: value }))}
                   />
                 </div>
-                <SaveRow onSave={()=>save('Messenger settings saved')} saving={saving} />
+                <SaveRow onSave={saveMessengerSettings} saving={saving} />
               </Section>
             )}
           </div>
@@ -1425,7 +2087,7 @@ export default function SettingsPage() {
 
       case 'ch_livechat': {
         const lc = channels.livechat;
-        const lcStats = CHANNEL_STATS.livechat;
+        const lcStats = channelStats.livechat;
         const lcSnippet = `<!-- Selligent.ai Live Chat Widget -->\n<script>\n  (function(w,d){\n    w.SelligentChat = { widgetId: '${lc.widgetId}' };\n    var s = d.createElement('script');\n    s.src = 'https://cdn.selligent.ai/widget.js';\n    s.async = true;\n    d.head.appendChild(s);\n  })(window, document);\n</script>`;
         return (
           <div>
@@ -1443,11 +2105,11 @@ export default function SettingsPage() {
                 </div>
                 {lc.connected
                   ? <button className="btn btn-sm btn-ghost" style={{ color:'#fca5a5' }}
-                      onClick={()=>{ setChannels(cs=>({...cs,livechat:{...cs.livechat,connected:false}})); toast('Live Chat disabled'); }}>
+                      onClick={()=>disconnectChannel('livechat', { widgetId: channels.livechat.widgetId, domain: channels.livechat.domain, color: channels.livechat.color })}>
                       Disable
                     </button>
                   : <button className="btn btn-sm btn-primary"
-                      onClick={()=>{ setChannels(cs=>({...cs,livechat:{...cs.livechat,connected:true}})); toast.success('Live Chat enabled!'); }}>
+                      onClick={saveLiveChatSettings}>
                       Enable
                     </button>}
               </div>
@@ -1478,7 +2140,7 @@ export default function SettingsPage() {
                   </div>
                 </Field>
               </div>
-              <SaveRow onSave={()=>save('Live Chat settings saved')} saving={saving} />
+              <SaveRow onSave={saveLiveChatSettings} saving={saving} />
             </Section>
 
             <Section title="Embed Code" sub="Paste this snippet before the </body> tag on your website. RTL auto-detected.">
@@ -1689,9 +2351,9 @@ export default function SettingsPage() {
         <div>
           <div style={{ display:'flex', gap:14, marginBottom:20 }}>
             {[
-              { label:'Active', value: LIVE_CONVS.filter(c=>c.status==='active').length, color:'#34d399' },
-              { label:'Bot',    value: LIVE_CONVS.filter(c=>c.status==='bot').length,    color:'#67e8f9' },
-              { label:'Waiting',value: LIVE_CONVS.filter(c=>c.status==='waiting').length,color:'#fbbf24' },
+              { label:'Active', value: monitorData.summary?.active || 0, color:'#34d399' },
+              { label:'Bot',    value: monitorData.summary?.bot || 0,    color:'#67e8f9' },
+              { label:'Waiting',value: monitorData.summary?.waiting || 0,color:'#fbbf24' },
             ].map(s => (
               <div key={s.label} style={{ padding:'12px 20px', borderRadius:11, background:'var(--bg2)',
                 border:`1px solid ${s.color}22`, flex:1, textAlign:'center' }}>
@@ -1700,6 +2362,9 @@ export default function SettingsPage() {
               </div>
             ))}
           </div>
+          {monitorLoading && (
+            <div style={{ marginBottom:12, fontSize:12.5, color:'var(--t4)' }}>Loading live conversations…</div>
+          )}
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
             {LIVE_CONVS.map(c => (
               <div key={c.id} style={{ padding:'13px 18px', borderRadius:12, background:'var(--bg2)',
@@ -1710,20 +2375,25 @@ export default function SettingsPage() {
                 <div style={{ flex:1 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                     <span style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)' }}>{c.customer}</span>
-                    <span style={{ fontSize:14 }}>{c.ch}</span>
+                    <span style={{ fontSize:14 }}>{CH_ICON[c.channel] || '💬'}</span>
                     <span style={{ fontSize:11.5, color:'var(--t4)' }}>{c.msgs} messages · {c.duration}</span>
                   </div>
                   <p style={{ fontSize:12, color:'var(--t4)', marginTop:2 }}>Agent: {c.agent}</p>
                 </div>
-                <button onClick={()=>toast('Opening conversation…')} className="btn btn-ghost btn-xs">View</button>
+                <button onClick={()=>{ if (typeof window !== 'undefined') window.location.href = '/dashboard/conversations'; }} className="btn btn-ghost btn-xs">View</button>
                 {c.status === 'bot' && (
-                  <button onClick={()=>toast.success('Taken over from AI')} className="btn btn-xs"
+                  <button onClick={()=>takeOverConversation(c.id)} className="btn btn-xs"
                     style={{ background:'rgba(6,182,212,0.1)', color:'#67e8f9', border:'1px solid rgba(6,182,212,0.2)', fontSize:11, padding:'4px 10px', borderRadius:7, cursor:'pointer', fontWeight:600 }}>
                     Take Over
                   </button>
                 )}
               </div>
             ))}
+            {!monitorLoading && LIVE_CONVS.length === 0 && (
+              <div style={{ padding:'36px', textAlign:'center', color:'var(--t4)', fontSize:14 }}>
+                No open conversations are being monitored right now.
+              </div>
+            )}
           </div>
         </div>
       );
@@ -1742,7 +2412,7 @@ export default function SettingsPage() {
                 Columns: Name, Phone, Email, Country, Tags (comma separated)
               </p>
               <label style={{ cursor:'pointer' }}>
-                <input type="file" accept=".csv,.xlsx" style={{ display:'none' }}
+                <input type="file" accept=".csv" style={{ display:'none' }}
                   onChange={e=>{ setImportFile(e.target.files[0]); setImportResult(null); }} />
                 <span className="btn btn-ghost btn-sm">Browse Files</span>
               </label>
@@ -1987,57 +2657,12 @@ export default function SettingsPage() {
   /* ── WhatsApp Meta Business Partner panel ── */
   function WhatsAppPanel() {
     const wa = channels.whatsapp;
-
-    /* Simulate Meta Embedded Signup OAuth popup */
-    function handleConnectMeta() {
-      setWaOAuthStep('authorizing');
-      setWaOAuthModal(true);
-      /* In production this opens window.FB.login() or Meta Embedded Signup popup.
-         Here we simulate the OAuth callback after 2.5 s. */
-      setTimeout(() => {
-        setWaOAuthStep('success');
-        setChannels(cs => ({
-          ...cs,
-          whatsapp: {
-            ...cs.whatsapp,
-            connected: true, verified: true, partnerAck: true,
-            wabaId:'239801234567890', phoneNumberId:'107543210987654',
-            displayName:'MyStore Official', phone:'+20 100 123 0000',
-            businessName:'MyStore Egypt', businessId:'123456789012345',
-            accessToken:'EAABcDEFghIJ…',
-          },
-        }));
-        toast.success('WhatsApp connected via Meta!');
-      }, 2500);
-    }
-
-    function handleDisconnect() {
-      setChannels(cs => ({
-        ...cs,
-        whatsapp: {
-          connected:false, verified:false, partnerAck:false,
-          wabaId:'', phoneNumberId:'', displayName:'', phone:'',
-          businessName:'', businessId:'', accessToken:'',
-        },
-      }));
-      toast('WhatsApp disconnected');
-    }
-
-    const row = (label, value) => (
-      <div key={label} style={{ display:'flex', alignItems:'center', gap:0,
-        padding:'11px 14px', borderRadius:9, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-        <span style={{ fontSize:12, color:'var(--t4)', width:160, flexShrink:0 }}>{label}</span>
-        <span style={{ fontSize:13, color:'var(--t2)', fontWeight:500, fontFamily:'monospace',
-          wordBreak:'break-all' }}>{value || '—'}</span>
-      </div>
-    );
-
-    const stats = CHANNEL_STATS.whatsapp;
+    const stats = channelStats.whatsapp;
     const WA_STEPS = [
       { id:1, title:'Create Meta Business Account', desc:'Go to business.facebook.com and verify your business', done:true },
       { id:2, title:'Set up WhatsApp Business API',  desc:'In Meta Developer portal, create a WhatsApp app',    done:true },
       { id:3, title:'Add Phone Number',              desc:'Register and verify your WhatsApp business number',  done:true },
-      { id:4, title:'Connect to Selligent.ai',       desc:'Authorise via Meta Embedded Signup below',           done:wa.connected },
+      { id:4, title:'Connect to Selligent.ai',       desc:'Save your production phone number ID and access token below', done:wa.connected },
     ];
 
     return (
@@ -2049,13 +2674,10 @@ export default function SettingsPage() {
           <div>
             <p style={{ fontSize:13, fontWeight:600, color:'#4ade80', marginBottom:5 }}>How this connection works</p>
             <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.7 }}>
-              When you click <strong style={{ color:'var(--t2)' }}>Connect with Meta</strong>, a secure Meta popup
-              opens where you log in with <strong style={{ color:'var(--t2)' }}>your own Facebook/Meta account</strong> and
-              select <strong style={{ color:'var(--t2)' }}>your WhatsApp Business Account</strong> and phone number.
-              Selligent.ai never sees your Meta password — it only receives an access token scoped to your account.
-              Selligent.ai will appear as a <strong style={{ color:'var(--t2)' }}>partner</strong> in your Meta
-              Business Suite. This integration will <strong style={{ color:'#fca5a5' }}>stop working</strong> if
-              you remove Selligent.ai from your partner list.
+              Save the production <strong style={{ color:'var(--t2)' }}>Phone Number ID</strong> and
+              <strong style={{ color:'var(--t2)' }}> Access Token</strong> from your Meta WhatsApp app here.
+              The backend stores them in encrypted channel credentials and uses them for inbound tenant routing
+              and outbound AI replies. Keep this token server-side only and rotate it if it is exposed.
             </p>
           </div>
         </div>
@@ -2073,10 +2695,19 @@ export default function SettingsPage() {
               </p>
             </div>
             {wa.connected
-              ? <button className="btn btn-sm btn-ghost" onClick={handleDisconnect} style={{ color:'#fca5a5' }}>Disconnect</button>
-              : <button className="btn btn-sm btn-primary" onClick={handleConnectMeta}
+              ? <button className="btn btn-sm btn-ghost" onClick={()=>disconnectChannel('whatsapp', {
+                  wabaId:'',
+                  phoneNumberId:'',
+                  displayName:'',
+                  phone:'',
+                  businessName:'',
+                  businessId:'',
+                  accessToken:'',
+                  partnerAck:false,
+                })} style={{ color:'#fca5a5' }}>Disconnect</button>
+              : <button className="btn btn-sm btn-primary" onClick={saveWhatsAppConnection}
                   style={{ background:'#25D366', borderColor:'#25D366', color:'#fff', display:'flex', alignItems:'center', gap:7 }}>
-                  🔗 Connect with Meta
+                  🔗 Save Connection
                 </button>}
           </div>
           {wa.connected && (
@@ -2131,45 +2762,30 @@ export default function SettingsPage() {
               ))}
             </div>
 
-            {wa.connected && (
-              <>
-                <p style={{ fontSize:11.5, fontWeight:700, color:'var(--t4)', textTransform:'uppercase',
-                  letterSpacing:'0.08em', marginBottom:10 }}>Account Details (from Meta)</p>
-                <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:20 }}>
-                  {[
-                    ['Display Name',    wa.displayName],
-                    ['Phone Number',    wa.phone],
-                    ['Business Name',   wa.businessName],
-                    ['WABA ID',         wa.wabaId],
-                    ['Phone Number ID', wa.phoneNumberId],
-                    ['Business ID',     wa.businessId],
-                  ].map(([lbl,val])=>(
-                    <div key={lbl} style={{ display:'flex', alignItems:'center',
-                      padding:'10px 14px', borderRadius:9, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-                      <span style={{ fontSize:12, color:'var(--t4)', width:160, flexShrink:0 }}>{lbl}</span>
-                      <span style={{ fontSize:13, color:'var(--t2)', fontWeight:500, fontFamily:'monospace' }}>{val||'—'}</span>
-                    </div>
-                  ))}
-                </div>
-                <Field label="Access Token" sub="Managed automatically via OAuth — Selligent.ai refreshes this on your behalf.">
-                  <div style={{ position:'relative' }}>
-                    <input className="input" readOnly value={wa.accessToken}
-                      style={{ fontSize:12, fontFamily:'monospace', paddingRight:90, color:'var(--t3)' }} />
-                    <button className="btn btn-sm btn-ghost" style={{ position:'absolute', right:6, top:'50%', transform:'translateY(-50%)', fontSize:11 }}
-                      onClick={()=>{ navigator.clipboard?.writeText(wa.accessToken); toast.success('Copied!'); }}>Copy</button>
-                  </div>
-                </Field>
-                <div style={{ marginTop:14, padding:'10px 14px', borderRadius:9,
-                  background:'rgba(99,102,241,0.06)', border:'1px solid rgba(99,102,241,0.16)',
-                  display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                  <p style={{ fontSize:12.5, color:'var(--t3)' }}>Need to update permissions or re-link?</p>
-                  <button className="btn btn-sm btn-ghost" onClick={handleConnectMeta}
-                    style={{ display:'flex', alignItems:'center', gap:6, fontSize:12 }}>
-                    🔄 Re-authorize with Meta
-                  </button>
-                </div>
-              </>
-            )}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:20 }}>
+              <Field label="Display Name">
+                <input className="input" value={wa.displayName || ''} onChange={e=>setChannels(cs=>({...cs,whatsapp:{...cs.whatsapp,displayName:e.target.value}}))} />
+              </Field>
+              <Field label="Phone Number">
+                <input className="input" value={wa.phone || ''} onChange={e=>setChannels(cs=>({...cs,whatsapp:{...cs.whatsapp,phone:e.target.value}}))} />
+              </Field>
+              <Field label="Business Name">
+                <input className="input" value={wa.businessName || ''} onChange={e=>setChannels(cs=>({...cs,whatsapp:{...cs.whatsapp,businessName:e.target.value}}))} />
+              </Field>
+              <Field label="Business ID">
+                <input className="input" value={wa.businessId || ''} onChange={e=>setChannels(cs=>({...cs,whatsapp:{...cs.whatsapp,businessId:e.target.value}}))} />
+              </Field>
+              <Field label="WABA ID">
+                <input className="input" value={wa.wabaId || ''} onChange={e=>setChannels(cs=>({...cs,whatsapp:{...cs.whatsapp,wabaId:e.target.value}}))} />
+              </Field>
+              <Field label="Phone Number ID" sub="Required for webhook routing and outbound sends.">
+                <input className="input" value={wa.phoneNumberId || ''} onChange={e=>setChannels(cs=>({...cs,whatsapp:{...cs.whatsapp,phoneNumberId:e.target.value}}))} />
+              </Field>
+            </div>
+            <Field label="Access Token" sub="Stored encrypted in the backend channel connection.">
+              <input className="input" style={{ fontFamily:'monospace', fontSize:12 }} value={wa.accessToken || ''}
+                onChange={e=>setChannels(cs=>({...cs,whatsapp:{...cs.whatsapp,accessToken:e.target.value}}))} />
+            </Field>
 
             {/* Webhook URL */}
             <div style={{ marginTop:20 }}>
@@ -2190,6 +2806,7 @@ export default function SettingsPage() {
               Costs are deducted from your broadcast credits.
               Rates: 🇪🇬 EG $0.025 · 🇦🇪 AE $0.036 · 🇸🇦 SA $0.041 per conversation.
             </div>
+            <SaveRow onSave={saveWhatsAppConnection} saving={saving} />
           </Section>
         )}
 
@@ -2462,11 +3079,7 @@ export default function SettingsPage() {
           </div>
           <div style={{ display:'flex', gap:10 }}>
             <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>setInviteModal(false)}>Cancel</button>
-            <button className="btn btn-primary" style={{ flex:2 }} onClick={()=>{
-              if(!inviteForm.name||!inviteForm.email){toast.error('Fill all fields');return;}
-              setOperators(ops=>[...ops,{id:'o'+Date.now(),avatar:inviteForm.name[0],status:'offline',...inviteForm}]);
-              saveOp();
-            }}>Send Invite →</button>
+            <button className="btn btn-primary" style={{ flex:2 }} onClick={saveOp}>Send Invite →</button>
           </div>
         </div>
       </Modal>

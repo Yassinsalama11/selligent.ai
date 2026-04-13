@@ -31,6 +31,10 @@ if (require.main === module) {
     // ── 1. Route: normalize + persist + socket emit ──────────────────────────
     const result = await routeMessage(job.data);
     if (!result) return;
+    if (result.blocked) {
+      console.log(`[Worker] message blocked by tenant settings`, job.id);
+      return;
+    }
 
     const { unified, savedMessage, conversation, customer, deal, credentials } = result;
     const { tenant_id: tenantId } = savedMessage;
@@ -74,7 +78,12 @@ if (require.main === module) {
     const { final_score, probability } = scoreLeadFromAI(
       analysis.lead_score,
       customer,
-      analysis.intent
+      analysis.intent,
+      {
+        settings: tenantRow?.settings || {},
+        message: messageText,
+        historyLength: history.length,
+      }
     );
     analysis.lead_score = final_score;
     analysis.probability = probability;

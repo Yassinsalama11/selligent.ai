@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { query } = require('../../db/pool');
 const { getOAuthUrl, handleOAuthCallback } = require('../../channels/instagram/oauth');
+const { decryptCredentials } = require('../../core/tenantManager');
 const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
@@ -10,8 +11,50 @@ const ALGO = 'aes-256-gcm';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const DEFAULT_RETURN_TO = '/dashboard/settings';
 
+function maskToken(value) {
+  if (typeof value !== 'string' || value.length < 8) return '';
+  return `${value.slice(0, 4)}…${value.slice(-4)}`;
+}
+
+function summarizeCredentials(channel, rawCredentials) {
+  const credentials = decryptCredentials(rawCredentials || {});
+
+  if (channel === 'whatsapp') {
+    return {
+      displayName: credentials.display_name || credentials.displayName || '',
+      phone: credentials.phone || credentials.business_phone || '',
+      businessName: credentials.business_name || credentials.businessName || '',
+      businessId: credentials.business_id || credentials.businessId || '',
+      wabaId: credentials.waba_id || credentials.wabaId || '',
+      phoneNumberId: credentials.phone_number_id || credentials.phoneNumberId || '',
+      verified: Boolean(credentials.phone_number_id || credentials.phoneNumberId),
+      accessTokenMasked: maskToken(credentials.access_token || credentials.accessToken || ''),
+    };
+  }
+
+  if (channel === 'instagram' || channel === 'messenger') {
+    return {
+      pageId: credentials.page_id || '',
+      pageName: credentials.page_name || '',
+      verified: Boolean(credentials.page_id),
+      accessTokenMasked: maskToken(credentials.access_token || ''),
+    };
+  }
+
+  if (channel === 'livechat') {
+    return {
+      widgetId: credentials.widget_id || credentials.widgetId || '',
+      domain: credentials.domain || '',
+      color: credentials.color || '',
+      verified: Boolean(credentials.widget_id || credentials.widgetId),
+    };
+  }
+
+  return {};
+}
+
 function encrypt(text) {
-  const key = Buffer.from(process.env.ENCRYPTION_KEY, 'utf8').slice(0, 32);
+  const key = Buffer.from(process.env.ENCRYPTION_KEY || '', 'utf8').slice(0, 32);
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv(ALGO, key, iv);
   const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
@@ -58,10 +101,16 @@ router.use((req, res, next) => {
 router.get('/', async (req, res, next) => {
   try {
     const result = await query(
-      'SELECT id, channel, status, created_at FROM channel_connections WHERE tenant_id = $1',
+      'SELECT id, channel, status, created_at, credentials FROM channel_connections WHERE tenant_id = $1',
       [req.user.tenant_id]
     );
-    res.json(result.rows);
+    res.json(result.rows.map((row) => ({
+      id: row.id,
+      channel: row.channel,
+      status: row.status,
+      created_at: row.created_at,
+      details: summarizeCredentials(row.channel, row.credentials),
+    })));
   } catch (err) { next(err); }
 });
 
@@ -71,13 +120,32 @@ router.post('/', async (req, res, next) => {
     const { channel, credentials } = req.body;
     if (!channel || !credentials) return res.status(400).json({ error: 'channel and credentials required' });
 
-    const encryptedCreds = encrypt(JSON.stringify(credentials));
-    const result = await query(`
-      INSERT INTO channel_connections (tenant_id, channel, credentials)
-      VALUES ($1, $2, $3) RETURNING id, channel, status, created_at
+    const normalizedCredentials = { ...credentials };
+    if (channel === 'livechat' && !normalizedCredentials.widget_id && !normalizedCredentials.widgetId) {
+      normalizedCredentials.widget_id = `WGT-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    }
+
+    const encryptedCreds = encrypt(JSON.stringify(normalizedCredentials));
+    const updated = await query(`
+      UPDATE channel_connections
+      SET credentials = $3, status = 'active'
+      WHERE tenant_id = $1 AND channel = $2
+      RETURNING id, channel, status, created_at, credentials
     `, [req.user.tenant_id, channel, JSON.stringify({ encrypted: encryptedCreds })]);
 
-    res.status(201).json(result.rows[0]);
+    const result = updated.rowCount > 0 ? updated : await query(`
+      INSERT INTO channel_connections (tenant_id, channel, status, credentials)
+      VALUES ($1, $2, 'active', $3)
+      RETURNING id, channel, status, created_at, credentials
+    `, [req.user.tenant_id, channel, JSON.stringify({ encrypted: encryptedCreds })]);
+
+    res.status(updated.rowCount > 0 ? 200 : 201).json({
+      id: result.rows[0].id,
+      channel: result.rows[0].channel,
+      status: result.rows[0].status,
+      created_at: result.rows[0].created_at,
+      details: summarizeCredentials(result.rows[0].channel, result.rows[0].credentials),
+    });
   } catch (err) { next(err); }
 });
 

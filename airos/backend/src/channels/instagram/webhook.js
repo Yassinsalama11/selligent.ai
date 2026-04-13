@@ -3,6 +3,9 @@ const router  = express.Router();
 const OpenAI  = require('openai');
 const { getOrCreateConversation, addMessage, getMessages, updateConversation } = require('../../core/inMemoryStore');
 const { getIO } = require('../livechat/socket');
+const { getTenantByPageId } = require('../../core/tenantManager');
+const { query } = require('../../db/pool');
+const { normalizeTenantSettings, buildCompanyContext, isBlockedSpammer } = require('../../core/tenantSettings');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -94,13 +97,27 @@ async function processInstagramMessage(msg, entryId) {
   const text     = msg.message?.text || '';
   const msgId    = msg.message?.mid || `ig_${Date.now()}`;
   const pageId   = msg.recipient?.id || entryId;
+  const tenantMatch = pageId ? await getTenantByPageId(pageId, 'instagram') : null;
+  const tenantRow = tenantMatch?.tenant_id
+    ? await query('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantMatch.tenant_id]).then((result) => result.rows[0] || null)
+    : null;
+  const settings = normalizeTenantSettings(tenantRow?.settings);
+  const company = buildCompanyContext(tenantRow || {});
 
-  const token = process.env.INSTAGRAM_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
+  const token = tenantMatch?.credentials?.access_token || process.env.INSTAGRAM_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
   if (!token) console.warn(`[Instagram] missing INSTAGRAM_PAGE_TOKEN env var`);
 
   // Fetch real customer name
   const realName = token ? await fetchIgName(senderId, token) : null;
   const displayName = realName || `IG_${senderId.slice(-6)}`;
+
+  if (isBlockedSpammer({
+    channelCustomerId: senderId,
+    name: displayName,
+  }, settings.spammers)) {
+    console.warn(`[Instagram] blocked message from configured spammer ${senderId}`);
+    return;
+  }
 
   console.log(`[Instagram] Message from ${displayName} (${senderId}) page=${pageId}: ${text}`);
 
@@ -126,16 +143,19 @@ async function processInstagramMessage(msg, entryId) {
   } catch {}
 
   if (text) {
-    runAI(conv, msgRecord, senderId, pageId, displayName, token).catch(err =>
+    runAI(conv, msgRecord, senderId, pageId, displayName, token, { settings, company }).catch(err =>
       console.error('[Instagram AI]', err.message)
     );
   }
 }
 
-async function runAI(conv, msgRecord, senderId, pageId, customerName, token) {
+async function runAI(conv, msgRecord, senderId, pageId, customerName, token, tenantContext = {}) {
   const history = getMessages(conv.id).slice(-8);
+  const settings = tenantContext.settings || normalizeTenantSettings();
+  const company = tenantContext.company || { name: 'our store' };
 
-  const prompt = `You are an AI assistant for an Arabic eCommerce business.
+  const prompt = `${settings.aiConfig?.systemPrompt || 'You are an AI assistant for an Arabic eCommerce business.'}
+Business: ${company.name}
 Customer: ${customerName} (Instagram)
 Message: "${msgRecord.content}"
 
@@ -165,7 +185,7 @@ Return this exact JSON:
   updateConversation(conv.id, { intent: ai.intent, score: ai.lead_score, language: ai.language });
 
   // BOT MODE: auto-send reply via Instagram API
-  if (ai.suggested_reply && token) {
+  if (settings.aiConfig?.autoReply && ai.suggested_reply && token) {
     try {
       const sendRes = await fetch(
         `https://graph.facebook.com/v19.0/${pageId}/messages`,

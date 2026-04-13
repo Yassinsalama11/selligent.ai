@@ -1,5 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { query } = require('../db/pool');
+const { normalizeTenantSettings, buildCompanyContext } = require('../core/tenantSettings');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -39,8 +40,10 @@ async function generateReply({
   shipping = [],
   detectedLanguage = 'arabic',
 }) {
-  const settings = tenant.settings || {};
-  const tone = settings.tone || 'friendly and professional';
+  const settings = normalizeTenantSettings(tenant.settings);
+  const company = buildCompanyContext(tenant);
+  const tone = company.brandTone || settings.tone || 'friendly and professional';
+  const aiConfig = settings.aiConfig || {};
   const knowledgeBase = JSON.stringify(tenant.knowledge_base || {});
 
   const historyCtx = history
@@ -60,8 +63,15 @@ async function generateReply({
     `• ${z.name}: from ${(z.rates || [])[0]?.cost ?? '?'} ${z.currency || ''}`
   ).join('\n') || 'None';
 
-  const prompt = `You are a professional sales assistant for ${tenant.name || 'our store'}.
+  const prompt = `${aiConfig.systemPrompt || 'You are a professional sales assistant for an eCommerce store.'}
+
+Business name: ${company.name}
+Industry: ${company.industry || 'eCommerce'}
+Website: ${company.website || 'Not set'}
+Preferred language: ${company.brandLanguage || settings.global?.defaultLang || detectedLanguage}
+
 Your goal: close the deal in a ${tone} tone.
+Reply in the same language as the customer.
 
 Company knowledge base: ${knowledgeBase}
 Relevant products:
@@ -80,7 +90,7 @@ Last message: ${lastMessage}
 Write ONE reply only — ready to send directly on WhatsApp/Instagram.
 Keep it short and effective — max 3 lines.
 If relevant, naturally mention an active offer or product price.
-Reply in the same language the customer is using (${detectedLanguage}).`;
+Avoid making up policies, delivery times, or stock details that are not present above.`;
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
