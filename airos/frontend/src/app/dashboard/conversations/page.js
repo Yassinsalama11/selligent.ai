@@ -774,6 +774,31 @@ export default function ConversationsPage() {
       }
     });
 
+    // Instagram + Messenger — same bot logic as WhatsApp
+    ['instagram', 'messenger'].forEach(ch => {
+      socket.on(`${ch}:message`, ({ conversation, message }) => {
+        log.msg(`[${ch}] inbound`, message.id, message.content?.slice(0, 40));
+        dispatch({ type: 'INBOUND_MESSAGE', conv: conversation, message });
+      });
+
+      socket.on(`${ch}:ai`, ({ conversation_id, intent, lead_score, suggested_reply }) => {
+        dispatch({ type: 'UPDATE_CONV', convId: conversation_id, fields: { intent, score: lead_score } });
+        // Backend already auto-sent; just show it in UI
+        if (suggested_reply) {
+          dispatch({
+            type: 'INBOUND_MESSAGE',
+            conv: storeRef.current.convs[conversation_id] || { id: conversation_id },
+            message: {
+              id: `ai_ui_${Date.now()}`, direction: 'outbound', content: suggested_reply,
+              type: 'text', sent_by: 'ai',
+              at: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+              timestamp: new Date().toISOString(),
+            },
+          });
+        }
+      });
+    });
+
     return () => { socket.disconnect(); clearInterval(pollTimer); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
