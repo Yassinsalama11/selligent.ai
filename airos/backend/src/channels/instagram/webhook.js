@@ -40,8 +40,12 @@ router.post('/instagram', async (req, res) => {
     }
 
     for (const entry of body.entry || []) {
-      // Instagram DMs come in entry.messaging[]
-      for (const msg of entry.messaging || []) {
+      const messages = getInstagramMessages(entry);
+      if (!messages.length) {
+        console.log('[Instagram] No messages found in webhook entry', JSON.stringify(entry).slice(0, 200));
+        continue;
+      }
+      for (const msg of messages) {
         if (!msg.message || msg.message.is_echo) continue;
         await processInstagramMessage(msg, entry.id);
       }
@@ -51,12 +55,38 @@ router.post('/instagram', async (req, res) => {
   }
 });
 
-async function processInstagramMessage(msg, pageId) {
+function getInstagramMessages(entry) {
+  const messages = [];
+  if (Array.isArray(entry.messaging)) {
+    messages.push(...entry.messaging);
+  }
+  if (Array.isArray(entry.changes)) {
+    for (const change of entry.changes) {
+      const valueMessages = change.value?.messages;
+      if (Array.isArray(valueMessages)) {
+        messages.push(...valueMessages.map(msg => {
+          if (!msg.sender && msg.from) {
+            return {
+              ...msg,
+              sender: { id: msg.from.id || msg.from },
+              recipient: { id: msg.recipient?.id || entry.id },
+            };
+          }
+          return msg;
+        }));
+      }
+    }
+  }
+  return messages;
+}
+
+async function processInstagramMessage(msg, entryId) {
   const senderId = msg.sender.id;
   const text     = msg.message?.text || '';
   const msgId    = msg.message?.mid || `ig_${Date.now()}`;
 
   const token = process.env.INSTAGRAM_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
+  const pageId = msg.recipient?.id || entryId;
 
   // Fetch real customer name
   const realName = token ? await fetchIgName(senderId, token) : null;
