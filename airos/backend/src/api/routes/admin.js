@@ -195,8 +195,14 @@ router.post('/auth/login', async (req, res, next) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    let admin = await getPlatformAdminByEmail(email);
-    if (!admin) admin = getConfiguredAdmin(email, password);
+    let admin = getConfiguredAdmin(email, password);
+    if (!admin) {
+      try {
+        admin = await getPlatformAdminByEmail(email);
+      } catch (err) {
+        if (err.code !== 'ECONNREFUSED') throw err;
+      }
+    }
 
     if (!admin) {
       return res.status(401).json({ error: 'Invalid admin credentials' });

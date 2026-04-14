@@ -162,8 +162,10 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3001;
-if (process.env.ENABLE_REPORT_SCHEDULER !== '0') {
+if (process.env.ENABLE_REPORT_SCHEDULER !== '0' && process.env.DATABASE_URL) {
   startReportScheduler();
+} else if (process.env.ENABLE_REPORT_SCHEDULER !== '0') {
+  console.warn('[ReportScheduler] skipped because DATABASE_URL is not configured');
 }
 server.listen(PORT, () => console.log(`ChatOrAI backend running on port ${PORT}`));
 
