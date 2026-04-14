@@ -53,9 +53,22 @@ const DEFAULT_WHATSAPP_SETTINGS = {
   typing_indicator: true,
 };
 
+const DEFAULT_CONVERSATION_LAYOUT = {
+  density: 'comfortable',
+  bubbleStyle: 'rounded',
+  showScore: true,
+  showIntent: true,
+  showChannel: true,
+  showTimestamp: true,
+  agentBubble: '#6366f1',
+  customerBubble: '#0f172a',
+};
+
 function normalizeTenantSettings(rawSettings = {}) {
   const settings = isPlainObject(rawSettings) ? { ...rawSettings } : {};
 
+  settings.profile = isPlainObject(settings.profile) ? settings.profile : {};
+  settings.company = isPlainObject(settings.company) ? settings.company : {};
   settings.global = {
     ...DEFAULT_GLOBAL_SETTINGS,
     ...(isPlainObject(settings.global) ? settings.global : {}),
@@ -87,6 +100,21 @@ function normalizeTenantSettings(rawSettings = {}) {
   settings.tags = Array.isArray(settings.tags) ? settings.tags : [];
   settings.brands = Array.isArray(settings.brands) ? settings.brands : [];
   settings.channels = isPlainObject(settings.channels) ? settings.channels : {};
+  settings.layout = {
+    ...DEFAULT_CONVERSATION_LAYOUT,
+    ...(isPlainObject(settings.layout) ? settings.layout : {}),
+  };
+  settings.triggers = Array.isArray(settings.triggers) ? settings.triggers : [];
+  settings.schedReports = Array.isArray(settings.schedReports) ? settings.schedReports : [];
+  settings.recycled = Array.isArray(settings.recycled) ? settings.recycled : [];
+  settings.triggerLogs = Array.isArray(settings.triggerLogs) ? settings.triggerLogs : [];
+  settings.broadcastHistory = Array.isArray(settings.broadcastHistory) ? settings.broadcastHistory : [];
+  settings.waTemplates = Array.isArray(settings.waTemplates) ? settings.waTemplates : [];
+  settings.igSettings = isPlainObject(settings.igSettings) ? settings.igSettings : {};
+  settings.messengerSettings = isPlainObject(settings.messengerSettings) ? settings.messengerSettings : {};
+  settings.broadcastBalance = Number.isFinite(Number(settings.broadcastBalance))
+    ? Number(settings.broadcastBalance)
+    : 0;
   settings.waSettings = {
     ...DEFAULT_WHATSAPP_SETTINGS,
     ...(isPlainObject(settings.waSettings) ? settings.waSettings : {}),

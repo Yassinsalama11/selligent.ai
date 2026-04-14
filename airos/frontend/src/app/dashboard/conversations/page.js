@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useReducer, useLayoutEffect, useCallback }
 import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
 import { io } from 'socket.io-client';
+import { api as secureApi } from '@/lib/api';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://api.selligent.ai';
 
@@ -523,6 +524,14 @@ export default function ConversationsPage() {
   const [filter, setFilter]         = useState('all');
   const [search, setSearch]         = useState('');
   const [showPanel, setShow]        = useState(true);
+  const [layoutPrefs, setLayoutPrefs] = useState({
+    density:'comfortable',
+    bubbleStyle:'rounded',
+    showScore:true,
+    showIntent:true,
+    showChannel:true,
+    showTimestamp:true,
+  });
   const [tags, setTags]             = useState({ '1': ['VIP'], '2': [] });
   const [assignedTo, setAssignedTo] = useState({});
   /* ── Single source of truth store ── */
@@ -553,9 +562,38 @@ export default function ConversationsPage() {
     return () => { window.removeEventListener('storage', checkAiCfg); window.removeEventListener('focus', checkAiCfg); };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLayoutPrefs() {
+      try {
+        const settings = await secureApi.get('/api/settings');
+        if (!cancelled && settings?.layout) {
+          setLayoutPrefs((current) => ({ ...current, ...settings.layout }));
+        }
+      } catch {}
+    }
+
+    loadLayoutPrefs();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   /* Scroll ref */
   const bottomRef = useRef(null);
   const msgsContainerRef = useRef(null);
+  const listItemPadding = layoutPrefs.density === 'compact' ? '10px 12px'
+    : layoutPrefs.density === 'expanded' ? '16px 16px'
+      : '13px 14px';
+  const messageGap = layoutPrefs.density === 'compact' ? 6
+    : layoutPrefs.density === 'expanded' ? 14
+      : 10;
+  const bubbleRadius = layoutPrefs.bubbleStyle === 'sharp'
+    ? '8px'
+    : layoutPrefs.bubbleStyle === 'pill'
+      ? '999px'
+      : '16px';
 
   // Listen for AI suggestion from socket handler (bridges module scope → component state)
   useEffect(() => {
@@ -1095,7 +1133,7 @@ export default function ConversationsPage() {
                   <div key={conv.id}
                     onClick={() => openLiveConv(conv)}
                     style={{
-                      padding:'13px 14px', cursor:'pointer',
+                      padding:listItemPadding, cursor:'pointer',
                       borderBottom:'1px solid rgba(255,255,255,0.04)',
                       background: activeLive?.id === conv.id ? 'rgba(37,211,102,0.08)' : 'transparent',
                       borderLeft: activeLive?.id === conv.id ? '2px solid #25D366' : '2px solid transparent',
@@ -1110,7 +1148,7 @@ export default function ConversationsPage() {
                           display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:14 }}>
                           {conv.customerName?.[0]?.toUpperCase() || '?'}
                         </div>
-                        <span style={{ position:'absolute', bottom:-2, right:-2, fontSize:11 }}>📱</span>
+                        {layoutPrefs.showChannel && <span style={{ position:'absolute', bottom:-2, right:-2, fontSize:11 }}>📱</span>}
                       </div>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
@@ -1123,12 +1161,12 @@ export default function ConversationsPage() {
                           textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:6 }}
                           dir="auto">{conv.lastMessage || '…'}</p>
                         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                          <span style={{ fontSize:10.5, fontWeight:600, padding:'2px 7px', borderRadius:99,
+                          {layoutPrefs.showIntent && <span style={{ fontSize:10.5, fontWeight:600, padding:'2px 7px', borderRadius:99,
                             background:`${IC_COLOR[conv.intent]||'#64748b'}12`, color:IC_COLOR[conv.intent]||'#64748b',
                             border:`1px solid ${IC_COLOR[conv.intent]||'#64748b'}20` }}>
                             {(conv.intent||'inquiry').replace(/_/g,' ')}
-                          </span>
-                          <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                          </span>}
+                          {layoutPrefs.showScore && <div style={{ display:'flex', alignItems:'center', gap:5 }}>
                             <div style={{ width:32, height:3, borderRadius:99, background:'var(--s3)' }}>
                               <div style={{ height:3, borderRadius:99,
                                 background: (conv.score||0)>70?'#10b981': (conv.score||0)>40?'#f59e0b':'#ef4444',
@@ -1136,7 +1174,7 @@ export default function ConversationsPage() {
                             </div>
                             <span style={{ fontSize:11, fontWeight:700,
                               color: (conv.score||0)>70?'#10b981': (conv.score||0)>40?'#f59e0b':'#ef4444' }}>{conv.score||0}</span>
-                          </div>
+                          </div>}
                         </div>
                       </div>
                     </div>
@@ -1152,7 +1190,7 @@ export default function ConversationsPage() {
             {filtered.map(c => (
               <div key={c.id} onClick={() => selectConv(c)}
                 style={{
-                  padding:'13px 14px', cursor:'pointer',
+                  padding:listItemPadding, cursor:'pointer',
                   borderBottom:'1px solid rgba(255,255,255,0.04)',
                   background: active?.id===c.id ? 'rgba(99,102,241,0.08)' : 'transparent',
                   borderLeft: active?.id===c.id ? '2px solid #6366f1' : '2px solid transparent',
@@ -1168,7 +1206,7 @@ export default function ConversationsPage() {
                       display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:14 }}>
                       {c.name[0]}
                     </div>
-                    <span style={{ position:'absolute', bottom:-2, right:-2, fontSize:11 }}>{CH_ICON[c.ch]}</span>
+                    {layoutPrefs.showChannel && <span style={{ position:'absolute', bottom:-2, right:-2, fontSize:11 }}>{CH_ICON[c.ch]}</span>}
                     {aiAutoReply[c.id] && (
                       <span style={{ position:'absolute', top:-2, right:-2, width:10, height:10,
                         borderRadius:'50%', background:'#67e8f9', border:'1.5px solid var(--bg2)' }} />
@@ -1183,12 +1221,12 @@ export default function ConversationsPage() {
                       textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:6 }}
                       dir="auto">{c.last}</p>
                     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                      <span style={{ fontSize:10.5, fontWeight:600, padding:'2px 7px', borderRadius:99,
+                      {layoutPrefs.showIntent && <span style={{ fontSize:10.5, fontWeight:600, padding:'2px 7px', borderRadius:99,
                         background:`${IC_COLOR[c.intent]||'#64748b'}12`, color:IC_COLOR[c.intent]||'#64748b',
                         border:`1px solid ${IC_COLOR[c.intent]||'#64748b'}20` }}>
                         {c.intent.replace(/_/g,' ')}
-                      </span>
-                      <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                      </span>}
+                      {layoutPrefs.showScore && <div style={{ display:'flex', alignItems:'center', gap:5 }}>
                         <div style={{ width:32, height:3, borderRadius:99, background:'var(--s3)' }}>
                           <div style={{ height:3, borderRadius:99,
                             background: c.score>70?'#10b981': c.score>40?'#f59e0b':'#ef4444',
@@ -1196,7 +1234,7 @@ export default function ConversationsPage() {
                         </div>
                         <span style={{ fontSize:11, fontWeight:700,
                           color: c.score>70?'#10b981': c.score>40?'#f59e0b':'#ef4444' }}>{c.score}</span>
-                      </div>
+                      </div>}
                     </div>
                   </div>
                 </div>
@@ -1326,7 +1364,7 @@ export default function ConversationsPage() {
               {/* Messages — scrollable, newest at bottom */}
               <div ref={msgsContainerRef}
                 style={{ flex:1, overflowY:'auto', padding:'16px 20px', display:'flex',
-                  flexDirection:'column', gap:10 }}>
+                  flexDirection:'column', gap:messageGap }}>
                 {/* Spacer to push messages down when few exist */}
                 <div style={{ flex:1, minHeight:0 }} />
 
@@ -1352,10 +1390,10 @@ export default function ConversationsPage() {
                       )}
                       <div style={{ maxWidth:'70%' }}>
                         <div className={isOut ? 'bubble-out' : 'bubble-in'}
-                          style={{ opacity: isSending ? 0.6 : 1, transition:'opacity 0.2s' }}>
+                          style={{ opacity: isSending ? 0.6 : 1, transition:'opacity 0.2s', borderRadius: bubbleRadius }}>
                           <span dir="auto">{m.content}</span>
                         </div>
-                        <p style={{ fontSize:10, color:'var(--t4)', marginTop:3,
+                        {layoutPrefs.showTimestamp && <p style={{ fontSize:10, color:'var(--t4)', marginTop:3,
                           textAlign: isOut ? 'right' : 'left', display:'flex',
                           justifyContent: isOut ? 'flex-end' : 'flex-start',
                           alignItems:'center', gap:4 }}>
@@ -1363,7 +1401,7 @@ export default function ConversationsPage() {
                           {isOut && isSending  && <span style={{ color:'#94a3b8' }}>· sending…</span>}
                           {isOut && !isSending && m.sent_by === 'agent' && <span>· Agent ✓</span>}
                           {isOut && !isSending && m.sent_by === 'ai'    && <span style={{ color:'#67e8f9' }}>· 🤖 AI ✓</span>}
-                        </p>
+                        </p>}
                       </div>
                     </div>
                   );
@@ -1608,7 +1646,7 @@ export default function ConversationsPage() {
 
               {/* Messages */}
               <div style={{ flex:1, overflowY:'auto', padding:'20px', display:'flex',
-                flexDirection:'column', gap:12 }}>
+                flexDirection:'column', gap:messageGap }}>
                 <div style={{ flex:1 }} />
                 {msgs.map(m => (
                   <div key={m.id} style={{ display:'flex',
@@ -1623,18 +1661,18 @@ export default function ConversationsPage() {
                     )}
                     <div style={{ maxWidth:'70%' }}>
                       <div className={m.dir==='out' ? 'bubble-out' : 'bubble-in'}
-                        style={m.type ? { padding:'10px 12px' }
-                          : m.auto ? { border:'1px solid rgba(6,182,212,0.25)', background:'rgba(6,182,212,0.08)' }
-                          : {}}>
+                        style={m.type ? { padding:'10px 12px', borderRadius: bubbleRadius }
+                          : m.auto ? { border:'1px solid rgba(6,182,212,0.25)', background:'rgba(6,182,212,0.08)', borderRadius: bubbleRadius }
+                          : { borderRadius: bubbleRadius }}>
                         <MsgContent m={m} />
                       </div>
-                      <p style={{ fontSize:10.5, color:'var(--t4)', marginTop:4,
+                      {layoutPrefs.showTimestamp && <p style={{ fontSize:10.5, color:'var(--t4)', marginTop:4,
                         textAlign: m.dir==='out' ? 'right' : 'left' }}>
                         {m.at}
                         {m.by==='ai' && !m.auto && <span style={{ marginLeft:5, color:'#67e8f9' }}>🤖 Suggestion used</span>}
                         {m.auto && <span style={{ marginLeft:5, color:'#67e8f9' }}>🤖 AI Auto-sent</span>}
                         {m.by==='agent' && <span style={{ marginLeft:5 }}>· Agent</span>}
-                      </p>
+                      </p>}
                     </div>
                   </div>
                 ))}

@@ -2,6 +2,7 @@
 import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import toast from 'react-hot-toast';
 import { useState, useEffect } from 'react';
+import { api } from '@/lib/api';
 
 const REV = [
   { d:'Mon', r:3200, deals:8  },
@@ -86,11 +87,65 @@ function SectionHeader({ title, action, href }) {
 
 export default function DashboardPage() {
   const [user, setUser] = useState({});
+  const [overview, setOverview] = useState(null);
   useEffect(() => {
     try { setUser(JSON.parse(localStorage.getItem('airos_user') || '{}')); } catch {}
   }, []);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadOverview() {
+      try {
+        const data = await api.get('/api/dashboard');
+        if (!cancelled) setOverview(data);
+      } catch {}
+    }
+
+    loadOverview();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const dateStr = new Date().toLocaleDateString('en-US', { month:'long', year:'numeric' });
+  const revenueSeries = overview?.trend?.length
+    ? overview.trend.map((row) => ({
+        d: new Date(row.date).toLocaleDateString('en-US', { weekday:'short' }),
+        r: Number(row.revenue || 0),
+        deals: Number(row.dealsWon || 0),
+      }))
+    : REV;
+  const pipeline = overview?.deals_by_stage?.length
+    ? overview.deals_by_stage.map((stage, index) => ({
+        label: String(stage.stage || 'other').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()),
+        n: Number(stage.count || 0),
+        color: ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'][index % 6],
+      }))
+    : PIPELINE;
+  const channels = overview?.channels?.length
+    ? overview.channels.map((channel) => ({
+        name: String(channel.channel || 'unknown').replace(/^\w/, (char) => char.toUpperCase()),
+        msgs: Number(channel.conversations || 0),
+        color: { whatsapp:'#25D366', instagram:'#E1306C', messenger:'#0099FF', livechat:'#6366f1' }[channel.channel] || '#94a3b8',
+        icon: { whatsapp:'📱', instagram:'📸', messenger:'💬', livechat:'⚡' }[channel.channel] || '💬',
+      }))
+    : CHANNELS;
+  const hotLeads = overview?.hot_leads?.length
+    ? overview.hot_leads.map((lead) => ({
+        name: lead.name,
+        intent: lead.intent || 'inquiry',
+        score: Number(lead.score || 0),
+        ch: { whatsapp:'📱', instagram:'📸', messenger:'💬', livechat:'⚡' }[lead.channel] || '💬',
+        ago: new Date(lead.updatedAt).toLocaleDateString('en-US', { month:'short', day:'numeric' }),
+        val: Number(lead.estimatedValue || 0) || null,
+        c: Number(lead.score || 0) > 70 ? '#10b981' : Number(lead.score || 0) > 40 ? '#6366f1' : '#f59e0b',
+      }))
+    : LEADS;
+  const totalRevenue = revenueSeries.reduce((sum, row) => sum + Number(row.r || 0), 0);
+  const totalConversations = channels.reduce((sum, row) => sum + Number(row.msgs || 0), 0);
+  const dealsWon = pipeline.find((stage) => String(stage.label).toLowerCase() === 'won')?.n
+    || Number(overview?.today?.deals_won || 0);
+  const aiUsageRate = `${Number(overview?.ai_usage?.rate || 0).toFixed(0)}%`;
 
   return (
     <div style={{ padding:'28px 28px 40px', display:'flex', flexDirection:'column', gap:20 }}>
@@ -112,7 +167,7 @@ export default function DashboardPage() {
             <option>This month</option>
           </select>
           <button className="btn btn-primary btn-sm" onClick={() => {
-            const csv = ['Date,Revenue,Deals', ...REV.map(r => `${r.d},${r.r},${r.deals}`)].join('\n');
+            const csv = ['Date,Revenue,Deals', ...revenueSeries.map(r => `${r.d},${r.r},${r.deals}`)].join('\n');
             const a = Object.assign(document.createElement('a'), {
               href: URL.createObjectURL(new Blob([csv], { type:'text/csv' })),
               download: 'airos-overview.csv',
@@ -125,10 +180,10 @@ export default function DashboardPage() {
 
       {/* ── KPIs ────────────────────────────────────────────────────────── */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16 }}>
-        <KPICard icon="💰" label="Total Revenue"  value="$28,400" delta="24%" color="#10b981" sub="This week" />
-        <KPICard icon="💬" label="Conversations"  value="945"     delta="12%" color="#6366f1" sub="Active leads" />
-        <KPICard icon="🎯" label="Deals Won"       value="72"      delta="8%"  color="#8b5cf6" sub="This week" />
-        <KPICard icon="🤖" label="AI Usage Rate"  value="87%"     delta="5%"  color="#06b6d4" sub="Suggestions used" />
+        <KPICard icon="💰" label="Total Revenue"  value={`$${totalRevenue.toLocaleString()}`} delta="0%" color="#10b981" sub="Selected period" />
+        <KPICard icon="💬" label="Conversations"  value={totalConversations.toLocaleString()} delta="0%" color="#6366f1" sub="Selected period" />
+        <KPICard icon="🎯" label="Deals Won"      value={dealsWon.toLocaleString()} delta="0%" color="#8b5cf6" sub="Selected period" />
+        <KPICard icon="🤖" label="AI Usage Rate"  value={aiUsageRate} delta="0%" color="#06b6d4" sub="Suggestions used" />
       </div>
 
       {/* ── Charts row ──────────────────────────────────────────────────── */}
@@ -148,7 +203,7 @@ export default function DashboardPage() {
             </div>
           </div>
           <ResponsiveContainer width="100%" height={195}>
-            <AreaChart data={REV} margin={{ left:0, right:0, top:4, bottom:0 }}>
+            <AreaChart data={revenueSeries} margin={{ left:0, right:0, top:4, bottom:0 }}>
               <defs>
                 <linearGradient id="gr" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#6366f1" stopOpacity={0.32}/>
@@ -171,7 +226,7 @@ export default function DashboardPage() {
         <div className="card" style={{ display:'flex', flexDirection:'column' }}>
           <SectionHeader title="Deal Pipeline" />
           <div style={{ display:'flex', flexDirection:'column', gap:16, flex:1 }}>
-            {PIPELINE.map(s => (
+            {pipeline.map(s => (
               <div key={s.label}>
                 <div style={{ display:'flex', justifyContent:'space-between', marginBottom:7 }}>
                   <span style={{ fontSize:13, color:'var(--t2)' }}>{s.label}</span>
@@ -179,7 +234,7 @@ export default function DashboardPage() {
                 </div>
                 <div style={{ height:5, borderRadius:99, background:'var(--s2)' }}>
                   <div style={{ height:5, borderRadius:99, background:s.color,
-                    width:`${(s.n/24)*100}%`, transition:'width 0.7s ease' }} />
+                    width:`${pipeline[0]?.n ? (s.n / Math.max(pipeline[0].n, 1)) * 100 : 0}%`, transition:'width 0.7s ease' }} />
                 </div>
               </div>
             ))}
@@ -198,7 +253,7 @@ export default function DashboardPage() {
         <div className="card">
           <SectionHeader title="🔥 Hot Leads — Live" action="View all →" href="/dashboard/conversations" />
           <div style={{ display:'flex', flexDirection:'column' }}>
-            {LEADS.map((l,i) => (
+            {hotLeads.map((l,i) => (
               <div key={i}
                 style={{ display:'flex', alignItems:'center', gap:14, padding:'11px 12px',
                   borderRadius:10, cursor:'pointer', transition:'background 0.12s',
@@ -249,8 +304,8 @@ export default function DashboardPage() {
         <div className="card">
           <SectionHeader title="Channel Breakdown" />
           <div style={{ display:'flex', flexDirection:'column', gap:15, marginBottom:20 }}>
-            {CHANNELS.map(ch => {
-              const pct = Math.round((ch.msgs/945)*100);
+            {channels.map(ch => {
+              const pct = totalConversations > 0 ? Math.round((ch.msgs / totalConversations) * 100) : 0;
               return (
                 <div key={ch.name}>
                   <div style={{ display:'flex', justifyContent:'space-between', marginBottom:7 }}>

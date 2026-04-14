@@ -13,10 +13,13 @@ const productsRoutes = require('./api/routes/products');
 const reportsRoutes = require('./api/routes/reports');
 const catalogRoutes = require('./api/routes/catalog');
 const settingsRoutes = require('./api/routes/settings');
+const customersRoutes = require('./api/routes/customers');
+const broadcastRoutes = require('./api/routes/broadcast');
 
 const { authMiddleware } = require('./api/middleware/auth');
 const { tenantMiddleware } = require('./api/middleware/tenant');
 const { initSocketServer } = require('./channels/livechat/socket');
+const { startReportScheduler } = require('./core/reportScheduler');
 
 const app = express();
 const server = http.createServer(app);
@@ -147,6 +150,8 @@ app.use('/api/conversations', conversationsRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/customers', customersRoutes);
+app.use('/api/broadcast', broadcastRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {
@@ -155,6 +160,9 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3001;
+if (process.env.ENABLE_REPORT_SCHEDULER !== '0') {
+  startReportScheduler();
+}
 server.listen(PORT, () => console.log(`AIROS backend running on port ${PORT}`));
 
 module.exports = { app, server };

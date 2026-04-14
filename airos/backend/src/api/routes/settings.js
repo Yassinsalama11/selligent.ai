@@ -3,6 +3,9 @@ const express = require('express');
 const { query, withTransaction } = require('../../db/pool');
 const { updateTenantSettings } = require('../../db/queries/tenants');
 const { normalizeTenantSettings, isPlainObject } = require('../../core/tenantSettings');
+const { getRecycleBin, removeRecycleItem, clearRecycleBin } = require('../../core/recycleBin');
+const { buildDefaultTemplateBody, sendEmail } = require('../../core/emailService');
+const { runScheduledReportsForTenant } = require('../../core/reportScheduler');
 
 const router = express.Router();
 
@@ -69,6 +72,26 @@ function normalizeImportedRow(row = {}) {
     country: String(get('country', 'Country')).trim(),
     tags: parseImportedTags(get('tags', 'Tags')),
   };
+}
+
+async function saveRequestTenantSettings(req, nextSettings) {
+  const saved = await updateTenantSettings(
+    req.user.tenant_id,
+    normalizeTenantSettings(nextSettings),
+  );
+  req.tenant = {
+    ...(req.tenant || {}),
+    settings: normalizeTenantSettings(saved?.settings),
+  };
+  return req.tenant.settings;
+}
+
+function withoutKeys(value = {}, keys = []) {
+  const next = { ...(value || {}) };
+  keys.forEach((key) => {
+    delete next[key];
+  });
+  return next;
 }
 
 router.get('/', async (req, res, next) => {
@@ -332,6 +355,150 @@ router.post('/import/contacts', async (req, res, next) => {
     });
 
     res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/recycle-bin', async (req, res, next) => {
+  try {
+    const recycled = await getRecycleBin(req.user.tenant_id);
+    res.json(recycled);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/recycle-bin/:itemId/restore', async (req, res, next) => {
+  try {
+    const settings = normalizeTenantSettings(req.tenant?.settings);
+    const item = settings.recycled.find((entry) => entry.id === req.params.itemId);
+    if (!item) return res.status(404).json({ error: 'Recycle bin item not found' });
+
+    if (item.entityType === 'customer') {
+      const row = await query(`
+        SELECT preferences
+        FROM customers
+        WHERE id = $1 AND tenant_id = $2
+        LIMIT 1
+      `, [item.entityId, req.user.tenant_id]).then((result) => result.rows[0] || null);
+
+      if (!row) return res.status(404).json({ error: 'Customer not found' });
+
+      await query(`
+        UPDATE customers
+        SET preferences = $1
+        WHERE id = $2 AND tenant_id = $3
+      `, [
+        JSON.stringify(withoutKeys(row.preferences, ['deleted_at', 'deleted_by'])),
+        item.entityId,
+        req.user.tenant_id,
+      ]);
+    }
+
+    if (item.entityType === 'conversation') {
+      await query(`
+        UPDATE conversations
+        SET status = $1, updated_at = NOW()
+        WHERE id = $2 AND tenant_id = $3
+      `, [
+        item.metadata?.previousStatus || 'open',
+        item.entityId,
+        req.user.tenant_id,
+      ]);
+    }
+
+    const recycled = settings.recycled.filter((entry) => entry.id !== req.params.itemId);
+    const savedSettings = await saveRequestTenantSettings(req, {
+      ...settings,
+      recycled,
+    });
+
+    res.json({
+      ok: true,
+      item,
+      recycled: savedSettings.recycled,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/recycle-bin/:itemId', async (req, res, next) => {
+  try {
+    const result = await removeRecycleItem(req.user.tenant_id, req.params.itemId);
+    if (!result.item) return res.status(404).json({ error: 'Recycle bin item not found' });
+
+    res.json({
+      ok: true,
+      item: result.item,
+      recycled: result.recycled,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/recycle-bin/empty', async (req, res, next) => {
+  try {
+    const recycled = await clearRecycleBin(req.user.tenant_id);
+    res.json({ ok: true, recycled });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/email-templates/send-test', async (req, res, next) => {
+  try {
+    const settings = normalizeTenantSettings(req.tenant?.settings);
+    const templateId = String(req.body?.templateId || '');
+    const template = settings.emailTpls.find((entry) => String(entry.id) === templateId)
+      || settings.emailTpls.find((entry) => String(entry.name).toLowerCase() === templateId.toLowerCase());
+
+    if (!template) return res.status(404).json({ error: 'Email template not found' });
+
+    const to = String(req.body?.to || settings.profile?.email || req.tenant?.email || '').trim().toLowerCase();
+    if (!to) return res.status(400).json({ error: 'Recipient email is required' });
+
+    const companyName = settings.company?.name || req.tenant?.name || 'AIROS';
+    const variables = {
+      company_name: companyName,
+      operator_name: settings.profile?.name || 'Operator',
+      recipient_email: to,
+      report_period: 'today',
+      ...(isPlainObject(req.body?.variables) ? req.body.variables : {}),
+    };
+
+    const rendered = buildDefaultTemplateBody(template, variables);
+    const delivery = await sendEmail({
+      to,
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
+    });
+
+    res.json({
+      ok: true,
+      delivery,
+      preview: rendered,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/scheduled-reports/run', async (req, res, next) => {
+  try {
+    const results = await runScheduledReportsForTenant(
+      req.user.tenant_id,
+      req.body?.scheduleId,
+      { force: true },
+    );
+
+    res.json({
+      ok: true,
+      results,
+    });
   } catch (err) {
     next(err);
   }

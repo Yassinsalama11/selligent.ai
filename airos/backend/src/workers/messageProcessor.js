@@ -21,6 +21,7 @@ if (require.main === module) {
   const { detectIntent }     = require('../ai/intentDetector');
   const { scoreLeadFromAI }  = require('../ai/leadScorer');
   const { generateReply }    = require('../ai/replyGenerator');
+  const { executeTriggers }  = require('../core/triggerEngine');
   const { getMessages }      = require('../db/queries/messages');
   const { query }            = require('../db/pool');
   const { getIO }            = require('../channels/livechat/socket');
@@ -113,7 +114,25 @@ if (require.main === module) {
       console.error('[Worker] Reply generation failed:', err.message);
     }
 
-    // ── 7. Push AI results to dashboard in real-time ──────────────────────────
+    // ── 7. Run tenant triggers against the analyzed message ───────────────────
+    try {
+      await executeTriggers({
+        tenant: tenantRow,
+        tenantId,
+        settings: tenantRow?.settings || {},
+        conversation,
+        customer,
+        savedMessage,
+        analysis,
+        credentials,
+        suggestion,
+        historyLength: history.length,
+      });
+    } catch (err) {
+      console.error('[Worker] Trigger execution failed:', err.message);
+    }
+
+    // ── 8. Push AI results to dashboard in real-time ──────────────────────────
     try {
       const io = getIO();
       io.to(`tenant:${tenantId}`).emit('ai:suggestion', {

@@ -1,7 +1,8 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
+import { api } from '@/lib/api';
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Meta WhatsApp Business API — Marketing Broadcast Logic
@@ -137,12 +138,29 @@ function estimateCost(recipients, defaultRate = RATES.EG) {
   }, 0);
 }
 
+function formatHistoryDate(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString('en-GB', { month:'short', day:'numeric' }) + ', ' +
+    date.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' });
+}
+
+function normalizeHistoryEntry(entry = {}) {
+  return {
+    ...entry,
+    sentAt: formatHistoryDate(entry.sentAt),
+  };
+}
+
 /* ════════════════════════════════════════════════════════════════════════════ */
 export default function BroadcastPage() {
   const [tab, setTab]               = useState('new');   /* new | templates | history */
-  const [balance, setBalance]       = useState(18.45);
-  const [templates, setTemplates]   = useState(SEED_TEMPLATES);
-  const [history, setHistory]       = useState(SEED_HISTORY);
+  const [balance, setBalance]       = useState(0);
+  const [templates, setTemplates]   = useState([]);
+  const [history, setHistory]       = useState([]);
+  const [contacts, setContacts]     = useState([]);
+  const [loading, setLoading]       = useState(true);
 
   /* ── New broadcast wizard (4 steps) ── */
   const [step, setStep]             = useState(1);
@@ -165,18 +183,49 @@ export default function BroadcastPage() {
   const [histDetail, setHistDetail]     = useState(null);
 
   /* ── Recipient helpers ── */
-  const allTags = useMemo(() => [...new Set(CONTACTS.flatMap(c => c.tags))].filter(Boolean), []);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadBroadcastData() {
+      setLoading(true);
+      try {
+        const data = await api.get('/api/broadcast');
+        if (cancelled) return;
+        setBalance(Number(data?.balance || 0));
+        setTemplates(Array.isArray(data?.templates) ? data.templates : []);
+        setHistory(Array.isArray(data?.history) ? data.history.map(normalizeHistoryEntry) : []);
+        setContacts(Array.isArray(data?.contacts) ? data.contacts : []);
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(err.message || 'Could not load broadcast data');
+          setBalance(18.45);
+          setTemplates(SEED_TEMPLATES);
+          setHistory(SEED_HISTORY);
+          setContacts(CONTACTS);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadBroadcastData();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const allTags = useMemo(() => [...new Set(contacts.flatMap(c => c.tags || []))].filter(Boolean), [contacts]);
 
   const activeRecipients = useMemo(() => {
-    if (recipientMode === 'contacts') return CONTACTS.filter(c => selContacts.has(c.id));
-    if (recipientMode === 'tag') return tagFilter ? CONTACTS.filter(c => c.tags.includes(tagFilter)) : [];
+    if (recipientMode === 'contacts') return contacts.filter(c => selContacts.has(c.id));
+    if (recipientMode === 'tag') return tagFilter ? contacts.filter(c => (c.tags || []).includes(tagFilter)) : [];
     if (recipientMode === 'manual') {
       return manualNums.split('\n').map(l => l.trim()).filter(Boolean).map((phone, i) => ({
         id: 'manual_'+i, name: phone, phone, country: 'EG', tags: [],
       }));
     }
     return [];
-  }, [recipientMode, selContacts, tagFilter, manualNums]);
+  }, [contacts, recipientMode, selContacts, tagFilter, manualNums]);
 
   const estimatedCost = useMemo(() => estimateCost(activeRecipients), [activeRecipients]);
   const hasBalance    = balance >= estimatedCost;
@@ -203,70 +252,72 @@ export default function BroadcastPage() {
   async function sendBroadcast() {
     if (!hasBalance) { toast.error('Insufficient balance — please top up'); return; }
     setSending(true);
-    await new Promise(r => setTimeout(r, 2200));
-    setSending(false);
+    try {
+      const response = await api.post('/api/broadcast/send', {
+        name: bName,
+        templateId: selTemplate.id,
+        recipients: activeRecipients,
+        variables: varValues,
+        scheduleAt: scheduleType === 'later' ? scheduleAt : null,
+      });
 
-    const entry = {
-      id: 'b'+Date.now(),
-      name: bName,
-      template: selTemplate.name,
-      sentAt: scheduleType === 'now'
-        ? new Date().toLocaleDateString('en-GB', { month:'short', day:'numeric' }) + ', ' +
-          new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' })
-        : scheduleAt,
-      recipients: activeRecipients.length,
-      delivered: Math.floor(activeRecipients.length * 0.97),
-      read: Math.floor(activeRecipients.length * 0.74),
-      failed: Math.ceil(activeRecipients.length * 0.03),
-      cost: estimatedCost,
-      status: scheduleType === 'now' ? 'completed' : 'scheduled',
-    };
+      if (response?.entry) setHistory(h => [normalizeHistoryEntry(response.entry), ...h]);
+      if (typeof response?.balance === 'number') setBalance(response.balance);
 
-    setHistory(h => [entry, ...h]);
-    setBalance(b => +(b - estimatedCost).toFixed(3));
+      setStep(1); setBName(''); setSelTpl(null);
+      setSelCont(new Set()); setManual(''); setVarValues({});
+      setSched('now'); setSchedAt('');
 
-    /* reset wizard */
-    setStep(1); setBName(''); setSelTpl(null);
-    setSelCont(new Set()); setManual(''); setVarValues({});
-    setSched('now'); setSchedAt('');
-
-    toast.success(scheduleType === 'now'
-      ? `📣 Broadcast sent to ${entry.recipients} contacts!`
-      : `📅 Broadcast scheduled!`, { duration: 4000 });
-    setTab('history');
+      toast.success(scheduleType === 'now'
+        ? `📣 Broadcast sent to ${activeRecipients.length} contacts!`
+        : '📅 Broadcast scheduled!', { duration: 4000 });
+      setTab('history');
+    } catch (err) {
+      toast.error(err.message || 'Could not send broadcast');
+    } finally {
+      setSending(false);
+    }
   }
 
   /* ── Top-up ── */
-  function doTopUp() {
-    setBalance(b => +(b + topUpAmt).toFixed(2));
-    setTopUpModal(false);
-    toast.success(`$${topUpAmt} added to your balance 💳`);
+  async function doTopUp() {
+    try {
+      const response = await api.post('/api/broadcast/top-up', { amount: topUpAmt });
+      setBalance(Number(response?.balance || 0));
+      setTopUpModal(false);
+      toast.success(`$${topUpAmt} added to your balance 💳`);
+    } catch (err) {
+      toast.error(err.message || 'Could not top up balance');
+    }
   }
 
   /* ── Submit new template ── */
-  function submitTemplate() {
+  async function submitTemplate() {
     if (!tplForm.name.trim() || !tplForm.body.trim()) {
       toast.error('Template name and body are required'); return;
     }
     const variables = (tplForm.body.match(/\{\{\d+\}\}/g) || [])
       .filter((v, i, arr) => arr.indexOf(v) === i)
       .map((_, i) => `Variable ${i+1}`);
-    const newTpl = {
-      id: 't' + Date.now(),
-      name: tplForm.name.replace(/\s+/g,'_').toLowerCase(),
-      status: 'pending',
-      category: tplForm.category,
-      language: tplForm.language,
-      header: { type:'TEXT', text: tplForm.header },
-      body: tplForm.body,
-      footer: tplForm.footer,
-      buttons: tplForm.buttons ? [{ type:'URL', text: tplForm.buttons, url:'' }] : [],
-      variables,
-    };
-    setTemplates(t => [...t, newTpl]);
-    setNewTplModal(false);
-    setTplForm({ name:'', category:'MARKETING', language:'ar', header:'', body:'', footer:'', buttons:'' });
-    toast.success('Template submitted to Meta for review (24-48 hrs) ⏳');
+    try {
+      const nextTemplates = await api.post('/api/broadcast/templates', {
+        name: tplForm.name.replace(/\s+/g,'_').toLowerCase(),
+        status: 'pending',
+        category: tplForm.category,
+        language: tplForm.language,
+        header: { type:'TEXT', text: tplForm.header },
+        body: tplForm.body,
+        footer: tplForm.footer,
+        buttons: tplForm.buttons ? [{ type:'URL', text: tplForm.buttons, url:'' }] : [],
+        variables,
+      });
+      setTemplates(Array.isArray(nextTemplates) ? nextTemplates : []);
+      setNewTplModal(false);
+      setTplForm({ name:'', category:'MARKETING', language:'ar', header:'', body:'', footer:'', buttons:'' });
+      toast.success('Template submitted to Meta for review (24-48 hrs) ⏳');
+    } catch (err) {
+      toast.error(err.message || 'Could not save template');
+    }
   }
 
   /* ══════════════════════════════════════════════════════════════════════════
@@ -285,6 +336,7 @@ export default function BroadcastPage() {
             </h1>
             <p style={{ fontSize:13, color:'var(--t4)' }}>
               Send approved marketing templates to opted-in contacts via Meta WhatsApp Business API
+              {loading ? ' · Loading live data…' : ''}
             </p>
           </div>
 
@@ -487,15 +539,15 @@ export default function BroadcastPage() {
                         <button style={{ fontSize:11, color:'#818cf8', background:'none', border:'none',
                           cursor:'pointer', fontWeight:600 }}
                           onClick={() => setSelCont(
-                            selContacts.size === CONTACTS.length
+                            selContacts.size === contacts.length
                               ? new Set()
-                              : new Set(CONTACTS.map(c => c.id))
+                              : new Set(contacts.map(c => c.id))
                           )}>
-                          {selContacts.size === CONTACTS.length ? 'Deselect all' : 'Select all'}
+                          {selContacts.size === contacts.length ? 'Deselect all' : 'Select all'}
                         </button>
                       </div>
                       <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:340, overflowY:'auto' }}>
-                        {CONTACTS.map(c => (
+                        {contacts.map(c => (
                           <label key={c.id}
                             style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px',
                               borderRadius:10, cursor:'pointer', transition:'background 0.1s',
@@ -543,7 +595,7 @@ export default function BroadcastPage() {
                               background: tagFilter===t ? 'rgba(99,102,241,0.15)' : 'var(--s1)',
                               border:     tagFilter===t ? '1px solid rgba(99,102,241,0.35)' : '1px solid var(--b1)',
                               color:      tagFilter===t ? '#a5b4fc' : 'var(--t3)' }}>
-                            {t} ({CONTACTS.filter(c => c.tags.includes(t)).length})
+                            {t} ({contacts.filter(c => (c.tags || []).includes(t)).length})
                           </button>
                         ))}
                       </div>
@@ -551,7 +603,7 @@ export default function BroadcastPage() {
                         <div style={{ marginTop:12, padding:'10px 14px', borderRadius:10,
                           background:'rgba(99,102,241,0.06)', border:'1px solid rgba(99,102,241,0.15)',
                           fontSize:13, color:'var(--t2)' }}>
-                          {CONTACTS.filter(c => c.tags.includes(tagFilter)).length} contacts will receive this broadcast
+                          {contacts.filter(c => (c.tags || []).includes(tagFilter)).length} contacts will receive this broadcast
                         </div>
                       )}
                     </div>

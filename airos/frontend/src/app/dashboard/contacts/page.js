@@ -1,7 +1,8 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
+import { api } from '@/lib/api';
 
 /* ── Seed data ────────────────────────────────────────────────────────────── */
 const SEED_CONTACTS = [
@@ -26,16 +27,36 @@ const CH_ICON  = { whatsapp:'📱', instagram:'📸', messenger:'💬', livechat
 const CH_COLOR = { whatsapp:'#25D366', instagram:'#E1306C', messenger:'#0099FF', livechat:'#6366f1' };
 const FLAG     = { EG:'🇪🇬', AE:'🇦🇪', SA:'🇸🇦' };
 
-const EMPTY_FORM = { name:'', phone:'', email:'', ch:'whatsapp', country:'EG', tags:'' };
+const EMPTY_FORM = { name:'', phone:'', email:'', ch:'whatsapp', country:'EG', tags:'', customFields:{} };
 
 function fmtRevenue(n) {
   if (n >= 1000) return `EGP ${(n/1000).toFixed(1)}k`;
   return `EGP ${n}`;
 }
 
+function relativeTimeLabel(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  const diffMinutes = Math.max(1, Math.round((Date.now() - date.getTime()) / 60000));
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  if (diffMinutes < 1440) return `${Math.round(diffMinutes / 60)}h ago`;
+  if (diffMinutes < 10080) return `${Math.round(diffMinutes / 1440)}d ago`;
+  return `${Math.round(diffMinutes / 10080)}w ago`;
+}
+
+function normalizeContact(contact = {}) {
+  return {
+    ...contact,
+    lastSeen: relativeTimeLabel(contact.lastSeen),
+    customFields: contact.customFields || {},
+  };
+}
+
 /* ── Page ─────────────────────────────────────────────────────────────────── */
 export default function ContactsPage() {
-  const [contacts, setContacts]   = useState(SEED_CONTACTS);
+  const [contacts, setContacts]   = useState([]);
   const [search, setSearch]       = useState('');
   const [chFilter, setChFilter]   = useState('all');
   const [sort, setSort]           = useState({ col:'revenue', dir:'desc' });
@@ -46,6 +67,39 @@ export default function ContactsPage() {
   const [addModal, setAddModal]   = useState(false);
   const [form, setForm]           = useState(EMPTY_FORM);
   const [formError, setFormError] = useState('');
+  const [profileFields, setProfileFields] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPageData() {
+      setLoading(true);
+      try {
+        const [customers, settings] = await Promise.all([
+          api.get('/api/customers'),
+          api.get('/api/settings'),
+        ]);
+
+        if (cancelled) return;
+
+        setContacts(Array.isArray(customers) ? customers.map(normalizeContact) : []);
+        setProfileFields(Array.isArray(settings?.profileFields) ? settings.profileFields : []);
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(err.message || 'Could not load contacts');
+          setContacts(SEED_CONTACTS);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadPageData();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /* ── derived list ─────────────────────────────────────────────────────── */
   const displayed = useMemo(() => {
@@ -104,27 +158,54 @@ export default function ContactsPage() {
 
   function openEdit(c, e) {
     e?.stopPropagation();
-    setForm({ name:c.name, phone:c.phone, email:c.email, ch:c.ch, country:c.country, tags:c.tags.join(', ') });
+    setForm({
+      name:c.name,
+      phone:c.phone,
+      email:c.email,
+      ch:c.ch,
+      country:c.country,
+      tags:c.tags.join(', '),
+      customFields: c.customFields || {},
+    });
     setFormError('');
     setView(c);
     setEditModal(true);
   }
 
-  function saveContact(isNew) {
+  async function saveContact(isNew) {
     if (!form.name.trim()) { setFormError('Name is required'); return; }
     if (!form.phone.trim()) { setFormError('Phone is required'); return; }
     const tagsArr = form.tags.split(',').map(t => t.trim()).filter(Boolean);
-    if (isNew) {
-      const newC = { id: Date.now()+'', ...form, tags: tagsArr, orders:0, revenue:0, lastSeen:'just now' };
-      setContacts(c => [newC, ...c]);
-      setAddModal(false);
-      toast.success('Contact added');
-    } else {
-      setContacts(c => c.map(x => x.id === viewContact.id ? { ...x, ...form, tags: tagsArr } : x));
-      setEditModal(false);
-      toast.success('Contact updated');
+
+    const payload = {
+      name: form.name.trim(),
+      phone: form.phone.trim(),
+      email: form.email.trim(),
+      channel: form.ch,
+      country: form.country,
+      tags: tagsArr,
+      customFields: form.customFields || {},
+    };
+
+    try {
+      if (isNew) {
+        const created = await api.post('/api/customers', payload);
+        setContacts((current) => [normalizeContact(created), ...current]);
+        setAddModal(false);
+        toast.success('Contact added');
+      } else {
+        const updated = await api.patch(`/api/customers/${viewContact.id}`, payload);
+        setContacts((current) => current.map((entry) => (
+          entry.id === viewContact.id ? normalizeContact(updated) : entry
+        )));
+        setView((current) => current?.id === viewContact.id ? normalizeContact(updated) : current);
+        setEditModal(false);
+        toast.success('Contact updated');
+      }
+      setFormError('');
+    } catch (err) {
+      setFormError(err.message || 'Could not save contact');
     }
-    setFormError('');
   }
 
   function confirmDelete(c, e) {
@@ -133,21 +214,33 @@ export default function ContactsPage() {
     setDelModal(true);
   }
 
-  function deleteContact() {
-    setContacts(c => c.filter(x => x.id !== viewContact.id));
-    setSelected(s => { const n = new Set(s); n.delete(viewContact.id); return n; });
-    setDelModal(false);
-    toast.success('Contact deleted');
+  async function deleteContact() {
+    try {
+      await api.delete(`/api/customers/${viewContact.id}`);
+      setContacts(c => c.filter(x => x.id !== viewContact.id));
+      setSelected(s => { const n = new Set(s); n.delete(viewContact.id); return n; });
+      setDelModal(false);
+      toast.success('Contact moved to recycle bin');
+    } catch (err) {
+      toast.error(err.message || 'Could not delete contact');
+    }
   }
 
-  function deleteSelected() {
-    setContacts(c => c.filter(x => !selected.has(x.id)));
-    setSelected(new Set());
-    toast.success(`${selected.size} contacts deleted`);
+  async function deleteSelected() {
+    const ids = Array.from(selected);
+    try {
+      await Promise.all(ids.map((id) => api.delete(`/api/customers/${id}`)));
+      setContacts(c => c.filter(x => !selected.has(x.id)));
+      setSelected(new Set());
+      toast.success(`${ids.length} contacts moved to recycle bin`);
+    } catch (err) {
+      toast.error(err.message || 'Could not delete selected contacts');
+    }
   }
 
   /* ── contact form ─────────────────────────────────────────────────────── */
   function ContactForm({ isNew }) {
+    const customProfileFields = profileFields.filter((field) => !field.system);
     return (
       <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
         {formError && (
@@ -194,6 +287,31 @@ export default function ContactsPage() {
           <input className="input" style={{ fontSize:13 }} placeholder="VIP, Loyal, Follow Up…"
             value={form.tags} onChange={e => setForm(x => ({ ...x, tags: e.target.value }))} />
         </div>
+        {customProfileFields.length > 0 && (
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            {customProfileFields.map((field) => (
+              <div key={field.id}>
+                <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>
+                  {field.label}{field.required ? ' *' : ''}
+                </label>
+                <input
+                  className="input"
+                  type={field.type === 'number' ? 'number' : 'text'}
+                  placeholder={field.label}
+                  style={{ fontSize:13 }}
+                  value={form.customFields?.[field.label] || ''}
+                  onChange={(e) => setForm((current) => ({
+                    ...current,
+                    customFields: {
+                      ...(current.customFields || {}),
+                      [field.label]: e.target.value,
+                    },
+                  }))}
+                />
+              </div>
+            ))}
+          </div>
+        )}
         <div style={{ display:'flex', gap:10, marginTop:4 }}>
           <button className="btn btn-ghost" style={{ flex:1 }}
             onClick={() => isNew ? setAddModal(false) : setEditModal(false)}>Cancel</button>
@@ -219,7 +337,7 @@ export default function ContactsPage() {
               Contacts
             </h1>
             <p style={{ fontSize:13, color:'var(--t4)' }}>
-              {contacts.length} contacts · {displayed.length} shown
+              {loading ? 'Loading contacts…' : `${contacts.length} contacts · ${displayed.length} shown`}
             </p>
           </div>
           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>

@@ -440,6 +440,8 @@ export default function SettingsPage() {
 
   /* ── Personalize: Email Templates ── */
   const [emailTpls, setEmailTpls] = useState(INIT_EMAIL_TPLS);
+  const [emailEditor, setEmailEditor] = useState(null);
+  const [emailTestSendingId, setEmailTestSendingId] = useState('');
 
   /* ── AI Configuration ── */
   const AI_PROVIDERS = {
@@ -710,6 +712,7 @@ export default function SettingsPage() {
   const [schedReports, setSchedReports] = useState(INIT_SCHED);
   const [schedModal, setSchedModal]     = useState(false);
   const [schedForm, setSchedForm]       = useState({ name:'', freq:'weekly', time:'08:00', email:'' });
+  const [reportRunningId, setReportRunningId] = useState('');
 
   /* ── Controls: Spammers ── */
   const [spammers, setSpammers]   = useState(INIT_SPAMMERS);
@@ -726,6 +729,7 @@ export default function SettingsPage() {
 
   /* ── Controls: Recycle Bin ── */
   const [recycled, setRecycled] = useState(RECYCLED);
+  const [recycleLoading, setRecycleLoading] = useState(false);
 
   /* ── Controls: Conversation Monitor ── */
   const LIVE_CONVS = monitorData.conversations;
@@ -813,6 +817,99 @@ export default function SettingsPage() {
       setMonitorData({ summary: { active: 0, bot: 0, waiting: 0 }, conversations: [] });
     } finally {
       setMonitorLoading(false);
+    }
+  }
+
+  async function refreshRecycleBin() {
+    setRecycleLoading(true);
+    try {
+      const items = await api.get('/api/settings/recycle-bin');
+      setRecycled(Array.isArray(items) ? items : []);
+    } catch (err) {
+      toast.error(err.message || 'Could not load recycle bin');
+    } finally {
+      setRecycleLoading(false);
+    }
+  }
+
+  async function restoreRecycleItem(itemId) {
+    try {
+      const response = await api.post(`/api/settings/recycle-bin/${itemId}/restore`, {});
+      setRecycled(Array.isArray(response?.recycled) ? response.recycled : []);
+      toast.success('Item restored');
+    } catch (err) {
+      toast.error(err.message || 'Could not restore item');
+    }
+  }
+
+  async function deleteRecycleItem(itemId) {
+    try {
+      const response = await api.delete(`/api/settings/recycle-bin/${itemId}`);
+      setRecycled(Array.isArray(response?.recycled) ? response.recycled : []);
+      toast.success('Item permanently deleted');
+    } catch (err) {
+      toast.error(err.message || 'Could not delete item');
+    }
+  }
+
+  async function emptyRecycleBin() {
+    try {
+      const response = await api.post('/api/settings/recycle-bin/empty', {});
+      setRecycled(Array.isArray(response?.recycled) ? response.recycled : []);
+      toast.success('Recycle bin emptied');
+    } catch (err) {
+      toast.error(err.message || 'Could not empty recycle bin');
+    }
+  }
+
+  async function sendTestEmail(template) {
+    if (!template?.id) return;
+
+    try {
+      setEmailTestSendingId(template.id);
+      await api.post('/api/settings/email-templates/send-test', {
+        templateId: template.id,
+      });
+      toast.success('Test email sent');
+    } catch (err) {
+      toast.error(err.message || 'Could not send test email');
+    } finally {
+      setEmailTestSendingId('');
+    }
+  }
+
+  async function runScheduledReport(schedule) {
+    if (!schedule?.id) return;
+
+    try {
+      setReportRunningId(schedule.id);
+      const response = await api.post('/api/settings/scheduled-reports/run', {
+        scheduleId: schedule.id,
+      });
+      const result = Array.isArray(response?.results)
+        ? response.results.find((entry) => entry.id === schedule.id)
+        : null;
+
+      setSchedReports((current) => current.map((entry) => (
+        entry.id === schedule.id
+          ? {
+              ...entry,
+              lastRunAt: new Date().toISOString(),
+              lastStatus: result?.status || 'sent',
+              lastError: result?.error || '',
+            }
+          : entry
+      )));
+
+      if (result?.status === 'failed') {
+        toast.error(result.error || 'Scheduled report failed');
+      } else {
+        toast.success('Scheduled report sent');
+      }
+    } catch (err) {
+      toast.error(err.message || 'Could not run scheduled report');
+    } finally {
+      setReportRunningId('');
     }
   }
 
@@ -1116,6 +1213,7 @@ export default function SettingsPage() {
     if (isRecord(saved.layout)) setLayout((current) => mergeSavedObject(current, saved.layout));
     if (isRecord(saved.channels)) setChannels((current) => mergeSavedChannels(current, saved.channels));
     if (isRecord(saved.waSettings)) setWaSettings((current) => mergeSavedObject(current, saved.waSettings));
+    if (Array.isArray(saved.waTemplates)) setWaTemplates(saved.waTemplates);
     if (isRecord(saved.igSettings)) setIgSettings((current) => mergeSavedObject(current, saved.igSettings));
     if (isRecord(saved.messengerSettings)) {
       setMessengerSettings((current) => mergeSavedObject(current, saved.messengerSettings));
@@ -1178,6 +1276,7 @@ export default function SettingsPage() {
       layout,
       channels: persistedChannels,
       waSettings,
+      waTemplates,
       igSettings,
       messengerSettings,
       triggers,
@@ -1274,6 +1373,7 @@ export default function SettingsPage() {
     layout,
     channels,
     waSettings,
+    waTemplates,
     igSettings,
     messengerSettings,
     triggers,
@@ -1302,6 +1402,12 @@ export default function SettingsPage() {
     }, 15000);
 
     return () => clearInterval(timer);
+  }, [activeId]);
+
+  useEffect(() => {
+    if (activeId !== 'recycle') return undefined;
+    refreshRecycleBin();
+    return undefined;
   }, [activeId]);
 
   useEffect(() => {
@@ -1362,6 +1468,7 @@ export default function SettingsPage() {
     layout,
     channels,
     waSettings,
+    waTemplates,
     igSettings,
     messengerSettings,
     triggers,
@@ -1604,13 +1711,16 @@ export default function SettingsPage() {
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
             <p style={{ fontSize:13, color:'var(--t4)' }}>{recycled.length} items · auto-deleted after 30 days</p>
             {recycled.length > 0 && (
-              <button onClick={()=>{ setRecycled([]); toast.success('Recycle bin emptied'); }}
+              <button onClick={emptyRecycleBin}
                 style={{ fontSize:12, padding:'5px 12px', borderRadius:8, cursor:'pointer', fontWeight:600,
                   background:'rgba(239,68,68,0.08)', color:'#fca5a5', border:'1px solid rgba(239,68,68,0.18)' }}>
                 Empty Bin
               </button>
             )}
           </div>
+          {recycleLoading && (
+            <div style={{ marginBottom:12, fontSize:12.5, color:'var(--t4)' }}>Loading recycle bin…</div>
+          )}
           {recycled.length === 0
             ? <div style={{ padding:'40px', textAlign:'center', color:'var(--t4)', fontSize:14 }}>🗑 Recycle bin is empty</div>
             : recycled.map(r => (
@@ -1621,15 +1731,15 @@ export default function SettingsPage() {
                     <Badge color={r.type==='conversation'?'#6366f1':'#10b981'}>{r.type}</Badge>
                     <span style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)' }}>{r.name}</span>
                   </div>
-                  <p style={{ fontSize:12, color:'var(--t4)' }}>{r.info} · Deleted {r.deletedAt}</p>
+                  <p style={{ fontSize:12, color:'var(--t4)' }}>{r.info} · Deleted {r.deletedAt ? new Date(r.deletedAt).toLocaleString() : 'recently'}</p>
                 </div>
                 <div style={{ display:'flex', gap:8 }}>
-                  <button onClick={()=>{ setRecycled(x=>x.filter(i=>i.id!==r.id)); toast.success('Restored'); }}
+                  <button onClick={()=>restoreRecycleItem(r.id)}
                     style={{ fontSize:11, padding:'4px 10px', borderRadius:7, cursor:'pointer', fontWeight:600,
                       background:'rgba(99,102,241,0.1)', color:'#a5b4fc', border:'1px solid rgba(99,102,241,0.2)' }}>
                     Restore
                   </button>
-                  <button onClick={()=>{ setRecycled(x=>x.filter(i=>i.id!==r.id)); toast.success('Permanently deleted'); }}
+                  <button onClick={()=>deleteRecycleItem(r.id)}
                     style={{ fontSize:11, padding:'4px 10px', borderRadius:7, cursor:'pointer', fontWeight:600,
                       background:'rgba(239,68,68,0.07)', color:'#fca5a5', border:'1px solid rgba(239,68,68,0.15)' }}>
                     Delete
@@ -1769,10 +1879,16 @@ export default function SettingsPage() {
               <div>
                 <p style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)', marginBottom:3 }}>{t.name}</p>
                 <p style={{ fontSize:12, color:'var(--t4)' }}>Subject: {t.subject}</p>
+                {t.body && <p style={{ fontSize:11.5, color:'var(--t4)', marginTop:4 }}>{t.body.slice(0, 90)}{t.body.length > 90 ? '…' : ''}</p>}
               </div>
               <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                 <Toggle value={t.active} onChange={v=>setEmailTpls(ts=>ts.map(x=>x.id===t.id?{...x,active:v}:x))} label="" />
-                <button onClick={()=>toast('Email template editor coming soon')}
+                <button onClick={()=>sendTestEmail(t)}
+                  style={{ fontSize:11, padding:'4px 10px', borderRadius:7, cursor:'pointer', fontWeight:600,
+                    background:'rgba(16,185,129,0.1)', color:'#34d399', border:'1px solid rgba(16,185,129,0.2)' }}>
+                  {emailTestSendingId === t.id ? 'Sending…' : 'Send Test'}
+                </button>
+                <button onClick={()=>setEmailEditor({ ...t })}
                   style={{ fontSize:11, padding:'4px 10px', borderRadius:7, cursor:'pointer', fontWeight:600,
                     background:'rgba(99,102,241,0.1)', color:'#a5b4fc', border:'1px solid rgba(99,102,241,0.2)' }}>
                   Edit
@@ -2329,8 +2445,19 @@ export default function SettingsPage() {
                   <p style={{ fontSize:12, color:'var(--t4)' }}>
                     Every {s.freq} at {s.time} → {s.email}
                   </p>
+                  {(s.lastRunAt || s.lastStatus) && (
+                    <p style={{ fontSize:11.5, color:'var(--t4)', marginTop:4 }}>
+                      Last run: {s.lastRunAt ? new Date(s.lastRunAt).toLocaleString() : '—'} · {s.lastStatus || 'pending'}
+                      {s.lastError ? ` · ${s.lastError}` : ''}
+                    </p>
+                  )}
                 </div>
                 <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                  <button onClick={()=>runScheduledReport(s)}
+                    style={{ fontSize:11, padding:'3px 9px', borderRadius:7, cursor:'pointer', fontWeight:600,
+                      background:'rgba(16,185,129,0.1)', color:'#34d399', border:'1px solid rgba(16,185,129,0.2)' }}>
+                    {reportRunningId === s.id ? 'Running…' : 'Run Now'}
+                  </button>
                   <div className={`toggle${s.active?' on':''}`} style={{ transform:'scale(0.8)' }}
                     onClick={()=>setSchedReports(rs=>rs.map(x=>x.id===s.id?{...x,active:!x.active}:x))} />
                   <button onClick={()=>{ setSchedReports(rs=>rs.filter(x=>x.id!==s.id)); toast.success('Deleted'); }}
@@ -3059,6 +3186,43 @@ export default function SettingsPage() {
       </div>
 
       <FbOAuthModal />
+
+      <Modal open={!!emailEditor} onClose={()=>setEmailEditor(null)} title="Edit Email Template" width={560}>
+        {emailEditor && (
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            <Field label="Template Name">
+              <input className="input" style={{ fontSize:13 }}
+                value={emailEditor.name || ''}
+                onChange={e=>setEmailEditor(current => ({ ...current, name:e.target.value }))} />
+            </Field>
+            <Field label="Subject">
+              <input className="input" style={{ fontSize:13 }}
+                value={emailEditor.subject || ''}
+                onChange={e=>setEmailEditor(current => ({ ...current, subject:e.target.value }))} />
+            </Field>
+            <Field label="Body" sub="Supports placeholders like {{company_name}} and {{operator_name}}">
+              <textarea className="input" rows={7} style={{ fontSize:13, resize:'vertical' }}
+                value={emailEditor.body || ''}
+                onChange={e=>setEmailEditor(current => ({ ...current, body:e.target.value }))} />
+            </Field>
+            <Toggle
+              value={emailEditor.active !== false}
+              onChange={(value) => setEmailEditor((current) => ({ ...current, active:value }))}
+              label="Template active"
+            />
+            <div style={{ display:'flex', gap:10 }}>
+              <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>setEmailEditor(null)}>Cancel</button>
+              <button className="btn btn-primary" style={{ flex:1 }} onClick={()=>{
+                setEmailTpls((current) => current.map((template) => (
+                  template.id === emailEditor.id ? emailEditor : template
+                )));
+                setEmailEditor(null);
+                toast.success('Email template updated');
+              }}>Save Template</button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* ── Invite Operator Modal ── */}
       <Modal open={inviteModal} onClose={()=>setInviteModal(false)} title="Invite Operator" width={440}>
