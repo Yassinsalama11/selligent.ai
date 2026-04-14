@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { api, setToken } from '@/lib/api';
 
 /* Demo credentials — pre-fill on click */
-const DEMO = { email: 'demo@chatorai.com', password: 'demo1234' };
+const DEMO = { email: 'preview@demo.chatorai.local', password: 'preview1234' };
 
 export default function LoginPage() {
   const router = useRouter();
@@ -26,7 +26,7 @@ export default function LoginPage() {
     setLoading(true);
 
     // ── Demo bypass — works with no backend ──────────────────────────────
-    if ((form.email === DEMO.email || form.email === 'demo@chatorai.com') && form.password === DEMO.password) {
+    if (form.email === DEMO.email && form.password === DEMO.password) {
       localStorage.setItem('airos_token', 'demo_token');
       localStorage.setItem('airos_demo', '1');
       router.push('/dashboard');
@@ -40,7 +40,7 @@ export default function LoginPage() {
     } catch (err) {
       setError(
         err.message?.includes('fetch') || err.message?.includes('Network')
-          ? 'Cannot reach server. Use the demo account to explore the dashboard.'
+          ? 'Cannot reach server. Use the preview account to explore the dashboard.'
           : err.message || 'Invalid credentials.'
       );
     } finally {
@@ -121,10 +121,10 @@ export default function LoginPage() {
               transition: 'border-color 0.2s',
             }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#a5b4fc', marginBottom: 6 }}>🚀 Try the Live Demo Account</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#a5b4fc', marginBottom: 6 }}>🚀 Try the Preview Workspace</div>
                 <div style={{ fontSize: 12, color: 'var(--t4)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span>Email: <span style={{ color: 'var(--t2)', fontFamily: 'monospace' }}>demo@chatorai.com</span></span>
-                  <span>Password: <span style={{ color: 'var(--t2)', fontFamily: 'monospace' }}>demo1234</span></span>
+                  <span>Email: <span style={{ color: 'var(--t2)', fontFamily: 'monospace' }}>{DEMO.email}</span></span>
+                  <span>Password: <span style={{ color: 'var(--t2)', fontFamily: 'monospace' }}>{DEMO.password}</span></span>
                 </div>
               </div>
               <span style={{ fontSize: 13, color: '#a5b4fc', background: 'rgba(99,102,241,0.15)', padding: '5px 12px', borderRadius: 8, fontWeight: 600, flexShrink: 0, marginLeft: 12 }}>Fill →</span>

@@ -228,7 +228,7 @@ export default function DashboardLayout({ children }) {
               </Link>{' '}
               to connect real channels.
             </span>
-            <span style={{ fontSize:11, color:'var(--t4)', fontFamily:'monospace' }}>demo@chatorai.com</span>
+            <span style={{ fontSize:11, color:'var(--t4)', fontFamily:'monospace' }}>preview@demo.chatorai.local</span>
           </div>
         )}
 
