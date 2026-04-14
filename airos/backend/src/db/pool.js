@@ -1,6 +1,27 @@
 const { Pool } = require('pg');
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
+const pool = new Pool({ connectionString: DATABASE_URL || undefined });
+
+function databaseUnavailableError(message) {
+  const err = new Error(message);
+  err.status = 503;
+  err.code = 'DB_UNAVAILABLE';
+  return err;
+}
+
+function ensureDatabaseConfigured() {
+  if (!DATABASE_URL) {
+    throw databaseUnavailableError('Database is not configured. Set DATABASE_URL in the Railway backend service.');
+  }
+}
+
+function mapDatabaseError(err) {
+  if (err?.code === 'ECONNREFUSED') {
+    return databaseUnavailableError('Database is unreachable. Check DATABASE_URL and the Railway Postgres service.');
+  }
+  return err;
+}
 
 pool.on('error', (err) => {
   console.error('Unexpected PostgreSQL error:', err);
@@ -8,15 +29,21 @@ pool.on('error', (err) => {
 });
 
 async function query(text, params) {
+  ensureDatabaseConfigured();
   const start = Date.now();
-  const res = await pool.query(text, params);
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`[DB] ${Date.now() - start}ms — ${text.slice(0, 80)}`);
+  try {
+    const res = await pool.query(text, params);
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[DB] ${Date.now() - start}ms — ${text.slice(0, 80)}`);
+    }
+    return res;
+  } catch (err) {
+    throw mapDatabaseError(err);
   }
-  return res;
 }
 
 async function withTransaction(fn) {
+  ensureDatabaseConfigured();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -25,7 +52,7 @@ async function withTransaction(fn) {
     return result;
   } catch (err) {
     await client.query('ROLLBACK');
-    throw err;
+    throw mapDatabaseError(err);
   } finally {
     client.release();
   }

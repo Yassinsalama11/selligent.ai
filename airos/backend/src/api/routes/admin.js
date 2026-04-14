@@ -200,7 +200,7 @@ router.post('/auth/login', async (req, res, next) => {
       try {
         admin = await getPlatformAdminByEmail(email);
       } catch (err) {
-        if (err.code !== 'ECONNREFUSED') throw err;
+        if (err.code !== 'ECONNREFUSED' && err.code !== 'DB_UNAVAILABLE') throw err;
       }
     }
 
