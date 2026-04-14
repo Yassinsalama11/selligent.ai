@@ -25,7 +25,7 @@ CREATE TABLE users (
   email VARCHAR(255) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   name VARCHAR(255),
-  role VARCHAR(50) DEFAULT 'agent',         -- owner | admin | agent
+  role VARCHAR(50) DEFAULT 'agent',         -- owner | admin | agent | platform_admin
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(tenant_id, email)
 );

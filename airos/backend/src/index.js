@@ -15,6 +15,7 @@ const catalogRoutes = require('./api/routes/catalog');
 const settingsRoutes = require('./api/routes/settings');
 const customersRoutes = require('./api/routes/customers');
 const broadcastRoutes = require('./api/routes/broadcast');
+const adminRoutes = require('./api/routes/admin');
 
 const { authMiddleware } = require('./api/middleware/auth');
 const { tenantMiddleware } = require('./api/middleware/tenant');
@@ -53,6 +54,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOSt
 
 // Public routes
 app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Stripe — checkout session creation (public) + webhook (raw body)
 const stripeRoutes = require('./api/stripe');
