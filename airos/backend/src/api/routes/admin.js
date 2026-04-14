@@ -32,6 +32,7 @@ function signAdminToken(admin) {
       email: admin.email,
       name: admin.name,
       role: admin.role,
+      source: admin.source || 'db',
       scope: 'platform_admin',
     },
     process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET,
@@ -57,7 +58,7 @@ async function getPlatformAdminByEmail(email) {
   return result.rows[0] || null;
 }
 
-async function provisionEnvAdmin(email, password) {
+function getConfiguredAdmin(email, password) {
   const configuredEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
   const configuredPassword = String(process.env.ADMIN_PASSWORD || '');
   const configuredName = String(process.env.ADMIN_NAME || 'ChatOrAI Admin').trim();
@@ -66,14 +67,14 @@ async function provisionEnvAdmin(email, password) {
   if (configuredEmail !== String(email || '').trim().toLowerCase()) return null;
   if (configuredPassword !== password) return null;
 
-  const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-  const inserted = await query(`
-    INSERT INTO users (tenant_id, email, password_hash, name, role)
-    VALUES (NULL, $1, $2, $3, 'platform_admin')
-    RETURNING id, email, name, role, created_at
-  `, [configuredEmail, passwordHash, configuredName]);
-
-  return inserted.rows[0] || null;
+  return {
+    id: `env-admin:${configuredEmail}`,
+    email: configuredEmail,
+    name: configuredName,
+    role: 'platform_admin',
+    created_at: null,
+    source: 'env',
+  };
 }
 
 function buildClientPayload(row) {
@@ -195,9 +196,7 @@ router.post('/auth/login', async (req, res, next) => {
     }
 
     let admin = await getPlatformAdminByEmail(email);
-    if (!admin) {
-      admin = await provisionEnvAdmin(email, password);
-    }
+    if (!admin) admin = getConfiguredAdmin(email, password);
 
     if (!admin) {
       return res.status(401).json({ error: 'Invalid admin credentials' });
@@ -223,6 +222,18 @@ router.post('/auth/login', async (req, res, next) => {
 
 router.get('/auth/me', adminAuthMiddleware, async (req, res, next) => {
   try {
+    if (req.admin.source === 'env' || String(req.admin.id || '').startsWith('env-admin:')) {
+      return res.json({
+        admin: {
+          id: req.admin.id,
+          email: req.admin.email,
+          name: req.admin.name,
+          role: req.admin.role,
+          created_at: null,
+        },
+      });
+    }
+
     const admin = await query(`
       SELECT id, email, name, role, created_at
       FROM users
