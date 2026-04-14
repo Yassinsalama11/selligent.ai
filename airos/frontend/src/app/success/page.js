@@ -31,7 +31,7 @@ function SuccessContent() {
           Payment Successful!
         </h1>
         <p style={{ fontSize:15, color:'var(--t3)', marginBottom:6, lineHeight:1.6 }}>
-          Welcome to Selligent.ai <strong style={{ color:'#34d399' }}>{plan}</strong> plan.
+          Welcome to ChatOrAI <strong style={{ color:'#34d399' }}>{plan}</strong> plan.
           Your subscription is now active.
         </p>
         <p style={{ fontSize:13, color:'var(--t4)', marginBottom:28 }}>

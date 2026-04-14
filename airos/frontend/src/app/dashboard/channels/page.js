@@ -21,7 +21,7 @@ const WA_STEPS = [
   { id:1, title:'Create Meta Business Account', desc:'Go to business.facebook.com and verify your business', done:true  },
   { id:2, title:'Set up WhatsApp Business API', desc:'In Meta Developer portal, create a WhatsApp app', done:true  },
   { id:3, title:'Add Phone Number',             desc:'Register and verify your WhatsApp business number', done:true  },
-  { id:4, title:'Connect to Selligent.ai',      desc:'Enter your credentials below to activate', done:false },
+  { id:4, title:'Connect to ChatOrAI',      desc:'Enter your credentials below to activate', done:false },
 ];
 
 export default function ChannelsPage() {
@@ -43,7 +43,7 @@ export default function ChannelsPage() {
   ]);
 
   const [waSettings, setWaSettings] = useState({
-    phone_id:'', business_id:'', token:'', verify_token:'selligent_verify_'+Math.random().toString(36).slice(2,10),
+    phone_id:'', business_id:'', token:'', verify_token:'chatorai_verify_'+Math.random().toString(36).slice(2,10),
     welcome_msg:'أهلاً بك في متجرنا! كيف أقدر أساعدك؟ 👋',
     away_msg:'شكراً على رسالتك! سنرد عليك في أقرب وقت خلال ساعات العمل.',
     business_hours: true, hours_from:'09:00', hours_to:'22:00',
@@ -76,8 +76,8 @@ export default function ChannelsPage() {
 
   const isConnected = (id) => channels.find(c => c.id === id)?.status === 'connected';
   const activeStats = STATS[active.id] || STATS.livechat;
-  const webhookUrl  = `https://api.selligent.ai/webhooks/${active.id}`;
-  const snippet = `<script src="https://cdn.selligent.ai/widget.js"\n  data-tenant="YOUR_TENANT_ID"></script>`;
+  const webhookUrl  = `https://api.chatorai.com/webhooks/${active.id}`;
+  const snippet = `<script src="https://cdn.chatorai.com/widget.js"\n  data-tenant="YOUR_TENANT_ID"></script>`;
 
   return (
     <>
@@ -485,7 +485,7 @@ export default function ChannelsPage() {
                   <div style={{ padding:'12px 16px', borderRadius:'var(--r)',
                     background:'rgba(0,0,0,0.4)', fontFamily:'monospace', fontSize:12.5,
                     color:'#67e8f9', lineHeight:1.6, border:'1px solid rgba(6,182,212,0.15)', userSelect:'all' }}>
-                    {'<script src="https://cdn.selligent.ai/widget.js"'}<br/>
+                    {'<script src="https://cdn.chatorai.com/widget.js"'}<br/>
                     {'  data-tenant="YOUR_TENANT_ID"></script>'}
                   </div>
                   <p style={{ fontSize:12, color:'var(--t4)', marginTop:8 }}>
@@ -524,7 +524,7 @@ export default function ChannelsPage() {
             background:'rgba(0,153,255,0.06)', border:'1px solid rgba(0,153,255,0.18)' }}>
             <p style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)', marginBottom:8 }}>🔐 Secure OAuth Flow</p>
             <p style={{ fontSize:13, color:'var(--t3)', lineHeight:1.6 }}>
-              You'll be redirected to Facebook to authorize Selligent.ai. No password stored.
+              You'll be redirected to Facebook to authorize ChatOrAI. No password stored.
             </p>
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>

@@ -8,7 +8,7 @@ function PageShell({ title, subtitle, children }) {
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Link href="/" style={{ textDecoration: 'none' }}>
           <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex' }}>
-            <Image src="/selligent-logo.png" alt="Selligent.ai" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
+            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
           </div>
         </Link>
         <Link href="/" style={{ fontSize: 13, color: 'var(--t4)', textDecoration: 'none' }}>← Back to Home</Link>
@@ -24,7 +24,7 @@ function PageShell({ title, subtitle, children }) {
         </div>
       </div>
       <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 32px', textAlign: 'center', fontSize: 13, color: 'var(--t4)' }}>
-        © {new Date().getFullYear()} Selligent.ai — All rights reserved.
+        © {new Date().getFullYear()} ChatOrAI — All rights reserved.
         <span style={{ margin: '0 12px' }}>·</span>
         <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
         <span style={{ margin: '0 12px' }}>·</span>
@@ -54,8 +54,8 @@ export default function PrivacyPage() {
   return (
     <PageShell title="Privacy Policy" subtitle={`Last updated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`}>
 
-      <P>Selligent.ai ("we", "us", or "our") operates the Selligent.ai platform — an AI-powered revenue operating system for eCommerce businesses. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our platform, website, and services.</P>
-      <P>By using Selligent.ai, you agree to the collection and use of information in accordance with this policy. If you do not agree, please do not use our services.</P>
+      <P>ChatOrAI ("we", "us", or "our") operates the ChatOrAI platform — an AI-powered revenue operating system for eCommerce businesses. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our platform, website, and services.</P>
+      <P>By using ChatOrAI, you agree to the collection and use of information in accordance with this policy. If you do not agree, please do not use our services.</P>
 
       <H2>1. Information We Collect</H2>
       <P><strong>Account information:</strong> When you register, we collect your name, email address, company name, phone number, and password.</P>
@@ -86,7 +86,7 @@ export default function PrivacyPage() {
       ]} />
 
       <H2>4. Data Retention</H2>
-      <P>We retain your account data for as long as your account is active. Conversation data is retained for 12 months by default, after which it is archived. You may request deletion at any time by contacting us at privacy@selligent.ai.</P>
+      <P>We retain your account data for as long as your account is active. Conversation data is retained for 12 months by default, after which it is archived. You may request deletion at any time by contacting us at privacy@chatorai.com.</P>
       <P>After account deletion, we retain billing records for 7 years as required by tax law.</P>
 
       <H2>5. Your Rights (GDPR)</H2>
@@ -100,7 +100,7 @@ export default function PrivacyPage() {
         'Right to object: Object to processing based on legitimate interests',
         'Right to withdraw consent at any time',
       ]} />
-      <P>To exercise any of these rights, email us at privacy@selligent.ai. We will respond within 30 days.</P>
+      <P>To exercise any of these rights, email us at privacy@chatorai.com. We will respond within 30 days.</P>
 
       <H2>6. Data Security</H2>
       <P>We implement industry-standard security measures including TLS/HTTPS encryption in transit, AES-256 encryption at rest, JWT-based authentication, and regular security audits. However, no method of transmission over the internet is 100% secure.</P>
@@ -112,7 +112,7 @@ export default function PrivacyPage() {
       <P>Our platform integrates with third-party services including Meta (WhatsApp, Instagram, Messenger), OpenAI, Stripe, Shopify, and WooCommerce. Each has its own privacy policy and data practices. We encourage you to review them.</P>
 
       <H2>9. Children's Privacy</H2>
-      <P>Selligent.ai is not directed to children under 16. We do not knowingly collect personal data from children. If we become aware that a child has provided us with personal data, we will delete it immediately.</P>
+      <P>ChatOrAI is not directed to children under 16. We do not knowingly collect personal data from children. If we become aware that a child has provided us with personal data, we will delete it immediately.</P>
 
       <H2>10. Changes to This Policy</H2>
       <P>We may update this Privacy Policy from time to time. We will notify registered users by email and update the "Last updated" date at the top of this page. Continued use of the platform after changes constitutes acceptance.</P>
@@ -120,8 +120,8 @@ export default function PrivacyPage() {
       <H2>11. Contact Us</H2>
       <P>For privacy-related questions or requests:</P>
       <Ul items={[
-        'Email: privacy@selligent.ai',
-        'Address: Selligent.ai, Egypt',
+        'Email: privacy@chatorai.com',
+        'Address: ChatOrAI, Egypt',
         'Response time: within 30 business days',
       ]} />
 

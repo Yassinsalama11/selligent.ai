@@ -1,12 +1,12 @@
 /**
- * Syncs Shopify store data to AIROS via the Catalog API.
+ * Syncs Shopify store data to ChatOrAI via the Catalog API.
  */
 export class AirosSync {
   constructor(session, config = {}) {
     this.session  = session;
     this.apiKey   = config.apiKey ?? session.airos_api_key ?? '';
     this.tenantId = config.tenantId ?? session.airos_tenant_id ?? '';
-    this.baseUrl  = process.env.AIROS_API_BASE || 'https://api.airos.io/v1';
+    this.baseUrl  = process.env.AIROS_API_BASE || 'https://api.chatorai.com/v1';
   }
 
   // ── Products ──────────────────────────────────────────────────────────────
@@ -171,7 +171,7 @@ export class AirosSync {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`AIROS API ${endpoint} → ${res.status}: ${text}`);
+      throw new Error(`ChatOrAI API ${endpoint} → ${res.status}: ${text}`);
     }
     return res.json();
   }

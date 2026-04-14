@@ -20,10 +20,10 @@ export default function DemoPage() {
         <div className="text-center mb-14">
           <Link href="/" className="inline-flex items-center gap-2 mb-8">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white font-bold">A</div>
-            <span className="font-bold text-xl" style={{ fontFamily: 'Space Grotesk' }}>AIROS</span>
+            <span className="font-bold text-xl" style={{ fontFamily: 'Space Grotesk' }}>ChatOrAI</span>
           </Link>
           <h1 className="text-5xl font-black mb-4" style={{ fontFamily: 'Space Grotesk' }}>
-            See AIROS in <span className="gradient-text">Action</span>
+            See ChatOrAI in <span className="gradient-text">Action</span>
           </h1>
           <p className="text-[var(--text-secondary)] text-lg">Book a 30-minute live demo with our team</p>
         </div>
@@ -34,7 +34,7 @@ export default function DemoPage() {
             <h3 className="font-bold text-xl mb-6">What you&apos;ll see in the demo:</h3>
             <div className="space-y-4">
               {[
-                { icon: '🧠', title: 'AI in action', desc: 'Watch AIROS detect intent and generate Arabic replies in real-time' },
+                { icon: '🧠', title: 'AI in action', desc: 'Watch ChatOrAI detect intent and generate Arabic replies in real-time' },
                 { icon: '🎯', title: 'Live deal pipeline', desc: 'See leads automatically scored and moved through stages' },
                 { icon: '🔗', title: 'Channel unification', desc: 'Messages from all 4 channels arriving in one inbox' },
                 { icon: '📦', title: 'Product context', desc: 'AI replies with real prices, offers, and shipping info from your store' },

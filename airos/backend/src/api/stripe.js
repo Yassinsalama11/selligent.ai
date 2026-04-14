@@ -26,7 +26,7 @@ router.post('/create-checkout-session', async (req, res) => {
       return res.status(500).json({ error: `Price ID for ${name} not configured` });
     }
 
-    const baseUrl = process.env.FRONTEND_URL || 'https://selligent-ai.pages.dev';
+    const baseUrl = process.env.FRONTEND_URL || 'https://chatorai.com';
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],

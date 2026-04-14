@@ -17,7 +17,7 @@ export default function PressPage() {
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Link href="/" style={{ textDecoration: 'none' }}>
           <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex' }}>
-            <Image src="/selligent-logo.png" alt="Selligent.ai" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
+            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
           </div>
         </Link>
         <Link href="/" style={{ fontSize: 13, color: 'var(--t4)', textDecoration: 'none' }}>← Back to Home</Link>
@@ -28,7 +28,7 @@ export default function PressPage() {
           <div style={{ fontSize: 11, fontWeight: 700, color: '#818cf8', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16 }}>Press & Media</div>
           <h1 style={{ fontSize: 52, fontWeight: 900, letterSpacing: '-0.04em', marginBottom: 16 }}>Press Kit</h1>
           <p style={{ fontSize: 16, color: 'var(--t3)', lineHeight: 1.7 }}>
-            Resources for journalists, analysts, and media partners covering Selligent.ai and the Arabic eCommerce AI space.
+            Resources for journalists, analysts, and media partners covering ChatOrAI and the Arabic eCommerce AI space.
           </p>
         </div>
 
@@ -37,9 +37,9 @@ export default function PressPage() {
           <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 18, padding: '28px' }}>
             <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 16 }}>📋 Company Boilerplate</h2>
             <p style={{ fontSize: 14, color: 'var(--t3)', lineHeight: 1.8, marginBottom: 16 }}>
-              Selligent.ai is an AI Revenue Operating System built for Arabic eCommerce businesses. The platform unifies WhatsApp, Instagram, Messenger, and Live Chat into a single inbox, using AI to detect customer intent, score leads in real-time, and generate replies in Arabic and English. Founded in Egypt, Selligent.ai serves eCommerce businesses across the MENA region.
+              ChatOrAI is an AI Revenue Operating System built for Arabic eCommerce businesses. The platform unifies WhatsApp, Instagram, Messenger, and Live Chat into a single inbox, using AI to detect customer intent, score leads in real-time, and generate replies in Arabic and English. Founded in Egypt, ChatOrAI serves eCommerce businesses across the MENA region.
             </p>
-            <button onClick={() => navigator.clipboard?.writeText('Selligent.ai is an AI Revenue Operating System built for Arabic eCommerce businesses. The platform unifies WhatsApp, Instagram, Messenger, and Live Chat into a single inbox, using AI to detect customer intent, score leads in real-time, and generate replies in Arabic and English.')}
+            <button onClick={() => navigator.clipboard?.writeText('ChatOrAI is an AI Revenue Operating System built for Arabic eCommerce businesses. The platform unifies WhatsApp, Instagram, Messenger, and Live Chat into a single inbox, using AI to detect customer intent, score leads in real-time, and generate replies in Arabic and English.')}
               style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.1)', color: '#a5b4fc', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
               Copy boilerplate
             </button>
@@ -62,12 +62,12 @@ export default function PressPage() {
             <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 16 }}>🎨 Logo & Brand Assets</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ padding: '24px', borderRadius: 12, background: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Image src="/selligent-logo.png" alt="Selligent.ai" width={180} height={46} style={{ height: 46, width: 'auto', objectFit: 'contain' }} />
+                <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={180} height={46} style={{ height: 46, width: 'auto', objectFit: 'contain' }} />
               </div>
               <div style={{ padding: '24px', borderRadius: 12, background: '#08080f', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Image src="/selligent-logo.png" alt="Selligent.ai" width={180} height={46} style={{ height: 46, width: 'auto', objectFit: 'contain' }} />
+                <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={180} height={46} style={{ height: 46, width: 'auto', objectFit: 'contain' }} />
               </div>
-              <p style={{ fontSize: 12, color: 'var(--t4)' }}>Logo files available on request. Please contact press@selligent.ai.</p>
+              <p style={{ fontSize: 12, color: 'var(--t4)' }}>Logo files available on request. Please contact press@chatorai.com.</p>
             </div>
           </div>
 
@@ -77,11 +77,11 @@ export default function PressPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontSize: 14 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t4)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 }}>Press Inquiries</div>
-                <a href="mailto:press@selligent.ai" style={{ color: '#818cf8', fontWeight: 600 }}>press@selligent.ai</a>
+                <a href="mailto:press@chatorai.com" style={{ color: '#818cf8', fontWeight: 600 }}>press@chatorai.com</a>
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t4)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 }}>Partnerships</div>
-                <a href="mailto:partnerships@selligent.ai" style={{ color: '#818cf8', fontWeight: 600 }}>partnerships@selligent.ai</a>
+                <a href="mailto:partnerships@chatorai.com" style={{ color: '#818cf8', fontWeight: 600 }}>partnerships@chatorai.com</a>
               </div>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t4)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 }}>Response Time</div>
@@ -98,7 +98,7 @@ export default function PressPage() {
       </div>
 
       <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 32px', textAlign: 'center', fontSize: 13, color: 'var(--t4)' }}>
-        © {new Date().getFullYear()} Selligent.ai · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
+        © {new Date().getFullYear()} ChatOrAI · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
       </footer>
     </div>
   );

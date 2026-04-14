@@ -452,7 +452,7 @@ export default function ProductsPage() {
             <div className="card">
               <h3 style={{ fontSize:15, fontWeight:700, marginBottom:4 }}>Incoming Webhook</h3>
               <p style={{ fontSize:13, color:'var(--t3)', marginBottom:20 }}>
-                Push product data directly to Selligent.ai from any platform via HTTP POST
+                Push product data directly to ChatOrAI from any platform via HTTP POST
               </p>
 
               {/* Endpoint URL */}
@@ -463,9 +463,9 @@ export default function ProductsPage() {
                 <div style={{ display:'flex', alignItems:'center', gap:10,
                   padding:'12px 14px', borderRadius:'var(--r)', background:'rgba(0,0,0,0.35)', border:'1px solid var(--b1)' }}>
                   <code style={{ flex:1, fontFamily:'monospace', fontSize:13, color:'#67e8f9' }}>
-                    https://api.selligent.ai/webhooks/products/sync
+                    https://api.chatorai.com/webhooks/products/sync
                   </code>
-                  <button onClick={() => copyWebhook('https://api.selligent.ai/webhooks/products/sync')}
+                  <button onClick={() => copyWebhook('https://api.chatorai.com/webhooks/products/sync')}
                     style={{ fontSize:12, color:'#818cf8', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>
                     Copy
                   </button>

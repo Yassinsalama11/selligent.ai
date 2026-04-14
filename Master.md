@@ -1,8 +1,10 @@
-# AIROS — Master Build Prompt for Claude Code (v2)
+# ChatOrAI — Master Build Prompt for Claude Code (v2)
 
 ## Project Overview
-I am building a SaaS product called **AIROS (AI Revenue Operating System)**.
+I am building a SaaS product called **ChatOrAI**.
 A system that unifies 4 communication channels into one dashboard and converts conversations into deals using AI assistance.
+
+The repository still uses a legacy `airos/` workspace path in many places for compatibility.
 
 **Target Market:** Arabic-speaking eCommerce businesses (Egypt, Saudi Arabia, UAE first)
 **Architecture:** Multi-tenant SaaS — every client is fully isolated

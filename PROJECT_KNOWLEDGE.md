@@ -1,10 +1,12 @@
-# AIROS Project Knowledge
+# ChatOrAI Project Knowledge
 
-Last reviewed: 2026-04-13
+Last reviewed: 2026-04-14
 
 ## What This Repository Is
 
-This repository contains a multi-part SaaS product for AI-assisted sales and customer conversations. The product vision is:
+This repository contains a multi-part SaaS product for AI-assisted sales and customer conversations. The current public product name is `ChatOrAI`.
+
+The product vision is:
 
 - unify WhatsApp, Instagram, Messenger, and website live chat
 - analyze inbound conversations with AI
@@ -12,12 +14,14 @@ This repository contains a multi-part SaaS product for AI-assisted sales and cus
 - sync store catalogs from WooCommerce and Shopify
 - provide a dashboard for agents and admins
 
-The repo mixes two names:
+Historically, the repo mixed two older names:
 
 - `AIROS`
 - `Selligent.ai`
 
-That means branding and deployment references are still in transition.
+The public brand should now be treated as `ChatOrAI`.
+
+One important note: the main code still lives under the `airos/` directory. That is a legacy workspace path kept for compatibility, not the product name.
 
 ## Top-Level Layout
 
@@ -25,7 +29,7 @@ Root contents:
 
 - `Master.md`: original build/spec prompt, useful for intent but not fully aligned with current code
 - `deploy.sh`: git add/commit/push deploy helper
-- `airos/`: actual application code
+- `airos/`: actual application code in a legacy-named workspace directory
 
 Inside `airos/`:
 
@@ -771,7 +775,7 @@ DB auth and onboarding JWT auth are separate. That can cause confusion around:
 
 ### Branding/domain inconsistency
 
-The repo uses both `AIROS` and `Selligent.ai`, plus multiple domains and environments. This impacts:
+The repo historically used both `AIROS` and `Selligent.ai`, plus multiple domains and environments. The target brand is now `ChatOrAI`, but some internal paths still use `airos`. This impacts:
 
 - widget embedding
 - webhook URLs
@@ -820,4 +824,4 @@ If continuing development, the highest-value cleanup path is:
 
 ## Short Summary
 
-AIROS is a multi-tenant AI sales/conversation platform with strong backend foundations and broad frontend ambition. The repository is already large and thoughtfully structured, but it currently contains parallel systems, mock-heavy dashboard areas, and some schema/API mismatches that need consolidation before it behaves like one unified production platform.
+ChatOrAI is a multi-tenant AI sales and conversation platform with strong backend foundations and broad frontend ambition. The repository is already large and thoughtfully structured, but it currently contains parallel systems, mock-heavy dashboard areas, and some schema/API mismatches that need consolidation before it behaves like one unified production platform.

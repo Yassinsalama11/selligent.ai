@@ -20,7 +20,7 @@ const POSTS = [
   },
   {
     tag: 'Guide', date: 'Mar 20, 2026', title: 'Lead scoring for eCommerce: how to rank 500 conversations by purchase likelihood',
-    excerpt: 'A deep dive into the signals that predict purchase intent — and how Selligent.ai\'s 0–100 scoring engine is calibrated on real Arabic eCommerce data.',
+    excerpt: 'A deep dive into the signals that predict purchase intent — and how ChatOrAI\'s 0–100 scoring engine is calibrated on real Arabic eCommerce data.',
     readTime: '6 min read', color: '#f59e0b',
   },
 ];
@@ -31,7 +31,7 @@ export default function BlogPage() {
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Link href="/" style={{ textDecoration: 'none' }}>
           <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex' }}>
-            <Image src="/selligent-logo.png" alt="Selligent.ai" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
+            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
           </div>
         </Link>
         <div style={{ display: 'flex', gap: 12 }}>
@@ -44,7 +44,7 @@ export default function BlogPage() {
         <div style={{ marginBottom: 56 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#818cf8', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16 }}>Blog</div>
           <h1 style={{ fontSize: 48, fontWeight: 900, letterSpacing: '-0.04em', marginBottom: 14 }}>Product & Insights</h1>
-          <p style={{ fontSize: 16, color: 'var(--t3)' }}>Product updates, eCommerce playbooks, and AI deep dives from the Selligent.ai team.</p>
+          <p style={{ fontSize: 16, color: 'var(--t3)' }}>Product updates, eCommerce playbooks, and AI deep dives from the ChatOrAI team.</p>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 20 }}>
@@ -77,7 +77,7 @@ export default function BlogPage() {
       </div>
 
       <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 32px', textAlign: 'center', fontSize: 13, color: 'var(--t4)' }}>
-        © {new Date().getFullYear()} Selligent.ai · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
+        © {new Date().getFullYear()} ChatOrAI · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
       </footer>
     </div>
   );

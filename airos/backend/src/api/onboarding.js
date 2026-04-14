@@ -2,7 +2,7 @@ const express = require('express');
 const jwt     = require('jsonwebtoken');
 const router  = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'selligent_dev_secret';
+const JWT_SECRET = process.env.JWT_SECRET || 'chatorai_dev_secret';
 const TRIAL_DAYS = 7;
 
 /**

@@ -21,10 +21,10 @@ export default function ContactPage() {
   };
 
   const channels = [
-    { icon: '📧', label: 'General', value: 'hello@selligent.ai', desc: 'General inquiries and partnerships' },
-    { icon: '🛠', label: 'Support', value: 'support@selligent.ai', desc: 'Platform issues and technical help' },
-    { icon: '💼', label: 'Sales', value: 'sales@selligent.ai', desc: 'Pricing, plans, and enterprise' },
-    { icon: '🔒', label: 'Security', value: 'security@selligent.ai', desc: 'Vulnerabilities and security reports' },
+    { icon: '📧', label: 'General', value: 'hello@chatorai.com', desc: 'General inquiries and partnerships' },
+    { icon: '🛠', label: 'Support', value: 'support@chatorai.com', desc: 'Platform issues and technical help' },
+    { icon: '💼', label: 'Sales', value: 'sales@chatorai.com', desc: 'Pricing, plans, and enterprise' },
+    { icon: '🔒', label: 'Security', value: 'security@chatorai.com', desc: 'Vulnerabilities and security reports' },
   ];
 
   return (
@@ -32,7 +32,7 @@ export default function ContactPage() {
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Link href="/" style={{ textDecoration: 'none' }}>
           <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex' }}>
-            <Image src="/selligent-logo.png" alt="Selligent.ai" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
+            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
           </div>
         </Link>
         <Link href="/" style={{ fontSize: 13, color: 'var(--t4)', textDecoration: 'none' }}>← Back to Home</Link>
@@ -119,7 +119,7 @@ export default function ContactPage() {
       </div>
 
       <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 32px', textAlign: 'center', fontSize: 13, color: 'var(--t4)' }}>
-        © {new Date().getFullYear()} Selligent.ai · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
+        © {new Date().getFullYear()} ChatOrAI · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
       </footer>
     </div>
   );

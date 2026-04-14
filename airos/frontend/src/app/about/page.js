@@ -8,7 +8,7 @@ export default function AboutPage() {
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Link href="/" style={{ textDecoration: 'none' }}>
           <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex' }}>
-            <Image src="/selligent-logo.png" alt="Selligent.ai" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
+            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
           </div>
         </Link>
         <div style={{ display: 'flex', gap: 12 }}>
@@ -24,7 +24,7 @@ export default function AboutPage() {
           Built for the <span style={{ background: 'linear-gradient(135deg,#818cf8,#a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Arabic internet economy</span>
         </h1>
         <p style={{ fontSize: 18, color: 'var(--t3)', lineHeight: 1.7, maxWidth: 640, margin: '0 auto' }}>
-          Selligent.ai was born from a simple frustration: Arabic eCommerce businesses were losing sales every day because they couldn't keep up with the volume of WhatsApp and Instagram messages pouring in.
+          ChatOrAI was born from a simple frustration: Arabic eCommerce businesses were losing sales every day because they couldn't keep up with the volume of WhatsApp and Instagram messages pouring in.
         </p>
       </div>
 
@@ -39,7 +39,7 @@ export default function AboutPage() {
 
         <p style={{ marginBottom: 20 }}>We started by interviewing 50+ eCommerce founders across Egypt, Saudi Arabia, UAE, and Jordan. The problem was universal: customers message on WhatsApp at 2am asking about prices, stock, and shipping. By morning, the lead is cold. The sale is gone.</p>
         <p style={{ marginBottom: 20 }}>Existing tools were built for English-speaking markets with different buying behaviors. They didn't understand Arabic dialects, didn't know how to handle price haggling, and had no concept of the MENA eCommerce buying journey.</p>
-        <p style={{ marginBottom: 20 }}>So we built Selligent.ai — an AI that actually speaks Arabic, understands the intent behind every message, and helps sales teams close deals in real-time across WhatsApp, Instagram, Messenger, and Live Chat from one unified workspace.</p>
+        <p style={{ marginBottom: 20 }}>So we built ChatOrAI — an AI that actually speaks Arabic, understands the intent behind every message, and helps sales teams close deals in real-time across WhatsApp, Instagram, Messenger, and Live Chat from one unified workspace.</p>
 
         {/* Values */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 20, margin: '48px 0' }}>
@@ -67,7 +67,7 @@ export default function AboutPage() {
       </div>
 
       <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 32px', textAlign: 'center', fontSize: 13, color: 'var(--t4)' }}>
-        © {new Date().getFullYear()} Selligent.ai · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
+        © {new Date().getFullYear()} ChatOrAI · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
       </footer>
     </div>
   );

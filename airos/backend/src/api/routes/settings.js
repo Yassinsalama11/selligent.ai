@@ -460,7 +460,7 @@ router.post('/email-templates/send-test', async (req, res, next) => {
     const to = String(req.body?.to || settings.profile?.email || req.tenant?.email || '').trim().toLowerCase();
     if (!to) return res.status(400).json({ error: 'Recipient email is required' });
 
-    const companyName = settings.company?.name || req.tenant?.name || 'AIROS';
+    const companyName = settings.company?.name || req.tenant?.name || 'ChatOrAI';
     const variables = {
       company_name: companyName,
       operator_name: settings.profile?.name || 'Operator',

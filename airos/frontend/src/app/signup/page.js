@@ -2,8 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'https://api.selligent.ai';
+import { API_BASE } from '@/lib/api';
 
 const STEPS = [
   { n: 1, label: 'Account'  },
@@ -65,7 +64,7 @@ export default function SignupPage() {
     }, 900);
 
     // Call real AI scan
-    fetch(`${API}/api/scan/brand`, {
+    fetch(`${API_BASE}/api/scan/brand`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -139,7 +138,7 @@ export default function SignupPage() {
       <div style={{ padding: '16px 32px', display: 'flex', alignItems: 'center',
         justifyContent: 'space-between', borderBottom: '1px solid var(--b1)' }}>
         <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex' }}>
-          <Image src="/selligent-logo.png" alt="Selligent.ai" width={110} height={28}
+          <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={110} height={28}
             style={{ height: 28, width: 'auto', objectFit: 'contain' }} priority />
         </div>
         <p style={{ fontSize: 13, color: 'var(--t4)' }}>

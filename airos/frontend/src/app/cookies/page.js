@@ -8,7 +8,7 @@ function PageShell({ title, subtitle, children }) {
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Link href="/" style={{ textDecoration: 'none' }}>
           <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex' }}>
-            <Image src="/selligent-logo.png" alt="Selligent.ai" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
+            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
           </div>
         </Link>
         <Link href="/" style={{ fontSize: 13, color: 'var(--t4)', textDecoration: 'none' }}>← Back to Home</Link>
@@ -22,7 +22,7 @@ function PageShell({ title, subtitle, children }) {
         <div style={{ fontSize: 15, color: 'var(--t2)', lineHeight: 1.85 }}>{children}</div>
       </div>
       <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 32px', textAlign: 'center', fontSize: 13, color: 'var(--t4)' }}>
-        © {new Date().getFullYear()} Selligent.ai · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link> · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/cookies" style={{ color: 'var(--t4)' }}>Cookies</Link>
+        © {new Date().getFullYear()} ChatOrAI · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link> · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/cookies" style={{ color: 'var(--t4)' }}>Cookies</Link>
       </footer>
     </div>
   );
@@ -39,7 +39,7 @@ export default function CookiesPage() {
   return (
     <PageShell title="Cookie Policy" subtitle={`Last updated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`}>
 
-      <p style={{ marginBottom: 16 }}>This Cookie Policy explains how Selligent.ai uses cookies and similar tracking technologies on our website and platform. By using Selligent.ai, you consent to the use of cookies as described in this policy.</p>
+      <p style={{ marginBottom: 16 }}>This Cookie Policy explains how ChatOrAI uses cookies and similar tracking technologies on our website and platform. By using ChatOrAI, you consent to the use of cookies as described in this policy.</p>
 
       <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--t1)', marginTop: 40, marginBottom: 12 }}>What Are Cookies?</h2>
       <p style={{ marginBottom: 16 }}>Cookies are small text files placed on your device when you visit a website. They help websites remember your preferences, keep you logged in, and collect analytics data. We also use localStorage (similar technology) to store session and preference data in your browser.</p>
@@ -87,7 +87,7 @@ export default function CookiesPage() {
       </ul>
 
       <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--t1)', marginTop: 40, marginBottom: 12 }}>Contact</h2>
-      <p style={{ marginBottom: 16 }}>For questions about our use of cookies, email us at <strong>privacy@selligent.ai</strong>. See also our <Link href="/privacy" style={{ color: '#818cf8' }}>Privacy Policy</Link>.</p>
+      <p style={{ marginBottom: 16 }}>For questions about our use of cookies, email us at <strong>privacy@chatorai.com</strong>. See also our <Link href="/privacy" style={{ color: '#818cf8' }}>Privacy Policy</Link>.</p>
 
     </PageShell>
   );

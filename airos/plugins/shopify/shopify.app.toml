@@ -1,6 +1,6 @@
-name = "AIROS Chat & Sync"
+name = "ChatOrAI Chat & Sync"
 client_id = "YOUR_SHOPIFY_CLIENT_ID"
-application_url = "https://app.airos.io/shopify"
+application_url = "https://chatorai.com/shopify"
 embedded = true
 
 [access_scopes]
@@ -8,8 +8,8 @@ scopes = "read_products,read_shipping,read_price_rules,read_discounts"
 
 [auth]
 redirect_urls = [
-  "https://app.airos.io/shopify/auth/callback",
-  "https://app.airos.io/shopify/auth/offline/callback"
+  "https://chatorai.com/shopify/auth/callback",
+  "https://chatorai.com/shopify/auth/offline/callback"
 ]
 
 [webhooks]

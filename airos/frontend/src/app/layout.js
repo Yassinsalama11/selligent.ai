@@ -2,9 +2,9 @@ import './globals.css';
 import { Toaster } from 'react-hot-toast';
 
 export const metadata = {
-  title: 'Selligent.ai — AI Revenue Operating System',
+  title: 'ChatOrAI — AI Revenue Operating System',
   description: 'Turn every conversation into revenue. Unify WhatsApp, Instagram, Messenger & Live Chat with AI-powered sales automation.',
-  keywords: 'AI sales, WhatsApp CRM, ecommerce chat, Arabic AI, lead scoring, Selligent',
+  keywords: 'AI sales, WhatsApp CRM, ecommerce chat, Arabic AI, lead scoring, ChatOrAI',
 };
 
 export default function RootLayout({ children }) {

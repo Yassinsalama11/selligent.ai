@@ -80,7 +80,7 @@ export const action = async ({ request }) => {
 
   if (intent === 'sync') {
     if (!settings.api_key || !settings.tenant_id) {
-      return json({ ok: false, error: 'Save your AIROS API key and Tenant ID before syncing.' }, { status: 400 });
+      return json({ ok: false, error: 'Save your ChatOrAI API key and Tenant ID before syncing.' }, { status: 400 });
     }
 
     const sync = new AirosSync(session, {
@@ -106,7 +106,7 @@ export default function SettingsPage() {
   const actionData = useActionData();
 
   return (
-    <Page title="AIROS Chat & Sync Settings">
+    <Page title="ChatOrAI Chat & Sync Settings">
       <BlockStack gap="500">
         {actionData?.message ? (
           <Banner tone="success">{actionData.message}</Banner>
@@ -117,7 +117,7 @@ export default function SettingsPage() {
         <Card>
           <Form method="post">
             <FormLayout>
-              <TextField label="AIROS API Key" name="api_key" type="password"
+              <TextField label="ChatOrAI API Key" name="api_key" type="password"
                 defaultValue={api_key} autoComplete="off" />
               <TextField label="Tenant ID" name="tenant_id" type="text"
                 defaultValue={tenant_id} autoComplete="off" />

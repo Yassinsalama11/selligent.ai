@@ -3,16 +3,16 @@ import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 
 const SERVICES = [
-  { id:'api',       name:'REST API',              url:'api.selligent.ai',          status:'operational', uptime:'99.98%', latency:42,   region:'EU-West' },
-  { id:'webhook',   name:'Webhook Dispatcher',    url:'hooks.selligent.ai',         status:'operational', uptime:'99.95%', latency:88,   region:'EU-West' },
+  { id:'api',       name:'REST API',              url:'api.chatorai.com',          status:'operational', uptime:'99.98%', latency:42,   region:'EU-West' },
+  { id:'webhook',   name:'Webhook Dispatcher',    url:'hooks.chatorai.com',         status:'operational', uptime:'99.95%', latency:88,   region:'EU-West' },
   { id:'wa_cloud',  name:'WhatsApp Cloud API',    url:'graph.facebook.com',         status:'operational', uptime:'99.91%', latency:134,  region:'Meta Edge' },
   { id:'ig_graph',  name:'Instagram Graph API',   url:'graph.facebook.com/ig',      status:'operational', uptime:'99.88%', latency:156,  region:'Meta Edge' },
   { id:'fb_msg',    name:'Facebook Messenger API',url:'graph.facebook.com/me',      status:'degraded',    uptime:'98.40%', latency:340,  region:'Meta Edge' },
   { id:'db',        name:'Primary Database',      url:'db-primary.internal',        status:'operational', uptime:'99.99%', latency:8,    region:'EU-West' },
   { id:'redis',     name:'Cache / Redis',         url:'cache.internal',             status:'operational', uptime:'99.99%', latency:3,    region:'EU-West' },
-  { id:'cdn',       name:'CDN / Widget JS',       url:'cdn.selligent.ai',           status:'operational', uptime:'100%',   latency:18,   region:'Global' },
-  { id:'mail',      name:'Email / SMTP',          url:'mail.selligent.ai',          status:'operational', uptime:'99.82%', latency:220,  region:'EU-West' },
-  { id:'storage',   name:'File Storage',          url:'storage.selligent.ai',       status:'operational', uptime:'99.97%', latency:62,   region:'EU-West' },
+  { id:'cdn',       name:'CDN / Widget JS',       url:'cdn.chatorai.com',           status:'operational', uptime:'100%',   latency:18,   region:'Global' },
+  { id:'mail',      name:'Email / SMTP',          url:'mail.chatorai.com',          status:'operational', uptime:'99.82%', latency:220,  region:'EU-West' },
+  { id:'storage',   name:'File Storage',          url:'storage.chatorai.com',       status:'operational', uptime:'99.97%', latency:62,   region:'EU-West' },
 ];
 
 const INCIDENTS = [

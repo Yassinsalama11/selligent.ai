@@ -3,9 +3,7 @@ import { useState, useRef, useEffect, useReducer, useLayoutEffect, useCallback }
 import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
 import { io } from 'socket.io-client';
-import { api as secureApi } from '@/lib/api';
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'https://api.selligent.ai';
+import { API_BASE, api as secureApi } from '@/lib/api';
 
 // Module-level auto-reply map — updated synchronously when toggle changes.
 // This bypasses React's async useEffect/storeRef update cycle so socket
@@ -621,7 +619,7 @@ export default function ConversationsPage() {
     let knownUnread = Object.fromEntries(Object.values(store.convs).map(c => [c.id, c.unread || 0]));
 
     function fetchConvs() {
-      fetch(`${API}/api/live/conversations`)
+      fetch(`${API_BASE}/api/live/conversations`)
         .then(r => r.json())
         .then(data => {
           if (!Array.isArray(data)) return;
@@ -644,7 +642,7 @@ export default function ConversationsPage() {
             serverConv.lastMessage !== (localConv.lastMessage || '')
           ) {
             log.ws('poll detected missed message for active conv — fetching messages');
-            fetch(`${API}/api/live/conversations/${encodeURIComponent(activeId)}/messages`)
+            fetch(`${API_BASE}/api/live/conversations/${encodeURIComponent(activeId)}/messages`)
               .then(r => r.json())
               .then(msgs => {
                 if (Array.isArray(msgs)) {
@@ -666,7 +664,7 @@ export default function ConversationsPage() {
     const pollTimer = setInterval(fetchConvs, 5000);
 
     /* ── Socket.io ── */
-    const socket = io(API, {
+    const socket = io(API_BASE, {
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 10,
       reconnectionDelay: 2000,
@@ -731,7 +729,7 @@ export default function ConversationsPage() {
             };
             dispatch({ type: 'OUTBOUND_MESSAGE', convId, message: aiMsg });
 
-            fetch(`${API}/api/live/send`, {
+            fetch(`${API_BASE}/api/live/send`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ phone, message: ai.suggested_reply }),
@@ -796,7 +794,7 @@ export default function ConversationsPage() {
           timestamp: new Date().toISOString(),
         };
         dispatch({ type: 'OUTBOUND_MESSAGE', convId: conversation_id, message: aiMsg });
-        fetch(`${API}/api/live/send`, {
+        fetch(`${API_BASE}/api/live/send`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone, message: suggested_reply }),
         }).then(r => r.json()).then(d => {
@@ -850,14 +848,14 @@ export default function ConversationsPage() {
 
     // Fetch fresh messages from backend
     try {
-      const r = await fetch(`${API}/api/live/conversations/${encodeURIComponent(conv.id)}/messages`);
+      const r = await fetch(`${API_BASE}/api/live/conversations/${encodeURIComponent(conv.id)}/messages`);
       const data = await r.json();
       if (Array.isArray(data)) {
         log.msg('loaded', data.length, 'messages for', conv.id);
         dispatch({ type: 'LOAD_MESSAGES', convId: conv.id, messages: data });
       }
       // Mark read on server
-      fetch(`${API}/api/live/conversations/${encodeURIComponent(conv.id)}/read`, { method: 'POST' })
+      fetch(`${API_BASE}/api/live/conversations/${encodeURIComponent(conv.id)}/read`, { method: 'POST' })
         .catch(() => {});
       dispatch({ type: 'MARK_READ', convId: conv.id });
     } catch (e) { log.error('load messages failed', e.message); }
@@ -884,7 +882,7 @@ export default function ConversationsPage() {
 
     // 2. Send to WhatsApp API
     try {
-      const res = await fetch(`${API}/api/live/send`, {
+      const res = await fetch(`${API_BASE}/api/live/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: conv.customerPhone, message: text }),

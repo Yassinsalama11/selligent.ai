@@ -1,9 +1,9 @@
 {
-  "name": "airos-widget",
+  "name": "chatorai-widget",
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "esbuild src/widget.js --bundle --minify --outfile=dist/airos-widget.min.js"
+    "build": "esbuild src/widget.js --bundle --minify --outfile=dist/widget.js"
   },
   "devDependencies": {
     "esbuild": "^0.20.0"

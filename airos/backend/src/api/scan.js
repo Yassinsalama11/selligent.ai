@@ -27,7 +27,7 @@ router.post('/brand', async (req, res) => {
     if (website) {
       try {
         const response = await fetch(website, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SelligentBot/1.0)' },
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ChatOrAIBot/1.0)' },
           signal: AbortSignal.timeout(8000),
         });
         const html = await response.text();

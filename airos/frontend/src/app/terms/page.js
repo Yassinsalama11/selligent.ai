@@ -8,7 +8,7 @@ function PageShell({ title, subtitle, children }) {
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Link href="/" style={{ textDecoration: 'none' }}>
           <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex' }}>
-            <Image src="/selligent-logo.png" alt="Selligent.ai" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
+            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
           </div>
         </Link>
         <Link href="/" style={{ fontSize: 13, color: 'var(--t4)', textDecoration: 'none' }}>← Back to Home</Link>
@@ -22,7 +22,7 @@ function PageShell({ title, subtitle, children }) {
         <div style={{ fontSize: 15, color: 'var(--t2)', lineHeight: 1.85 }}>{children}</div>
       </div>
       <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 32px', textAlign: 'center', fontSize: 13, color: 'var(--t4)' }}>
-        © {new Date().getFullYear()} Selligent.ai · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link> · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/cookies" style={{ color: 'var(--t4)' }}>Cookies</Link>
+        © {new Date().getFullYear()} ChatOrAI · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link> · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/cookies" style={{ color: 'var(--t4)' }}>Cookies</Link>
       </footer>
     </div>
   );
@@ -35,13 +35,13 @@ export default function TermsPage() {
   return (
     <PageShell title="Terms of Service" subtitle={`Last updated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`}>
 
-      <P c="Please read these Terms of Service carefully before using Selligent.ai. By accessing or using our platform, you agree to be bound by these terms." />
+      <P c="Please read these Terms of Service carefully before using ChatOrAI. By accessing or using our platform, you agree to be bound by these terms." />
 
       <H2 c="1. Acceptance of Terms" />
-      <P c="By creating an account or using any part of the Selligent.ai platform, you agree to these Terms of Service and our Privacy Policy. If you are using the platform on behalf of a business, you represent that you have authority to bind that business to these terms." />
+      <P c="By creating an account or using any part of the ChatOrAI platform, you agree to these Terms of Service and our Privacy Policy. If you are using the platform on behalf of a business, you represent that you have authority to bind that business to these terms." />
 
       <H2 c="2. Description of Service" />
-      <P c="Selligent.ai provides an AI-powered revenue operating system for eCommerce businesses, including a unified messaging inbox, AI intent detection, lead scoring, reply generation, CRM tools, and analytics. We reserve the right to modify, suspend, or discontinue any part of the service at any time with reasonable notice." />
+      <P c="ChatOrAI provides an AI-powered revenue operating system for eCommerce businesses, including a unified messaging inbox, AI intent detection, lead scoring, reply generation, CRM tools, and analytics. We reserve the right to modify, suspend, or discontinue any part of the service at any time with reasonable notice." />
 
       <H2 c="3. Account Registration" />
       <Ul items={[
@@ -53,7 +53,7 @@ export default function TermsPage() {
       ]} />
 
       <H2 c="4. Subscriptions and Billing" />
-      <P c="Selligent.ai offers paid subscription plans billed monthly in EUR. By subscribing, you authorize us to charge your payment method on a recurring basis." />
+      <P c="ChatOrAI offers paid subscription plans billed monthly in EUR. By subscribing, you authorize us to charge your payment method on a recurring basis." />
       <Ul items={[
         'Trial period: 7 days free, no credit card required',
         'After trial, your account locks until a paid plan is activated',
@@ -64,7 +64,7 @@ export default function TermsPage() {
       ]} />
 
       <H2 c="5. Acceptable Use" />
-      <P c="You agree not to use Selligent.ai to:" />
+      <P c="You agree not to use ChatOrAI to:" />
       <Ul items={[
         'Send spam, unsolicited messages, or violate anti-spam laws',
         'Harass, threaten, or harm any person',
@@ -76,16 +76,16 @@ export default function TermsPage() {
       ]} />
 
       <H2 c="6. Meta Platform Compliance" />
-      <P c="Use of WhatsApp, Instagram, and Messenger features through Selligent.ai is subject to Meta's Platform Terms and WhatsApp Business Policy. You are responsible for ensuring your use of these channels complies with Meta's policies, including message templates and opt-in requirements." />
+      <P c="Use of WhatsApp, Instagram, and Messenger features through ChatOrAI is subject to Meta's Platform Terms and WhatsApp Business Policy. You are responsible for ensuring your use of these channels complies with Meta's policies, including message templates and opt-in requirements." />
 
       <H2 c="7. Data and Privacy" />
-      <P c="You retain ownership of all data you upload or generate through the platform. By using Selligent.ai, you grant us a limited license to process your data solely to provide the services. See our Privacy Policy for full details." />
+      <P c="You retain ownership of all data you upload or generate through the platform. By using ChatOrAI, you grant us a limited license to process your data solely to provide the services. See our Privacy Policy for full details." />
 
       <H2 c="8. Intellectual Property" />
-      <P c="Selligent.ai and its original content, features, and functionality are owned by Selligent.ai and are protected by copyright, trademark, and other intellectual property laws. You may not copy, modify, or distribute our platform or branding without written permission." />
+      <P c="ChatOrAI and its original content, features, and functionality are owned by ChatOrAI and are protected by copyright, trademark, and other intellectual property laws. You may not copy, modify, or distribute our platform or branding without written permission." />
 
       <H2 c="9. Limitation of Liability" />
-      <P c="To the maximum extent permitted by law, Selligent.ai shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including loss of profits, data, or business opportunities, resulting from your use of the platform." />
+      <P c="To the maximum extent permitted by law, ChatOrAI shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including loss of profits, data, or business opportunities, resulting from your use of the platform." />
       <P c="Our total liability to you for any claim arising from these terms shall not exceed the amount you paid us in the 3 months preceding the claim." />
 
       <H2 c="10. Warranty Disclaimer" />
@@ -101,7 +101,7 @@ export default function TermsPage() {
       <P c="We may update these Terms at any time. We will notify you by email at least 14 days before material changes take effect. Continued use after the effective date constitutes acceptance." />
 
       <H2 c="14. Contact" />
-      <P c="For questions about these Terms, email legal@selligent.ai." />
+      <P c="For questions about these Terms, email legal@chatorai.com." />
 
     </PageShell>
   );

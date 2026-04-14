@@ -97,7 +97,7 @@ async function notifyTeam({ tenantId, tenant, settings, trigger, context }) {
 
   await sendEmail({
     to: recipients,
-    subject: `${tenant?.name || 'AIROS'} · Trigger fired: ${trigger.name || trigger.event}`,
+    subject: `${tenant?.name || 'ChatOrAI'} · Trigger fired: ${trigger.name || trigger.event}`,
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827">
         <h2 style="margin-bottom:8px">Automation Trigger Fired</h2>

@@ -76,7 +76,7 @@ export default function AdminLayout({ children }) {
           padding:'0 14px', borderBottom:'1px solid var(--b1)' }}>
           <div style={{ background:'rgba(255,255,255,0.92)', borderRadius:8,
             padding:'4px 8px', display:'inline-flex', alignItems:'center' }}>
-            <Image src="/selligent-logo.png" alt="Selligent.ai" width={120} height={30}
+            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={120} height={30}
               style={{ height:30, width:'auto', objectFit:'contain', display:'block' }} priority />
           </div>
         </div>
@@ -144,7 +144,7 @@ export default function AdminLayout({ children }) {
           justifyContent:'space-between', padding:'0 24px', borderBottom:'1px solid var(--b1)',
           flexShrink:0, background:'rgba(7,7,16,0.9)', backdropFilter:'blur(20px)' }}>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <span style={{ fontSize:12, color:'var(--t4)' }}>Selligent.ai</span>
+            <span style={{ fontSize:12, color:'var(--t4)' }}>ChatOrAI</span>
             <span style={{ fontSize:12, color:'var(--t4)' }}>›</span>
             <span style={{ fontSize:12, fontWeight:600, color:'#f59e0b' }}>Admin</span>
             <span style={{ fontSize:12, color:'var(--t4)' }}>›</span>

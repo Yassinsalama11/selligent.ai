@@ -8,7 +8,7 @@ const { authMiddleware } = require('../middleware/auth');
 const router = express.Router();
 
 const ALGO = 'aes-256-gcm';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://selligent-ai.pages.dev';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://chatorai.com';
 const DEFAULT_RETURN_TO = '/dashboard/settings';
 
 function maskToken(value) {

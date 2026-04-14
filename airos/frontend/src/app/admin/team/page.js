@@ -20,10 +20,10 @@ const ROLE_PERMS = {
 };
 
 const DEFAULT_TEAM = [
-  { id:'u1', name:'Yassin Al-Masri', email:'yassin@selligent.ai', role:'Super Admin', avatar:'Y', status:'active',  lastActive:'Just now',   joined:'Jan 2025' },
-  { id:'u2', name:'Sara Hassan',     email:'sara@selligent.ai',   role:'Admin',       avatar:'S', status:'active',  lastActive:'2h ago',      joined:'Feb 2025' },
-  { id:'u3', name:'Omar Khalil',     email:'omar@selligent.ai',   role:'Support',     avatar:'O', status:'active',  lastActive:'Yesterday',   joined:'Mar 2025' },
-  { id:'u4', name:'Nour Adel',       email:'nour@selligent.ai',   role:'Developer',   avatar:'N', status:'active',  lastActive:'3 days ago',  joined:'Mar 2025' },
+  { id:'u1', name:'Yassin Al-Masri', email:'yassin@chatorai.com', role:'Super Admin', avatar:'Y', status:'active',  lastActive:'Just now',   joined:'Jan 2025' },
+  { id:'u2', name:'Sara Hassan',     email:'sara@chatorai.com',   role:'Admin',       avatar:'S', status:'active',  lastActive:'2h ago',      joined:'Feb 2025' },
+  { id:'u3', name:'Omar Khalil',     email:'omar@chatorai.com',   role:'Support',     avatar:'O', status:'active',  lastActive:'Yesterday',   joined:'Mar 2025' },
+  { id:'u4', name:'Nour Adel',       email:'nour@chatorai.com',   role:'Developer',   avatar:'N', status:'active',  lastActive:'3 days ago',  joined:'Mar 2025' },
 ];
 
 const inputStyle = {
@@ -137,7 +137,7 @@ export default function AdminTeam() {
           <h1 style={{ fontSize:22, fontWeight:800, letterSpacing:'-0.03em',
             color:'var(--t1)', marginBottom:4 }}>Team Members</h1>
           <p style={{ fontSize:13, color:'var(--t4)' }}>
-            Manage Selligent.ai staff access and roles · {team.filter(m=>m.status==='active').length} active members
+            Manage ChatOrAI staff access and roles · {team.filter(m=>m.status==='active').length} active members
           </p>
         </div>
         {isSuperAdmin && (
@@ -298,7 +298,7 @@ export default function AdminTeam() {
               color:'var(--t4)', marginBottom:5 }}>Email</label>
             <input style={inputStyle} type="email" value={form.email}
               onChange={e => setForm(f => ({...f, email:e.target.value}))}
-              placeholder="sara@selligent.ai" />
+              placeholder="sara@chatorai.com" />
           </div>
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:600,

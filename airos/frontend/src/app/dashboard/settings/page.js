@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
-import { api, API_BASE } from '@/lib/api';
+import { api, getApiBase, isDemo } from '@/lib/api';
 
 /* ─── Shared UI helpers ───────────────────────────────────────────────────── */
 function Label({ children, sub }) {
@@ -242,7 +242,7 @@ const INIT_TAGS = [
   { id:'tg6', name:'New Lead',    color:'#38bdf8' },
 ];
 const INIT_BRANDS = [
-  { id:'br1', name:'Selligent Store', tone:'Friendly & Warm', lang:'ar', primary:'#6366f1', domain:'mystore.com', active:true },
+  { id:'br1', name:'ChatOrAI Store', tone:'Friendly & Warm', lang:'ar', primary:'#6366f1', domain:'mystore.com', active:true },
 ];
 const INIT_TRIGGERS = [
   { id:'tr1', name:'New lead greeting',  event:'conversation_started', condition:'score > 0',  action:'Send welcome canned reply',   active:true  },
@@ -399,7 +399,7 @@ export default function SettingsPage() {
 
   /* ── General: Company ── */
   const [company, setCompany] = useState({
-    name:'Selligent Store', email:'hello@mystore.com', phone:'+20 100 000 0000',
+    name:'ChatOrAI Store', email:'hello@mystore.com', phone:'+20 100 000 0000',
     website:'https://mystore.com', address:'Cairo, Egypt',
     timezone:'Africa/Cairo', currency:'EGP', industry:'eCommerce',
   });
@@ -664,6 +664,9 @@ export default function SettingsPage() {
     try {
       const token = localStorage.getItem('airos_token');
       if (!token) throw new Error('Your session expired. Please sign in again.');
+      if (isDemo() || token === 'demo_token') {
+        throw new Error('Meta channel connection is disabled in the demo workspace. Sign in with a real account to connect channels.');
+      }
 
       setMetaConnecting(channel);
       if (channel === 'whatsapp') {
@@ -677,7 +680,7 @@ export default function SettingsPage() {
         token,
       });
 
-      window.location.href = `${API_BASE}/api/channels/meta/connect?${query.toString()}`;
+      window.location.href = `${getApiBase()}/api/channels/meta/connect?${query.toString()}`;
     } catch (err) {
       setMetaConnecting('');
       if (channel === 'whatsapp') {
@@ -2018,12 +2021,12 @@ export default function SettingsPage() {
             </div>
 
             {igTab === 'connection' && (
-              <Section title="📸 Instagram Business" sub="Connect via Meta OAuth. AIROS handles the page token and account linking automatically.">
+              <Section title="📸 Instagram Business" sub="Connect via Meta OAuth. ChatOrAI handles the page token and account linking automatically.">
                 <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(225,48,108,0.05)',
                   border:'1px solid rgba(225,48,108,0.18)', marginBottom:18 }}>
                   <p style={{ fontSize:13, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Fully automatic Meta connection</p>
                   <p style={{ fontSize:12.5, color:'var(--t4)', marginBottom:12, lineHeight:1.5 }}>
-                    AIROS opens Meta Business Login, lets you pick the connected assets, then stores the page token and account link in the backend automatically.
+                    ChatOrAI opens Meta Business Login, lets you pick the connected assets, then stores the page token and account link in the backend automatically.
                   </p>
                   <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
                     <button className="btn btn-sm" style={{ background:'#E1306C', color:'#fff', border:'none', borderRadius:8 }}
@@ -2046,11 +2049,11 @@ export default function SettingsPage() {
                     <p style={{ fontSize:14, fontWeight:700, color:ig.connected ? '#34d399' : 'var(--t1)' }}>
                       {ig.connected ? 'Verified and active' : 'Not connected yet'}
                     </p>
-                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>AIROS uses the stored Meta page token after OAuth completes.</p>
+                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>ChatOrAI uses the stored Meta page token after OAuth completes.</p>
                   </div>
                   <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
                     <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Webhook Setup</p>
-                    <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>Managed by AIROS</p>
+                    <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>Managed by ChatOrAI</p>
                     <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>The connection flow now stays inside the product instead of asking operators for callback URLs.</p>
                   </div>
                 </div>
@@ -2131,12 +2134,12 @@ export default function SettingsPage() {
             </div>
 
             {fbmTab === 'connection' && (
-              <Section title="💬 Facebook Messenger" sub="Connect your Facebook Page with Meta OAuth. AIROS handles the page token automatically.">
+              <Section title="💬 Facebook Messenger" sub="Connect your Facebook Page with Meta OAuth. ChatOrAI handles the page token automatically.">
                 <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(0,153,255,0.05)',
                   border:'1px solid rgba(0,153,255,0.18)', marginBottom:18 }}>
                   <p style={{ fontSize:13, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Fully automatic Meta connection</p>
                   <p style={{ fontSize:12.5, color:'var(--t4)', marginBottom:12, lineHeight:1.5 }}>
-                    AIROS opens Meta Business Login, lets you pick the Page, then stores the page token and Messenger connection in the backend automatically.
+                    ChatOrAI opens Meta Business Login, lets you pick the Page, then stores the page token and Messenger connection in the backend automatically.
                   </p>
                   <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
                     <button className="btn btn-sm" style={{ background:'#0099FF', color:'#fff', border:'none', borderRadius:8 }}
@@ -2159,11 +2162,11 @@ export default function SettingsPage() {
                     <p style={{ fontSize:14, fontWeight:700, color:fbm.connected ? '#34d399' : 'var(--t1)' }}>
                       {fbm.connected ? 'Verified and active' : 'Not connected yet'}
                     </p>
-                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>AIROS uses the stored Meta page token after OAuth completes.</p>
+                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>ChatOrAI uses the stored Meta page token after OAuth completes.</p>
                   </div>
                   <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
                     <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Webhook Setup</p>
-                    <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>Managed by AIROS</p>
+                    <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>Managed by ChatOrAI</p>
                     <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>Operators no longer need to paste callback URLs into the settings page.</p>
                   </div>
                 </div>
@@ -2201,7 +2204,7 @@ export default function SettingsPage() {
       case 'ch_livechat': {
         const lc = channels.livechat;
         const lcStats = channelStats.livechat;
-        const lcSnippet = `<!-- Selligent.ai Live Chat Widget -->\n<script>\n  (function(w,d){\n    w.SelligentChat = { widgetId: '${lc.widgetId}' };\n    var s = d.createElement('script');\n    s.src = 'https://cdn.selligent.ai/widget.js';\n    s.async = true;\n    d.head.appendChild(s);\n  })(window, document);\n</script>`;
+        const lcSnippet = `<!-- ChatOrAI Live Chat Widget -->\n<script>\n  (function(w,d){\n    w.ChatOrAIChat = { widgetId: '${lc.widgetId}' };\n    var s = d.createElement('script');\n    s.src = 'https://cdn.chatorai.com/widget.js';\n    s.async = true;\n    d.head.appendChild(s);\n  })(window, document);\n</script>`;
         return (
           <div>
             {/* Header + stats */}
@@ -2785,7 +2788,7 @@ export default function SettingsPage() {
     const isConnecting = metaConnecting === 'whatsapp';
     const WA_STEPS = [
       { id:1, title:'Business portfolio found', desc:'Meta returned a Business account that this operator can manage.', done:Boolean(wa.businessId) },
-      { id:2, title:'WhatsApp account found',  desc:'AIROS discovered a WhatsApp Business Account from that Meta business.', done:Boolean(wa.wabaId) },
+      { id:2, title:'WhatsApp account found',  desc:'ChatOrAI discovered a WhatsApp Business Account from that Meta business.', done:Boolean(wa.wabaId) },
       { id:3, title:'Phone number linked',     desc:'The production number and technical routing details were fetched automatically.', done:Boolean(wa.phoneNumberId) },
       { id:4, title:'Channel ready',           desc:'Credentials are stored encrypted and ready for webhook routing and outbound sends.', done:Boolean(wa.connected && wa.verified) },
     ];
@@ -2799,7 +2802,7 @@ export default function SettingsPage() {
           <div>
             <p style={{ fontSize:13, fontWeight:600, color:'#4ade80', marginBottom:5 }}>How this connection works</p>
             <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.7 }}>
-              Connect your Meta Business account with OAuth and AIROS will automatically discover the
+              Connect your Meta Business account with OAuth and ChatOrAI will automatically discover the
               <strong style={{ color:'var(--t2)' }}> business</strong>, <strong style={{ color:'var(--t2)' }}> connected number</strong>,
               and a usable access token. The backend stores them
               in encrypted channel credentials and uses them for inbound tenant routing and outbound AI replies.
@@ -2866,12 +2869,12 @@ export default function SettingsPage() {
         {/* ── Connection tab ── */}
         {waTab === 'connection' && (
           <Section title="WhatsApp OAuth"
-            sub="Connect with Meta once and AIROS will fetch the production identifiers automatically.">
+            sub="Connect with Meta once and ChatOrAI will fetch the production identifiers automatically.">
             <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(37,211,102,0.05)',
               border:'1px solid rgba(37,211,102,0.18)', marginBottom:18 }}>
               <p style={{ fontSize:13, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Recommended: Meta OAuth</p>
               <p style={{ fontSize:12.5, color:'var(--t4)', marginBottom:12, lineHeight:1.6 }}>
-                This flow avoids manual entry. After you approve access in Meta, AIROS stores the selected business,
+                This flow avoids manual entry. After you approve access in Meta, ChatOrAI stores the selected business,
                 number, and credentials automatically in the backend connection record.
               </p>
               <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
@@ -2926,7 +2929,7 @@ export default function SettingsPage() {
                   {wa.connected ? 'Verified and active' : 'Not connected yet'}
                 </p>
                 <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>
-                  {wa.connected ? 'Credentials are stored server-side and used automatically by AIROS.' : 'No technical Meta values are entered manually by operators.'}
+                  {wa.connected ? 'Credentials are stored server-side and used automatically by ChatOrAI.' : 'No technical Meta values are entered manually by operators.'}
                 </p>
               </div>
             </div>
@@ -3056,9 +3059,9 @@ export default function SettingsPage() {
                   <p style={{ fontSize:12.5, color:'var(--t4)', marginBottom:20, lineHeight:1.6 }}>
                     The Meta Business Login window has been opened.<br />
                     Please complete the steps in that window to grant<br />
-                    Selligent.ai partner access to your WhatsApp Business Account.
+                    ChatOrAI partner access to your WhatsApp Business Account.
                   </p>
-                  {['Opening Meta Business Login…','Requesting WABA permissions…','Adding Selligent.ai as partner…'].map((s,i)=>(
+                  {['Opening Meta Business Login…','Requesting WABA permissions…','Adding ChatOrAI as partner…'].map((s,i)=>(
                     <div key={i} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8,
                       padding:'8px 14px', borderRadius:8, background:'var(--s1)', textAlign:'left' }}>
                       <span style={{ fontSize:11 }} className="anim-pulse">⏳</span>
@@ -3072,12 +3075,12 @@ export default function SettingsPage() {
                   <div style={{ fontSize:48, marginBottom:12 }}>✅</div>
                   <p style={{ fontSize:15, fontWeight:700, color:'#4ade80', marginBottom:8 }}>Connected successfully!</p>
                   <p style={{ fontSize:12.5, color:'var(--t4)', marginBottom:16 }}>
-                    Selligent.ai has been added as a partner in your<br />Meta Business account.
+                    ChatOrAI has been added as a partner in your<br />Meta Business account.
                   </p>
                   <p style={{ fontSize:12, marginBottom:20, lineHeight:1.7,
                     padding:'10px 14px', borderRadius:8, background:'rgba(250,204,21,0.06)',
                     border:'1px solid rgba(250,204,21,0.18)', color:'#fde68a' }}>
-                    ⚠ Do not remove Selligent.ai from your Meta Business partner list — this will break the integration.
+                    ⚠ Do not remove ChatOrAI from your Meta Business partner list — this will break the integration.
                   </p>
                   <button className="btn btn-primary" style={{ width:'100%' }} onClick={()=>setWaOAuthModal(false)}>Done</button>
                 </>
@@ -3103,7 +3106,7 @@ export default function SettingsPage() {
             <p style={{ fontSize:13, color:'var(--t3)', lineHeight:1.6 }}>
               A Meta popup will open where you sign in with <strong style={{ color:'var(--t2)' }}>your own Facebook account</strong> and
               choose <strong style={{ color:'var(--t2)' }}>your Pages and Instagram account</strong>.
-              Selligent.ai never sees your password — only receives a token tied to your chosen pages.
+              ChatOrAI never sees your password — only receives a token tied to your chosen pages.
             </p>
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
@@ -3120,7 +3123,7 @@ export default function SettingsPage() {
           </div>
           <div style={{ padding:'10px 14px', borderRadius:9, background:'rgba(250,204,21,0.05)',
             border:'1px solid rgba(250,204,21,0.16)', fontSize:12, color:'#fde68a' }}>
-            ⚠ This integration will not work if Selligent.ai is later removed from your Meta partner list.
+            ⚠ This integration will not work if ChatOrAI is later removed from your Meta partner list.
           </div>
           <div style={{ display:'flex', gap:10 }}>
             <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>setFbModal(false)} disabled={isConnecting}>Cancel</button>

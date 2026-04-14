@@ -38,7 +38,7 @@ export default function CareersPage() {
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Link href="/" style={{ textDecoration: 'none' }}>
           <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex' }}>
-            <Image src="/selligent-logo.png" alt="Selligent.ai" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
+            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
           </div>
         </Link>
         <Link href="/" style={{ fontSize: 13, color: 'var(--t4)', textDecoration: 'none' }}>← Back to Home</Link>
@@ -96,7 +96,7 @@ export default function CareersPage() {
                       <span key={j} style={{ fontSize: 12, padding: '4px 11px', borderRadius: 99, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--t2)' }}>{s}</span>
                     ))}
                   </div>
-                  <a href={`mailto:careers@selligent.ai?subject=Application: ${role.title}`} style={{ display: 'inline-block', padding: '10px 24px', borderRadius: 10, background: '#6366f1', color: '#fff', fontWeight: 700, textDecoration: 'none', fontSize: 14 }}>
+                  <a href={`mailto:careers@chatorai.com?subject=Application: ${role.title}`} style={{ display: 'inline-block', padding: '10px 24px', borderRadius: 10, background: '#6366f1', color: '#fff', fontWeight: 700, textDecoration: 'none', fontSize: 14 }}>
                     Apply for this role →
                   </a>
                 </div>
@@ -107,12 +107,12 @@ export default function CareersPage() {
 
         <div style={{ marginTop: 40, padding: '28px', borderRadius: 16, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', textAlign: 'center' }}>
           <p style={{ fontSize: 15, color: 'var(--t3)', marginBottom: 12 }}>Don't see your role? We hire exceptional people regardless.</p>
-          <a href="mailto:careers@selligent.ai" style={{ color: '#818cf8', fontWeight: 600, fontSize: 14 }}>Send us your CV → careers@selligent.ai</a>
+          <a href="mailto:careers@chatorai.com" style={{ color: '#818cf8', fontWeight: 600, fontSize: 14 }}>Send us your CV → careers@chatorai.com</a>
         </div>
       </div>
 
       <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 32px', textAlign: 'center', fontSize: 13, color: 'var(--t4)' }}>
-        © {new Date().getFullYear()} Selligent.ai · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
+        © {new Date().getFullYear()} ChatOrAI · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
       </footer>
     </div>
   );

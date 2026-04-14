@@ -27,7 +27,7 @@ const SEED_TEMPLATES = [
     language: 'ar',
     header: { type: 'TEXT', text: '🎉 عرض خاص لفترة محدودة!' },
     body: 'أهلاً {{1}}، عندنا خصم {{2}} على كل المنتجات اللي اشتريتها قبل كده! العرض شغال لحد {{3}}. اضغط على الزر واشتري دلوقتي 🛍️',
-    footer: 'Selligent.ai · إلغاء الاشتراك اكتب STOP',
+    footer: 'ChatOrAI · إلغاء الاشتراك اكتب STOP',
     buttons: [{ type: 'URL', text: 'تسوق دلوقتي', url: 'https://store.example.com' }],
     variables: ['اسم العميل', 'نسبة الخصم', 'تاريخ الانتهاء'],
   },
@@ -38,7 +38,7 @@ const SEED_TEMPLATES = [
     language: 'ar',
     header: { type: 'IMAGE', text: 'product_banner.jpg' },
     body: 'أهلاً {{1}}! وصلت الكوليكشن الجديدة وفيها منتجات هتعجبك 😍\nشوف أحدث الموديلات وأسعارها على موقعنا.',
-    footer: 'Selligent.ai · إلغاء الاشتراك اكتب STOP',
+    footer: 'ChatOrAI · إلغاء الاشتراك اكتب STOP',
     buttons: [
       { type: 'URL',         text: 'شوف الكوليكشن',    url: 'https://store.example.com/new' },
       { type: 'QUICK_REPLY', text: 'مش مهتم',          url: '' },
@@ -52,7 +52,7 @@ const SEED_TEMPLATES = [
     language: 'ar',
     header: { type: 'TEXT', text: '📦 تابع طلبك' },
     body: 'أهلاً {{1}}، طلبك رقم {{2}} اتشحن وهيوصلك خلال {{3}} أيام عمل.\nشكراً لثقتك فينا! ❤️',
-    footer: 'Selligent.ai',
+    footer: 'ChatOrAI',
     buttons: [{ type: 'URL', text: 'تتبع الشحن', url: 'https://track.example.com/{{4}}' }],
     variables: ['اسم العميل', 'رقم الطلب', 'مدة التوصيل', 'كود التتبع'],
   },
@@ -63,7 +63,7 @@ const SEED_TEMPLATES = [
     language: 'ar',
     header: { type: 'TEXT', text: '👋 اشتقنالك!' },
     body: 'أهلاً {{1}}! مشفناكش من فترة 😔 عشان كده عملنالك كود خصم خاص {{2}} صالح لمدة 72 ساعة بس!',
-    footer: 'Selligent.ai · إلغاء الاشتراك اكتب STOP',
+    footer: 'ChatOrAI · إلغاء الاشتراك اكتب STOP',
     buttons: [{ type: 'COPY_CODE', text: 'انسخ الكود', url: '' }],
     variables: ['اسم العميل', 'كود الخصم'],
   },
@@ -74,7 +74,7 @@ const SEED_TEMPLATES = [
     language: 'en',
     header: { type: 'TEXT', text: '⚡ Flash Sale - 24 Hours Only!' },
     body: 'Hi {{1}}! Don\'t miss our flash sale — up to {{2}} off storewide. Use code {{3}} at checkout.',
-    footer: 'Selligent.ai · Reply STOP to unsubscribe',
+    footer: 'ChatOrAI · Reply STOP to unsubscribe',
     buttons: [{ type: 'URL', text: 'Shop Now', url: 'https://store.example.com/flash' }],
     variables: ['Customer Name', 'Discount %', 'Promo Code'],
     rejectReason: 'Template contains misleading urgency claims. Please revise body copy.',
@@ -790,7 +790,7 @@ export default function BroadcastPage() {
                   <div style={{ width:32, height:32, borderRadius:'50%', background:'#25D366',
                     display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>🏪</div>
                   <div>
-                    <p style={{ fontSize:12, fontWeight:600, color:'#fff' }}>Selligent Store</p>
+                    <p style={{ fontSize:12, fontWeight:600, color:'#fff' }}>ChatOrAI Store</p>
                     <p style={{ fontSize:10, color:'rgba(255,255,255,0.4)' }}>Business Account</p>
                   </div>
                 </div>

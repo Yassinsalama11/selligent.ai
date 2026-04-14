@@ -21,7 +21,7 @@ const RELEASES = [
     changes: [
       { tag: 'new', text: 'Stripe payment integration — EUR subscriptions for Starter, Pro, Enterprise plans' },
       { tag: 'new', text: 'OpenAI GPT-4o-mini brand scan API (/api/scan/brand)' },
-      { tag: 'new', text: 'Admin team management — add, edit, suspend Selligent.ai team members' },
+      { tag: 'new', text: 'Admin team management — add, edit, suspend ChatOrAI team members' },
       { tag: 'new', text: 'Admin login page with role-based access (Super Admin, Admin, Support, Developer)' },
       { tag: 'improved', text: 'CORS updated to allow all Cloudflare Pages deployments' },
       { tag: 'fixed', text: 'Admin client modals not opening (missing open prop)' },
@@ -60,7 +60,7 @@ export default function ChangelogPage() {
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Link href="/" style={{ textDecoration: 'none' }}>
           <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex' }}>
-            <Image src="/selligent-logo.png" alt="Selligent.ai" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
+            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
           </div>
         </Link>
         <Link href="/" style={{ fontSize: 13, color: 'var(--t4)', textDecoration: 'none' }}>← Back to Home</Link>
@@ -105,7 +105,7 @@ export default function ChangelogPage() {
       </div>
 
       <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 32px', textAlign: 'center', fontSize: 13, color: 'var(--t4)' }}>
-        © {new Date().getFullYear()} Selligent.ai · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
+        © {new Date().getFullYear()} ChatOrAI · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
       </footer>
     </div>
   );

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { api, setToken } from '@/lib/api';
 
 /* Demo credentials — pre-fill on click */
-const DEMO = { email: 'demo@selligent.ai', password: 'demo1234' };
+const DEMO = { email: 'demo@chatorai.com', password: 'demo1234' };
 
 export default function LoginPage() {
   const router = useRouter();
@@ -26,7 +26,7 @@ export default function LoginPage() {
     setLoading(true);
 
     // ── Demo bypass — works with no backend ──────────────────────────────
-    if ((form.email === DEMO.email || form.email === 'demo@airos.io') && form.password === DEMO.password) {
+    if ((form.email === DEMO.email || form.email === 'demo@chatorai.com') && form.password === DEMO.password) {
       localStorage.setItem('airos_token', 'demo_token');
       localStorage.setItem('airos_demo', '1');
       router.push('/dashboard');
@@ -62,7 +62,7 @@ export default function LoginPage() {
 
         <Link href="/" style={{ textDecoration: 'none', position: 'relative', zIndex: 1, display: 'inline-flex' }}>
           <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 10, padding: '5px 14px', display: 'inline-flex', alignItems: 'center' }}>
-            <Image src="/selligent-logo.png" alt="Selligent.ai" width={180} height={46}
+            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={180} height={46}
               style={{ height: 46, width: 'auto', objectFit: 'contain', display: 'block' }}
               priority />
           </div>
@@ -101,7 +101,7 @@ export default function LoginPage() {
           {/* Mobile logo */}
           <div className="anim-up" style={{ display: 'flex', justifyContent: 'center', marginBottom: 40 }}>
             <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 10, padding: '5px 16px', display: 'inline-flex', alignItems: 'center' }}>
-              <Image src="/selligent-logo.png" alt="Selligent.ai" width={200} height={50}
+              <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={200} height={50}
                 style={{ height: 50, width: 'auto', objectFit: 'contain', display: 'block' }}
                 priority />
             </div>
@@ -109,7 +109,7 @@ export default function LoginPage() {
 
           <div className="anim-up" style={{ animationDelay: '0.05s' }}>
             <h1 style={{ fontSize: 30, fontWeight: 900, letterSpacing: '-0.03em', marginBottom: 8, textAlign: 'center' }}>Welcome back</h1>
-            <p style={{ color: 'var(--t3)', fontSize: 14, textAlign: 'center', marginBottom: 36 }}>Sign in to your Selligent.ai dashboard</p>
+            <p style={{ color: 'var(--t3)', fontSize: 14, textAlign: 'center', marginBottom: 36 }}>Sign in to your ChatOrAI dashboard</p>
           </div>
 
           {/* Demo credentials banner */}
@@ -123,7 +123,7 @@ export default function LoginPage() {
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#a5b4fc', marginBottom: 6 }}>🚀 Try the Live Demo Account</div>
                 <div style={{ fontSize: 12, color: 'var(--t4)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span>Email: <span style={{ color: 'var(--t2)', fontFamily: 'monospace' }}>demo@selligent.ai</span></span>
+                  <span>Email: <span style={{ color: 'var(--t2)', fontFamily: 'monospace' }}>demo@chatorai.com</span></span>
                   <span>Password: <span style={{ color: 'var(--t2)', fontFamily: 'monospace' }}>demo1234</span></span>
                 </div>
               </div>

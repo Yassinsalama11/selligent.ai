@@ -5,10 +5,10 @@ import Image from 'next/image';
 import toast, { Toaster } from 'react-hot-toast';
 
 const TEAM_ACCOUNTS = [
-  { id:'u1', name:'Yassin Al-Masri',   email:'yassin@selligent.ai',   password:'admin123',   role:'Super Admin', avatar:'Y' },
-  { id:'u2', name:'Sara Hassan',       email:'sara@selligent.ai',     password:'sara123',    role:'Admin',       avatar:'S' },
-  { id:'u3', name:'Omar Khalil',       email:'omar@selligent.ai',     password:'omar123',    role:'Support',     avatar:'O' },
-  { id:'u4', name:'Nour Adel',         email:'nour@selligent.ai',     password:'nour123',    role:'Developer',   avatar:'N' },
+  { id:'u1', name:'Yassin Al-Masri',   email:'yassin@chatorai.com',   password:'admin123',   role:'Super Admin', avatar:'Y' },
+  { id:'u2', name:'Sara Hassan',       email:'sara@chatorai.com',     password:'sara123',    role:'Admin',       avatar:'S' },
+  { id:'u3', name:'Omar Khalil',       email:'omar@chatorai.com',     password:'omar123',    role:'Support',     avatar:'O' },
+  { id:'u4', name:'Nour Adel',         email:'nour@chatorai.com',     password:'nour123',    role:'Developer',   avatar:'N' },
 ];
 
 export default function AdminLogin() {
@@ -78,7 +78,7 @@ export default function AdminLogin() {
           <div style={{ display:'flex', justifyContent:'center', marginBottom:28 }}>
             <div style={{ background:'rgba(255,255,255,0.92)', borderRadius:10,
               padding:'6px 14px', display:'inline-flex', alignItems:'center' }}>
-              <Image src="/selligent-logo.png" alt="Selligent.ai" width={140} height={34}
+              <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={140} height={34}
                 style={{ height:34, width:'auto', objectFit:'contain', display:'block' }} priority />
             </div>
           </div>
@@ -97,7 +97,7 @@ export default function AdminLogin() {
             Sign in to Admin
           </h1>
           <p style={{ fontSize:13, color:'var(--t4)', textAlign:'center', marginBottom:28 }}>
-            Selligent.ai staff access only
+            ChatOrAI staff access only
           </p>
 
           <form onSubmit={handleLogin} style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -108,7 +108,7 @@ export default function AdminLogin() {
                 type="email" required autoFocus
                 style={inputStyle} value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="you@selligent.ai"
+                placeholder="you@chatorai.com"
               />
             </div>
 
@@ -147,8 +147,8 @@ export default function AdminLogin() {
               Demo credentials
             </p>
             {[
-              ['yassin@selligent.ai', 'admin123', 'Super Admin'],
-              ['sara@selligent.ai',   'sara123',  'Admin'],
+              ['yassin@chatorai.com', 'admin123', 'Super Admin'],
+              ['sara@chatorai.com',   'sara123',  'Admin'],
             ].map(([e,p,r]) => (
               <button key={e} type="button"
                 onClick={() => { setEmail(e); setPassword(p); }}

@@ -51,7 +51,7 @@ function Nav() {
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
           <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 10, padding: '4px 12px', display: 'inline-flex', alignItems: 'center' }}>
-            <Image src="/selligent-logo.png" alt="Selligent.ai" width={180} height={48}
+            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={180} height={48}
               style={{ height: 40, width: 'auto', objectFit: 'contain', display: 'block' }}
               priority />
           </div>
@@ -137,7 +137,7 @@ function MockDashboard() {
         <span style={{ width: 11, height: 11, borderRadius: '50%', background: '#ef4444', opacity: 0.7, display: 'inline-block' }} />
         <span style={{ width: 11, height: 11, borderRadius: '50%', background: '#f59e0b', opacity: 0.7, display: 'inline-block' }} />
         <span style={{ width: 11, height: 11, borderRadius: '50%', background: '#10b981', opacity: 0.7, display: 'inline-block' }} />
-        <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--t4)' }}>Selligent.ai — Revenue Control Center</span>
+        <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--t4)' }}>ChatOrAI — Revenue Control Center</span>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#67e8f9' }}>
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#67e8f9', display: 'inline-block', animation: 'blink 1.5s ease-in-out infinite' }} />
           AI Active
@@ -452,7 +452,7 @@ function Integrations() {
 function FAQ() {
   const [open, setOpen] = React.useState(null);
   const items = [
-    { q: 'Do I need a WhatsApp Business API account?', a: 'No — Selligent.ai handles the WhatsApp Business API connection for you. Just connect through our guided setup and you\'re live in minutes.' },
+    { q: 'Do I need a WhatsApp Business API account?', a: 'No — ChatOrAI handles the WhatsApp Business API connection for you. Just connect through our guided setup and you\'re live in minutes.' },
     { q: 'Does the AI reply in Arabic?', a: 'Yes. Our AI is trained on Arabic eCommerce conversations and writes fluent, natural Arabic (Modern Standard or Egyptian dialect) as well as English. You can set your preferred language in settings.' },
     { q: 'What happens after the 7-day trial?', a: 'Your account locks (no data is deleted) until you subscribe. You can upgrade anytime within 30 days and keep all your contacts, conversations, and settings.' },
     { q: 'Can I connect my Shopify or WooCommerce store?', a: 'Yes. Connect your store in Settings → Channels and your product catalog, prices, and stock levels will sync automatically and power every AI reply.' },
@@ -498,7 +498,7 @@ function FAQ() {
 /* ── Social proof ─────────────────────────────────────────────────────────── */
 function Social() {
   const quotes = [
-    { text: '"Selligent.ai tripled our WhatsApp conversions in 3 weeks. The AI replies in Arabic perfectly."', name: 'Ahmed Youssef', role: 'CEO, KairosFashion', avatar: 'A' },
+    { text: '"ChatOrAI tripled our WhatsApp conversions in 3 weeks. The AI replies in Arabic perfectly."', name: 'Ahmed Youssef', role: 'CEO, KairosFashion', avatar: 'A' },
     { text: '"Finally one inbox for all channels. Lead scoring alone saved us hours daily."', name: 'Sara Al-Rashid', role: 'Head of Sales, NileStore', avatar: 'S' },
     { text: '"The Shopify sync is seamless. AI knows our inventory and responds with exact prices."', name: 'Omar Khalil', role: 'Founder, DesertThreads', avatar: 'O' },
   ];
@@ -541,7 +541,7 @@ function CTA() {
             Ready to <span className="gt">10x</span> your<br />conversation revenue?
           </h2>
           <p style={{ fontSize: 17, color: 'var(--t3)', marginBottom: 40, position: 'relative', zIndex: 1 }}>
-            Join Arabic eCommerce businesses already closing more deals with Selligent.ai.
+            Join Arabic eCommerce businesses already closing more deals with ChatOrAI.
           </p>
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', position: 'relative', zIndex: 1 }}>
             <Link href="/signup" className="btn btn-primary btn-lg">Start Free Trial</Link>
@@ -562,7 +562,7 @@ function Footer() {
           <div>
             <div style={{ marginBottom: 16 }}>
               <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex', alignItems: 'center' }}>
-                <Image src="/selligent-logo.png" alt="Selligent.ai" width={150} height={36}
+                <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={150} height={36}
                   style={{ height: 36, width: 'auto', objectFit: 'contain', display: 'block' }} />
               </div>
             </div>
@@ -590,7 +590,7 @@ function Footer() {
         </div>
 
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 13, color: 'var(--t4)' }}>© {new Date().getFullYear()} Selligent.ai — All rights reserved.</span>
+          <span style={{ fontSize: 13, color: 'var(--t4)' }}>© {new Date().getFullYear()} ChatOrAI — All rights reserved.</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--t4)' }}>
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#34d399', display: 'inline-block', animation: 'blink 2s ease-in-out infinite' }} />
             All systems operational

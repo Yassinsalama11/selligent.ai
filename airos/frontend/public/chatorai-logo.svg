@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="120" viewBox="0 0 520 120" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">ChatOrAI</title>
+  <desc id="desc">ChatOrAI logo</desc>
+  <defs>
+    <linearGradient id="bg" x1="16" y1="12" x2="104" y2="108" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="154" y1="28" x2="444" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#111827"/>
+      <stop offset="1" stop-color="#334155"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="104" height="104" rx="28" fill="url(#bg)"/>
+  <path d="M38 42C38 35.3726 43.3726 30 50 30H70C76.6274 30 82 35.3726 82 42V56C82 62.6274 76.6274 68 70 68H60.5L49 78V68H50C43.3726 68 38 62.6274 38 56V42Z" fill="white" fill-opacity="0.98"/>
+  <circle cx="56" cy="49" r="4" fill="#4F46E5"/>
+  <circle cx="70" cy="49" r="4" fill="#4F46E5"/>
+  <text x="144" y="76" fill="url(#accent)" font-family="Inter, Arial, sans-serif" font-size="52" font-weight="800" letter-spacing="-1.6">ChatOr<tspan fill="#06B6D4">AI</tspan></text>
+</svg>

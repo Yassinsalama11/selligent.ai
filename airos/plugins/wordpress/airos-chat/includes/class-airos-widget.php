@@ -2,7 +2,7 @@
 defined('ABSPATH') || exit;
 
 /**
- * Injects the AIROS live chat widget script into the page footer.
+ * Injects the ChatOrAI live chat widget script into the page footer.
  */
 class AIROS_Widget {
 
@@ -18,7 +18,7 @@ class AIROS_Widget {
 <script>
 (function(){
   var s = document.createElement('script');
-  s.src = 'https://cdn.airos.io/widget.js';
+  s.src = 'https://cdn.chatorai.com/widget.js';
   s.setAttribute('data-tenant', '{$tenant_id}');
   s.async = true;
   document.head.appendChild(s);

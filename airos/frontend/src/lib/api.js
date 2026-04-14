@@ -1,4 +1,34 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://api.selligent.ai';
+const PROD_API_BASE = 'https://api.chatorai.com';
+const LOCAL_API_BASE = 'http://localhost:3001';
+
+function trimTrailingSlash(value) {
+  return typeof value === 'string' ? value.replace(/\/+$/, '') : '';
+}
+
+export function getApiBase() {
+  const configured = trimTrailingSlash(process.env.NEXT_PUBLIC_API_URL);
+
+  if (typeof window === 'undefined') {
+    return configured || PROD_API_BASE;
+  }
+
+  const hostname = window.location.hostname;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return configured || LOCAL_API_BASE;
+  }
+
+  if (
+    hostname === 'chatorai.com' ||
+    hostname === 'www.chatorai.com' ||
+    hostname.endsWith('.chatorai.com')
+  ) {
+    return PROD_API_BASE;
+  }
+
+  return configured || PROD_API_BASE;
+}
+
+export const API_BASE = getApiBase();
 
 export function isDemo() {
   if (typeof window === 'undefined') return false;
@@ -17,7 +47,7 @@ async function request(path, options = {}) {
   const token = getToken();
   let res;
   try {
-    res = await fetch(`${API_BASE}${path}`, {
+    res = await fetch(`${getApiBase()}${path}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',

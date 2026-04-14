@@ -1,5 +1,5 @@
 /**
- * Selligent.ai — Stripe Checkout Worker
+ * ChatOrAI — Stripe Checkout Worker
  * Handles checkout session creation and webhook processing
  */
 
@@ -51,7 +51,7 @@ async function createCheckoutSession(request, env) {
   const { name: planName, priceId } = PLANS[planKey];
   if (!priceId) return json({ error: `Price ID for ${planName} not configured` }, 500);
 
-  const baseUrl = env.FRONTEND_URL || 'https://selligent-ai.pages.dev';
+  const baseUrl = env.FRONTEND_URL || 'https://chatorai.com';
 
   const params = new URLSearchParams({
     'payment_method_types[]':            'card',

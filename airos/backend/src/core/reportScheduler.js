@@ -184,7 +184,7 @@ function renderReportHtml(tenant, schedule, summary) {
 
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
-      <h1 style="margin:0 0 8px">AIROS ${schedule.name || 'Scheduled Report'}</h1>
+      <h1 style="margin:0 0 8px">ChatOrAI ${schedule.name || 'Scheduled Report'}</h1>
       <p style="margin:0 0 24px;color:#475569">
         ${tenant.name} · last ${summary.windowDays} day(s)
       </p>

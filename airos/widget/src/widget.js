@@ -5,11 +5,11 @@
   const script = document.currentScript ||
     document.querySelector('script[data-tenant]');
   const TENANT_ID = script && script.getAttribute('data-tenant');
-  const SERVER   = (script && script.getAttribute('data-server')) || 'https://app.airos.io';
+  const SERVER   = (script && script.getAttribute('data-server')) || 'https://api.chatorai.com';
   const COLOR    = (script && script.getAttribute('data-color')) || '#2563EB';
   const POSITION = (script && script.getAttribute('data-position')) || 'bottom-right';
 
-  if (!TENANT_ID) { console.warn('[AIROS] data-tenant missing'); return; }
+  if (!TENANT_ID) { console.warn('[ChatOrAI] data-tenant missing'); return; }
 
   // ── Session persistence ──────────────────────────────────────────────────
   const SESSION_KEY = `airos_session_${TENANT_ID}`;
@@ -252,7 +252,7 @@
         transports: ['websocket', 'polling'],
       });
 
-      socket.on('connect', () => console.log('[AIROS] connected'));
+      socket.on('connect', () => console.log('[ChatOrAI] connected'));
 
       socket.on('agent:message', (data) => {
         hideTyping();
@@ -265,7 +265,7 @@
       });
 
       socket.on('disconnect', () => {
-        console.log('[AIROS] disconnected');
+        console.log('[ChatOrAI] disconnected');
         socket = null;
       });
     };

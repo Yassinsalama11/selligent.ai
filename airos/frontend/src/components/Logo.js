@@ -3,7 +3,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 
 /**
- * Selligent.ai Logo component
+ * ChatOrAI Logo component
  * size: 'sm' | 'md' | 'lg' | 'xl'
  * variant: 'full' (icon + wordmark) | 'icon' (mark only) | 'wordmark' (text only)
  * href: wrap in link if provided
@@ -20,8 +20,8 @@ export default function Logo({ size = 'md', variant = 'full', href, style = {} }
 
   const icon = (
     <Image
-      src="/selligent-logo.png"
-      alt="Selligent.ai"
+      src="/chatorai-logo.svg"
+      alt="ChatOrAI"
       width={s.icon * 4}
       height={s.icon * 4}
       style={{ width: s.icon, height: s.icon, objectFit: 'contain', flexShrink: 0 }}
@@ -33,7 +33,7 @@ export default function Logo({ size = 'md', variant = 'full', href, style = {} }
     <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700,
       fontSize: s.fontSize, letterSpacing: '-0.025em',
       whiteSpace: 'nowrap', color: 'var(--t1)', lineHeight: 1 }}>
-      selligent<span style={{ color: '#38bdf8' }}>.ai</span>
+      ChatOr<span style={{ color: '#38bdf8' }}>AI</span>
     </span>
   );
 

@@ -1,10 +1,10 @@
-name = "selligent-stripe"
+name = "chatorai-stripe"
 main = "src/index.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-FRONTEND_URL = "https://selligent-ai.pages.dev"
+FRONTEND_URL = "https://chatorai.com"
 
 # Secrets — set via CLI:
 # wrangler secret put STRIPE_SECRET_KEY

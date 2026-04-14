@@ -5,8 +5,8 @@ class AIROS_Settings_Page {
 
     public static function add_menu(): void {
         add_menu_page(
-            __('AIROS Chat', 'airos-chat'),
-            __('AIROS Chat', 'airos-chat'),
+            __('ChatOrAI Chat', 'airos-chat'),
+            __('ChatOrAI Chat', 'airos-chat'),
             'manage_options',
             'airos-chat',
             [self::class, 'render'],
@@ -25,7 +25,7 @@ class AIROS_Settings_Page {
         if (isset($_POST['airos_manual_sync']) && check_admin_referer('airos_manual_sync_nonce')) {
             if (!$api_key || !$tenant_id) {
                 echo '<div class="notice notice-error"><p>' . esc_html__(
-                    'Enter your AIROS API key and Tenant ID before running a sync.',
+                    'Enter your ChatOrAI API key and Tenant ID before running a sync.',
                     'airos-chat'
                 ) . '</p></div>';
             } else {
@@ -52,14 +52,14 @@ class AIROS_Settings_Page {
         $synced_count   = get_option('airos_synced_count', 0);
         ?>
         <div class="wrap">
-            <h1><?php esc_html_e('AIROS Chat & Sync', 'airos-chat'); ?></h1>
+            <h1><?php esc_html_e('ChatOrAI Chat & Sync', 'airos-chat'); ?></h1>
 
             <form method="post" action="options.php">
                 <?php settings_fields('airos_options'); ?>
                 <table class="form-table" role="presentation">
                     <tr>
                         <th scope="row">
-                            <label for="airos_api_key"><?php esc_html_e('AIROS API Key', 'airos-chat'); ?></label>
+                            <label for="airos_api_key"><?php esc_html_e('ChatOrAI API Key', 'airos-chat'); ?></label>
                         </th>
                         <td>
                             <input name="airos_api_key" id="airos_api_key" type="password"

@@ -1,9 +1,9 @@
 <?php
 /**
- * Plugin Name: AIROS Chat & Sync
- * Description: Connect your WooCommerce store to AIROS AI Revenue System
+ * Plugin Name: ChatOrAI Chat & Sync
+ * Description: Connect your WooCommerce store to ChatOrAI AI Revenue System
  * Version:     1.0.0
- * Author:      AIROS
+ * Author:      ChatOrAI
  * Text Domain: airos-chat
  * Requires at least: 6.0
  * Requires PHP: 8.0
@@ -14,7 +14,7 @@ defined('ABSPATH') || exit;
 define('AIROS_VERSION',    '1.0.0');
 define('AIROS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('AIROS_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('AIROS_API_BASE',   'https://api.airos.io/v1');
+define('AIROS_API_BASE',   'https://api.chatorai.com/v1');
 
 require_once AIROS_PLUGIN_DIR . 'includes/class-airos-api.php';
 require_once AIROS_PLUGIN_DIR . 'includes/class-airos-sync.php';
@@ -73,7 +73,7 @@ class AIROS_Plugin {
         if (!get_option('airos_api_key') || !get_option('airos_tenant_id')) {
             echo '<div class="notice notice-warning is-dismissible"><p>'
                 . sprintf(
-                    __('<strong>AIROS</strong>: Please <a href="%s">configure your API key and Tenant ID</a> to activate the chat widget.', 'airos-chat'),
+                    __('<strong>ChatOrAI</strong>: Please <a href="%s">configure your API key and Tenant ID</a> to activate the chat widget.', 'airos-chat'),
                     admin_url('admin.php?page=airos-chat')
                 )
                 . '</p></div>';

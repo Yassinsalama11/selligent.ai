@@ -10,7 +10,7 @@ const CHANNEL_SCOPES = {
 };
 
 function getRedirectUri() {
-  return `${process.env.BACKEND_URL || 'https://api.selligent.ai'}/api/channels/meta/callback`;
+  return `${process.env.BACKEND_URL || 'https://api.chatorai.com'}/api/channels/meta/callback`;
 }
 
 function getWhatsAppConfigId() {

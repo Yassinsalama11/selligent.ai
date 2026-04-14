@@ -3,7 +3,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { clearToken, isDemo } from '@/lib/api';
+import { API_BASE, clearToken, isDemo } from '@/lib/api';
 import Logo from '@/components/Logo';
 
 const NAV = [
@@ -17,8 +17,6 @@ const NAV = [
   { href: '/dashboard/reports',       icon: '📊', label: 'Reports'                     },
   { href: '/dashboard/settings',      icon: '⚙',  label: 'Settings'                    },
 ];
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'https://api.selligent.ai';
 
 export default function DashboardLayout({ children }) {
   const pathname = usePathname();
@@ -62,7 +60,7 @@ export default function DashboardLayout({ children }) {
     setUpgradeLoading(plan);
     const user = JSON.parse(localStorage.getItem('airos_user') || '{}');
     try {
-      const res = await fetch(`${API}/api/stripe/create-checkout-session`, {
+      const res = await fetch(`${API_BASE}/api/stripe/create-checkout-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plan, email: user.email }),
@@ -111,29 +109,14 @@ export default function DashboardLayout({ children }) {
         {/* Logo */}
         <div style={S.logoRow}>
           {collapsed ? (
-            /* Collapsed — just the S mark */
-            <div style={{ width:38, height:38, overflow:'hidden', flexShrink:0, position:'relative', borderRadius:8, background:'rgba(255,255,255,0.92)' }}>
-              <Image
-                src="/selligent-logo.png"
-                alt="S"
-                fill
-                sizes="38px"
-                style={{ objectFit:'cover', objectPosition:'left center' }}
-                priority
-              />
+            <div style={{ width:38, height:38, borderRadius:10, flexShrink:0,
+              display:'flex', alignItems:'center', justifyContent:'center',
+              background:'linear-gradient(135deg,#4f46e5,#06b6d4)', color:'#fff',
+              fontWeight:800, fontSize:15, letterSpacing:'-0.03em' }}>
+              C
             </div>
           ) : (
-            /* Expanded — full logo */
-            <div style={{ background:'rgba(255,255,255,0.92)', borderRadius:8, padding:'4px 10px', display:'inline-flex', alignItems:'center', flexShrink:0 }}>
-              <Image
-                src="/selligent-logo.png"
-                alt="Selligent.ai"
-                width={160}
-                height={40}
-                style={{ height:40, width:'auto', objectFit:'contain', display:'block' }}
-                priority
-              />
-            </div>
+            <Logo href="/" size="lg" />
           )}
         </div>
 
@@ -202,7 +185,7 @@ export default function DashboardLayout({ children }) {
       <div style={S.main}>
         <header style={S.topbar}>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <span style={{ fontSize:12, color:'var(--t4)' }}>Selligent.ai</span>
+            <span style={{ fontSize:12, color:'var(--t4)' }}>ChatOrAI</span>
             <span style={{ fontSize:12, color:'var(--t4)' }}>›</span>
             <span style={{ fontSize:13, fontWeight:600, color:'var(--t2)' }}>{pageLabel}</span>
           </div>
@@ -245,7 +228,7 @@ export default function DashboardLayout({ children }) {
               </Link>{' '}
               to connect real channels.
             </span>
-            <span style={{ fontSize:11, color:'var(--t4)', fontFamily:'monospace' }}>demo@selligent.ai</span>
+            <span style={{ fontSize:11, color:'var(--t4)', fontFamily:'monospace' }}>demo@chatorai.com</span>
           </div>
         )}
 
@@ -278,7 +261,7 @@ export default function DashboardLayout({ children }) {
                   Your trial has ended
                 </h2>
                 <p style={{ fontSize:15, color:'var(--t3)', marginBottom:32, lineHeight:1.6 }}>
-                  Your 7-day free trial has expired. Upgrade to a paid plan to continue using Selligent.ai and keep all your data.
+                  Your 7-day free trial has expired. Upgrade to a paid plan to continue using ChatOrAI and keep all your data.
                 </p>
                 <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
                   {[
@@ -304,7 +287,7 @@ export default function DashboardLayout({ children }) {
                 </div>
                 <p style={{ marginTop:20, fontSize:12, color:'var(--t4)' }}>
                   Need help?{' '}
-                  <a href="mailto:support@selligent.ai" style={{ color:'#818cf8' }}>Contact support</a>
+                  <a href="mailto:support@chatorai.com" style={{ color:'#818cf8' }}>Contact support</a>
                 </p>
               </div>
             </div>

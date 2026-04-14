@@ -1,11 +1,12 @@
 'use client';
 import { io } from 'socket.io-client';
+import { getApiBase } from '@/lib/api';
 
 let socket = null;
 
 export function getSocket() {
   if (!socket) {
-    socket = io(process.env.NEXT_PUBLIC_API_URL || 'https://api.selligent.ai', {
+    socket = io(getApiBase(), {
       autoConnect: false,
       transports: ['websocket'],
     });

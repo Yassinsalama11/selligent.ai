@@ -32,7 +32,7 @@ app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors({
   origin: (origin, cb) => {
     const allowed = [
-      'https://selligent-ai.pages.dev',
+      'https://chatorai.com',
       'http://localhost:3000',
       process.env.FRONTEND_URL,
     ];
@@ -163,6 +163,6 @@ const PORT = process.env.PORT || 3001;
 if (process.env.ENABLE_REPORT_SCHEDULER !== '0') {
   startReportScheduler();
 }
-server.listen(PORT, () => console.log(`AIROS backend running on port ${PORT}`));
+server.listen(PORT, () => console.log(`ChatOrAI backend running on port ${PORT}`));
 
 module.exports = { app, server };
