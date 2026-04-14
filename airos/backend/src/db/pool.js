@@ -20,6 +20,9 @@ function mapDatabaseError(err) {
   if (err?.code === 'ECONNREFUSED') {
     return databaseUnavailableError('Database is unreachable. Check DATABASE_URL and the Railway Postgres service.');
   }
+  if (err?.code === '42P01') {
+    return databaseUnavailableError('Database schema is not initialized. Run `npm run db:init` in the Railway backend service shell.');
+  }
   return err;
 }
 
