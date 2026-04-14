@@ -32,7 +32,16 @@ export const API_BASE = getApiBase();
 
 export function isDemo() {
   if (typeof window === 'undefined') return false;
-  return localStorage.getItem('airos_demo') === '1';
+  const token = localStorage.getItem('airos_token');
+  const flagged = localStorage.getItem('airos_demo') === '1';
+
+  if (token === 'demo_token') return true;
+
+  if (flagged) {
+    localStorage.removeItem('airos_demo');
+  }
+
+  return false;
 }
 
 function getToken() {
@@ -79,6 +88,7 @@ export const api = {
 };
 
 export function setToken(token) {
+  localStorage.removeItem('airos_demo');
   localStorage.setItem('airos_token', token);
 }
 
