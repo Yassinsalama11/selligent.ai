@@ -7,7 +7,8 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "worker": "node src/workers/messageProcessor.js",
-    "report-scheduler": "node src/workers/reportScheduler.js"
+    "report-scheduler": "node src/workers/reportScheduler.js",
+    "db:init": "node scripts/init-db.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
