@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, clearToken, setToken } from '@/lib/api';
 
 const STEPS = [
   { n: 1, label: 'Account'  },
@@ -97,8 +97,8 @@ export default function SignupPage() {
     if (step === 1) {
       if (!account.name || !account.email || !account.password || !account.company)
         return alert('Please fill in all required fields');
-      if (account.password.length < 6)
-        return alert('Password must be at least 6 characters');
+      if (account.password.length < 8)
+        return alert('Password must be at least 8 characters');
     }
     if (step === 2) {
       if (!presence.website && !presence.whatsapp && !presence.instagram)
@@ -110,16 +110,23 @@ export default function SignupPage() {
   async function handlePay(plan) {
     setPayLoading(plan);
     try {
-      const res = await fetch(`${API}/api/onboarding/register`, {
+      const res = await fetch(`${API_BASE}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account, presence, aiData, plan }),
+        body: JSON.stringify({
+          tenantName: aiData.companyName || account.company,
+          email: account.email,
+          password: account.password,
+          name: account.name,
+          plan,
+        }),
       });
       const data = await res.json();
       if (data.token) {
-        localStorage.setItem('airos_token', data.token);
+        clearToken();
+        setToken(data.token);
         localStorage.setItem('airos_user', JSON.stringify(data.user));
-        localStorage.setItem('airos_trial_end', data.trialEnd);
+        localStorage.removeItem('airos_trial_end');
         window.location.href = '/dashboard';
       } else {
         alert(data.error || 'Registration failed');
@@ -206,7 +213,7 @@ export default function SignupPage() {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Password *</label>
-                  <input style={inputStyle} type="password" placeholder="Min 6 characters" value={account.password}
+                  <input style={inputStyle} type="password" placeholder="Min 8 characters" value={account.password}
                     onChange={e => setAccount(a => ({ ...a, password: e.target.value }))} />
                 </div>
                 <button onClick={nextStep} style={{ padding: '13px', borderRadius: 12, border: 'none',

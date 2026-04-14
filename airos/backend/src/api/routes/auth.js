@@ -10,10 +10,17 @@ const SALT_ROUNDS = 12;
 // POST /api/auth/register — create tenant + owner account
 router.post('/register', async (req, res, next) => {
   try {
-    const { tenantName, email, password, name } = req.body;
+    const { tenantName, email, password, name, plan } = req.body;
     if (!tenantName || !email || !password || !name) {
       return res.status(400).json({ error: 'All fields required' });
     }
+    if (String(password).length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    const normalizedPlan = ['starter', 'growth', 'pro', 'enterprise'].includes(String(plan || '').toLowerCase())
+      ? String(plan).toLowerCase()
+      : 'starter';
 
     const existing = await query('SELECT id FROM tenants WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
@@ -25,17 +32,25 @@ router.post('/register', async (req, res, next) => {
     // Create tenant + owner in a transaction
     const result = await query(`
       WITH new_tenant AS (
-        INSERT INTO tenants (name, email) VALUES ($1, $2) RETURNING id
+        INSERT INTO tenants (name, email, plan) VALUES ($1, $2, $5) RETURNING id, plan
       )
       INSERT INTO users (tenant_id, email, password_hash, name, role)
       SELECT id, $2, $3, $4, 'owner' FROM new_tenant
       RETURNING id, tenant_id, email, name, role
-    `, [tenantName, email, passwordHash, name]);
+    `, [tenantName, email, passwordHash, name, normalizedPlan]);
 
     const user = result.rows[0];
     const token = signToken(user);
 
-    res.status(201).json({ token, user: sanitize(user) });
+    res.status(201).json({
+      token,
+      user: {
+        ...sanitize(user),
+        company: tenantName,
+        plan: normalizedPlan,
+        status: 'active',
+      },
+    });
   } catch (err) {
     next(err);
   }
