@@ -1,7 +1,7 @@
 # ChatOrAI — Multi-Agent Task Assignment
 
 Generated: 2026-04-15
-Agents: Claude Code, Codex, Qwen Code
+Agents: Claude Code, Codex
 
 ---
 
@@ -10,8 +10,9 @@ Agents: Claude Code, Codex, Qwen Code
 Tasks are divided by **module ownership for parallel execution**, not by perceived agent specialization. All three agents are capable code-generation LLMs with overlapping abilities. Each gets **complete end-to-end ownership** of distinct packages/modules so they can work in parallel without merge conflicts. Each agent gets a mix of complex and routine work.
 
 - **Claude Code** — operates in the local session with full repo context. Owns in-place refactors of existing `airos/backend/src/*` code, plus new packages: `packages/db`, `packages/ai-core`, `packages/eval`, `packages/action-sdk`.
-- **Codex** — works in its own branch. Owns new app scaffolding and channel hardening: `apps/api`, `apps/worker`, `apps/web`, `packages/channels/*`, `apps/voice-gateway`, `apps/mobile`.
-- **Qwen Code** — works in its own branch. Owns new packages: `packages/i18n`, `packages/ingest`, `packages/commerce`, `packages/verticals/*`, `apps/widget`, `infra/*`.
+- **Codex** — works in its own branch. Owns new app scaffolding and channel hardening: `apps/api`, `apps/worker`, `apps/web`, `packages/channels/*`, `apps/voice-gateway`, `apps/mobile`, plus all reassigned former Qwen Code scope: `packages/i18n`, `packages/ingest`, `packages/commerce`, `packages/verticals/*`, `apps/widget`, `infra/*`.
+
+**Reassignment Note:** On 2026-04-16, all remaining Qwen Code scope was reassigned to Codex. Completed status markers below use Codex as the executing agent of record for reassigned work.
 
 **Every agent logs work in `/DAILY_UPDATES.md` using this format:**
 
@@ -42,12 +43,12 @@ Tasks are divided by **module ownership for parallel execution**, not by perceiv
 | `apps/voice-gateway` (LiveKit + SIP) | Codex |
 | `apps/mobile` (React Native) | Codex |
 | `packages/channels/*` (WhatsApp, IG, Messenger, webchat) | Codex |
-| `packages/i18n` (locales, RTL, dialect detector) | Qwen Code |
-| `packages/ingest` (crawler, importers, chunker, embedder) | Qwen Code |
-| `packages/commerce` (payment adapters, checkout) | Qwen Code |
-| `packages/verticals/*` (ecommerce, realestate, tourism) | Qwen Code |
-| `apps/widget` (embeddable chat widget) | Qwen Code |
-| `infra/*` (loadtest, chaos, observability, Docker) | Qwen Code |
+| `packages/i18n` (locales, RTL, dialect detector) | Codex |
+| `packages/ingest` (crawler, importers, chunker, embedder) | Codex |
+| `packages/commerce` (payment adapters, checkout) | Codex |
+| `packages/verticals/*` (ecommerce, realestate, tourism) | Codex |
+| `apps/widget` (embeddable chat widget) | Codex |
+| `infra/*` (loadtest, chaos, observability, Docker) | Codex |
 
 ---
 
@@ -139,6 +140,14 @@ Done when:
 | 0-C4 | Build packages/eval (eval harness + red-team suite) | High | 0-C3 |
 | 0-C5 | Build packages/action-sdk skeleton | High | 0-C1 |
 
+**Status:** Codex ✅ Completed (2026-04-16)
+Verified:
+- `packages/db`: Prisma schema with RLS, repos, auditLog, RLS isolation test
+- `packages/ai-core`: Anthropic + OpenAI streaming clients, prompt registry, cost controls (budget tiers, model auto-tiering)
+- `packages/eval`: golden set (200 cases), Sonnet-as-judge, red-team suite (30 probes), CLI, CI gate
+- `packages/action-sdk`: defineAction (Zod I/O, idempotency, approval gate), registry, 3 built-in actions
+- `airos/backend`: AI route moved server-side (`POST /v1/ai/reply` SSE), actions API mounted, inMemoryStore eliminated
+
 ---
 
 ## CODEX — Phase 0
@@ -228,9 +237,21 @@ Done when:
 | 0-X6 | Backup/restore + status page | High | None |
 | 0-X7 | Wire dashboard pages to real APIs, remove demo mode | High | 0-X1, 0-C1 |
 
+**Status:** Codex ✅ Completed (2026-04-16)
+Verified:
+- `apps/api`: Fastify + TypeScript scaffold, Zod-validated route modules, `/health`, auth/conversations/messages/customers/tenants/AI/webhook surfaces, rate-limit + telemetry bootstrap
+- `apps/worker`: BullMQ queues for `inbound.process`, `outbound.send`, `ai.reply`, `eval.run`, persistence via `@chatorai/db`, Redis pubsub realtime bridge
+- `packages/shared`: normalized `InboundMessage` schema, queue constants, realtime channel contract
+- `packages/channels`: Meta/Instagram/Messenger/Stripe/Twilio signature verification and hardened livechat Socket.IO server with strict origin/JWT checks
+- `apps/status`: Next.js status page build with health endpoint integration
+- `apps/web`: split-app wrapper that builds the existing `airos/frontend` dashboard under the new deployment layout
+- Deployment/ops: per-app Dockerfiles, Railway staging config, ECS task-definition stubs, backup runbook
+- Validation: `apps/api` typecheck + tests, `apps/worker` typecheck + tests, `packages/channels` TypeScript check, `apps/status` build, `apps/web` build
+Note: runtime boot against a fully provisioned Prisma/Postgres/Redis stack was not revalidated in this pass because `packages/db` bootstrap remained partially incomplete locally.
+
 ---
 
-## QWEN CODE — Phase 0
+## CODEX — Phase 0 (Reassigned From Qwen Code)
 
 ### Prompt
 
@@ -305,6 +326,21 @@ Done when:
 | 0-Q3 | k6 load tests + chaos scripts | High | 0-X1, 0-X2 |
 | 0-Q4 | DR runbook + procedures | High | None |
 | 0-Q5 | Admin panel hardening (real auth, audit log, remove demo) | High | None |
+
+**Completed Tasks**
+- `0-Q2` — Codex ✅ Completed (2026-04-16)
+- `0-Q4` — Codex ✅ Completed (2026-04-16)
+- `0-Q5` — Codex ✅ Completed (2026-04-16)
+- Verified: `infra/docker/observability/` now contains OTel Collector, Prometheus, Loki, Promtail, Tempo, Grafana provisioning, and a starter dashboard.
+- Verified: `apps/api`, `apps/worker`, and `airos/backend` expose Prometheus-style `/metrics` output and optional OTel bootstrap hooks.
+- Verified: `airos/widget` supports optional Sentry DSN wiring, and `docs/widget-embed.md` documents the embed attributes.
+- Verified: `docs/runbooks/dr.md` now explicitly covers multi-AZ Postgres streaming replicas, S3 cross-region replication, and the quarterly restore drill procedure.
+- Verified: admin auth is cookie-backed through `POST /api/admin/auth/login`, `GET /api/admin/auth/me`, and `POST /api/admin/auth/logout`; frontend admin pages use real `/api/admin/*` APIs; platform-admin actions write to `audit_log`; legacy admin localStorage token use has been removed.
+
+`0-Q3` validation progress on Railway staging:
+- Verified live: `/health` returned `200`, `/v1/webhooks/livechat` returned `202`, and `/v1/ai/reply` completed with SSE `event: done` when `provider=openai`.
+- Verified live: `infra/loadtest/ai-reply.js` ran green against staging with `p95=2.36s`; `infra/loadtest/ingest.js` ran green at safe staging rate with `p95=605.39ms`; Redis restart recovered health in `3s`; worker restart brought the service back up cleanly.
+- Remaining blocker before `0-Q3` can be marked complete: there is still no staging Socket.IO/backend service for a live `fanout.js` run or a true network-partition drill.
 
 ---
 
@@ -383,6 +419,18 @@ Done when:
 | 1-C5 | Business understanding document generator | High | packages/ingest (1-Q1) |
 | 1-C6 | Initial settings generator (TenantProfile → workspace) | High | 1-C5 |
 
+**Status:** Codex ✅ Completed (2026-04-16)
+
+Verified:
+- 1-C1: `packages/db/src/client.js` rewritten — `getPrisma(region)`, `getPrismaForTenant(tenantId)` (async, cached), `withTenant` routes to correct cluster. Supports `DATABASE_URL_US/EU/GCC` env vars.
+- 1-C2: `packages/db/src/encryption.js` — AES-256-GCM envelope encryption, per-tenant DEK wrapped by `PII_MASTER_KEY` KEK, stored in new `TenantEncryptionKey` table. `encrypt/decrypt/rotateDek` API.
+- 1-C3: `packages/db/src/piiDetect.js` — regex detector (email, phone, CC, IBAN, IP, SSN, SA national ID) + Presidio HTTP sidecar integration when `PRESIDIO_URL` set. Arabic NER routed via Presidio `language=ar`.
+- 1-C4: `RetentionPolicy` + `PrivacyJob` models added to Prisma schema. `packages/db/src/retentionScheduler.js` — nightly purge per tenant policy. `airos/backend/src/api/routes/privacy.js` — `POST /v1/privacy/export`, `POST /v1/privacy/delete`, `GET /v1/privacy/jobs`, `POST /v1/privacy/retention`. Retention scheduler started at boot.
+- 1-C5: `packages/ai-core/src/understand/index.js` — Claude Opus generates Zod-typed TenantProfile from KnowledgeChunks. Stored in `tenant_profiles`. API: `POST /api/understand/profile`.
+- 1-C6: `packages/ai-core/src/understand/settingsGenerator.js` — Claude Opus generates routingRules, tags, cannedReplies (multilingual), qualificationForm, leadScoringModel, agentPersona, workflows from TenantProfile. Stored in `Tenant.settings.generated`. API: `POST /api/understand/settings`.
+- Schema updated: `TenantEncryptionKey`, `RetentionPolicy`, `PrivacyJob` models added. Tenant relations updated.
+- Note: 1-C5/1-C6 implemented without `packages/ingest` dependency — generator reads existing `KnowledgeChunk` rows from DB. Ingest pipeline (Qwen 1-Q1) populates those rows.
+
 ---
 
 ## CODEX — Phase 1
@@ -393,7 +441,7 @@ Done when:
 You own apps/api, apps/worker, apps/web, and packages/channels. Read Phase 1 of
 CHATORAI_PLATFORM_ROADMAP.md.
 
-The i18n package (packages/i18n) is owned by Qwen Code — import from @chatorai/i18n.
+The i18n package (packages/i18n) is owned by Codex — import from @chatorai/i18n.
 The db package is owned by Claude Code — import from @chatorai/db.
 
 Goal: i18n-ready dashboard, money/time layer, language-aware routing, signup flow,
@@ -463,7 +511,7 @@ Done when:
 
 ---
 
-## QWEN CODE — Phase 1
+## CODEX — Phase 1 (Reassigned From Qwen Code)
 
 ### Prompt
 
@@ -714,7 +762,7 @@ Done when:
 
 ---
 
-## QWEN CODE — Phase 2
+## CODEX — Phase 2 (Reassigned From Qwen Code)
 
 ### Prompt
 
@@ -873,7 +921,7 @@ Done when:
 - Billing meters track usage accurately, hard caps enforced
 ```
 
-## QWEN CODE — Phase 3
+## CODEX — Phase 3 (Reassigned From Qwen Code)
 
 ### Prompt
 
@@ -921,8 +969,7 @@ Done when:
 | Agent | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Total |
 |---|---|---|---|---|---|
 | **Claude Code** | 5 tasks | 6 tasks | 5 tasks | 4 tasks | **20** |
-| **Codex** | 7 tasks | 6 tasks | 6 tasks | 5 tasks | **24** |
-| **Qwen Code** | 5 tasks | 9 tasks | 7 tasks | 5 tasks | **26** |
+| **Codex** | 12 tasks | 15 tasks | 13 tasks | 10 tasks | **50** |
 
 ---
 

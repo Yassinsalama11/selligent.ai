@@ -1,0 +1,75 @@
+name: Repo Guards
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  forbidden-imports:
+    name: No banned imports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Block re-introduction of inMemoryStore
+        shell: bash
+        run: |
+          echo "Searching for inMemoryStore references in source trees..."
+          # Look at app/package source dirs only — never docs, dist, or node_modules.
+          MATCHES=$(grep -RIn --include='*.{js,ts,jsx,tsx,mjs,cjs}' \
+            --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build \
+            --exclude-dir=.next --exclude-dir=coverage \
+            'inMemoryStore' \
+            airos/backend/src airos/frontend/src packages apps 2>/dev/null || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::error::inMemoryStore is banned (replaced by packages/db). Found:"
+            echo "$MATCHES"
+            exit 1
+          fi
+          echo "OK: no inMemoryStore references."
+
+      - name: Block client-side AI provider keys
+        shell: bash
+        run: |
+          echo "Searching for ANTHROPIC_API_KEY / OPENAI_API_KEY in frontend source..."
+          MATCHES=$(grep -RIn --include='*.{js,ts,jsx,tsx,mjs,cjs}' \
+            --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build \
+            --exclude-dir=.next --exclude-dir=coverage \
+            -E 'ANTHROPIC_API_KEY|OPENAI_API_KEY' \
+            airos/frontend/src apps/web/src 2>/dev/null || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::error::AI provider keys must never appear in frontend bundles. Found:"
+            echo "$MATCHES"
+            exit 1
+          fi
+          echo "OK: no provider-key references in frontend."
+
+  eval-redteam:
+    name: Eval red-team gate
+    runs-on: ubuntu-latest
+    # Only run on PRs that touch AI or eval packages — expensive (calls LLM)
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'run-eval')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install eval dependencies
+        working-directory: packages/eval
+        run: npm install
+
+      - name: Install ai-core dependencies
+        working-directory: packages/ai-core
+        run: npm install
+
+      - name: Run red-team suite
+        working-directory: packages/eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node src/cli.js run --suite redteam --verbose --ci

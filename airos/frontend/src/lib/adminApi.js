@@ -2,7 +2,7 @@
 
 import { API_BASE } from '@/lib/api';
 
-const ADMIN_TOKEN_KEY = 'chatorai_admin_token';
+const LEGACY_ADMIN_TOKEN_KEY = 'chatorai_admin_token';
 const ADMIN_PROFILE_KEY = 'chatorai_admin_profile';
 
 async function adminRequest(path, options = {}) {
@@ -38,7 +38,7 @@ export const adminApi = {
 
 export function setAdminSession({ admin }) {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem(ADMIN_TOKEN_KEY);
+  localStorage.removeItem(LEGACY_ADMIN_TOKEN_KEY);
   localStorage.setItem(ADMIN_PROFILE_KEY, JSON.stringify(admin));
 }
 
@@ -53,7 +53,7 @@ export function getAdminProfile() {
 
 export function clearAdminSession() {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem(ADMIN_TOKEN_KEY);
+  localStorage.removeItem(LEGACY_ADMIN_TOKEN_KEY);
   localStorage.removeItem(ADMIN_PROFILE_KEY);
 }
 

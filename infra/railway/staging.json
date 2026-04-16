@@ -1,0 +1,35 @@
+{
+  "project": "chatorai-staging",
+  "services": [
+    {
+      "name": "api",
+      "rootDirectory": "apps/api",
+      "dockerfilePath": "apps/api/Dockerfile",
+      "startCommand": "npm run start"
+    },
+    {
+      "name": "worker",
+      "rootDirectory": "apps/worker",
+      "dockerfilePath": "apps/worker/Dockerfile",
+      "startCommand": "npm run start"
+    },
+    {
+      "name": "web",
+      "rootDirectory": "apps/web",
+      "dockerfilePath": "apps/web/Dockerfile",
+      "startCommand": "npm run start"
+    },
+    {
+      "name": "scheduler",
+      "rootDirectory": "apps/scheduler",
+      "dockerfilePath": "apps/scheduler/Dockerfile",
+      "startCommand": "npm run start"
+    },
+    {
+      "name": "status",
+      "rootDirectory": "apps/status",
+      "dockerfilePath": "apps/status/Dockerfile",
+      "startCommand": "npm run start"
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+require('./core/otel/register');
+
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
@@ -20,12 +22,23 @@ const adminRoutes = require('./api/routes/admin');
 const ingestRoutes = require('./api/routes/ingest');
 const businessProfileRoutes = require('./api/routes/businessProfile');
 const migrationRoutes = require('./api/routes/migrations');
+const aiRoutes = require('./api/routes/ai');
+const actionsRoutes = require('./api/routes/actions');
+const privacyRoutes = require('./api/routes/privacy');
+const understandRoutes = require('./api/routes/understand');
+const evalRoutes = require('./api/routes/eval');
+const correctionsRoutes = require('./api/routes/corrections');
+
+// Boot action registry (must require before routes)
+require('./actions');
 
 const { authMiddleware } = require('./api/middleware/auth');
 const { tenantMiddleware } = require('./api/middleware/tenant');
-const { initSocketServer } = require('./channels/livechat/socket');
+const { initSocketServer, getSocketMetrics } = require('./channels/livechat/socket');
 const { startReportScheduler } = require('./core/reportScheduler');
-const { initTelemetry, requestTracer, getMetricsSnapshot } = require('./core/telemetry');
+const { startRetentionScheduler } = require('@chatorai/db').retention;
+const { runMiner } = require('@chatorai/eval');
+const { initTelemetry, requestTracer, getMetricsSnapshot, renderPrometheusMetrics } = require('./core/telemetry');
 const { logger } = require('./core/logger');
 const { pool } = require('./db/pool');
 const { getRedisClient } = require('./db/redis');
@@ -104,6 +117,11 @@ app.get('/api/metrics', (req, res) => {
   res.json(getMetricsSnapshot());
 });
 
+app.get('/metrics', (req, res) => {
+  res.type('text/plain; version=0.0.4; charset=utf-8');
+  res.send(`${renderPrometheusMetrics(getSocketMetrics())}\n`);
+});
+
 app.post('/api/telemetry/frontend-error', (req, res) => {
   logger.error('Frontend error reported', {
     requestId: req.requestId,
@@ -157,6 +175,10 @@ app.use('/webhooks', require('./channels/messenger/webhook'));
 // Public catalog API (for plugins)
 app.use('/v1/catalog', catalogRoutes);
 
+// AI reply streaming (auth required) — mounted before global /api auth
+// so we can apply auth specifically and keep the /v1/ai prefix.
+app.use('/v1/ai', authMiddleware, tenantMiddleware, aiRoutes);
+
 // Channel routes expose a public Meta callback and protect the rest internally
 app.use('/api/channels', channelsRoutes);
 
@@ -174,6 +196,15 @@ app.use('/api/broadcast', broadcastRoutes);
 app.use('/api/ingest', ingestRoutes);
 app.use('/api/business-profile', businessProfileRoutes);
 app.use('/api/migrations', migrationRoutes);
+app.use('/api/actions', actionsRoutes);
+app.use('/api/understand', understandRoutes);
+
+// Privacy / DSR (auth + tenant already applied by /api middleware above)
+app.use('/v1/privacy', authMiddleware, tenantMiddleware, privacyRoutes);
+
+// Eval dashboard + human corrections (2-C1, 2-C2)
+app.use('/v1/eval', authMiddleware, tenantMiddleware, evalRoutes);
+app.use('/v1/corrections', authMiddleware, tenantMiddleware, correctionsRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {
@@ -194,6 +225,18 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3001;
 if (process.env.ENABLE_REPORT_SCHEDULER !== '0' && process.env.DATABASE_URL) {
   startReportScheduler();
+  if (startRetentionScheduler) startRetentionScheduler();
+
+  // Weekly correction miner (2-C2) — runs every Sunday at 02:00 UTC
+  const MINER_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+  setTimeout(function fireMiner() {
+    runMiner()
+      .then(({ exported, skipped }) =>
+        logger.info('[CorrectionMiner] weekly export done', { exported, skipped }),
+      )
+      .catch((err) => logger.error('[CorrectionMiner] failed', { error: err.message }))
+      .finally(() => setTimeout(fireMiner, MINER_INTERVAL_MS));
+  }, MINER_INTERVAL_MS);
 } else if (process.env.ENABLE_REPORT_SCHEDULER !== '0') {
   logger.warn('[ReportScheduler] skipped because DATABASE_URL is not configured');
 }

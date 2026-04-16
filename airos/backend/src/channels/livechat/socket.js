@@ -5,6 +5,8 @@ const { query } = require('../../db/pool');
 const { logger } = require('../../core/logger');
 
 let io;
+let activeSockets = 0;
+const tenantSocketCounts = new Map();
 
 function loadRedisAdapter() {
   try {
@@ -90,6 +92,8 @@ function initSocketServer(httpServer) {
   io.on('connection', (socket) => {
     const tenantId = socket.tenantId;
     const sessionId = socket.handshake.query.sessionId;
+    activeSockets += 1;
+    tenantSocketCounts.set(tenantId, (tenantSocketCounts.get(tenantId) || 0) + 1);
 
     // Join tenant-scoped room
     socket.join(tenantRoom(tenantId));
@@ -115,6 +119,11 @@ function initSocketServer(httpServer) {
     });
 
     socket.on('disconnect', () => {
+      activeSockets = Math.max(0, activeSockets - 1);
+      const current = Math.max(0, (tenantSocketCounts.get(tenantId) || 1) - 1);
+      if (current === 0) tenantSocketCounts.delete(tenantId);
+      else tenantSocketCounts.set(tenantId, current);
+
       logger.info('Socket disconnected', { tenantId, socketId: socket.id });
     });
 
@@ -148,6 +157,13 @@ function getIO() {
   return io;
 }
 
+function getSocketMetrics() {
+  return {
+    totalConnections: activeSockets,
+    byTenant: Object.fromEntries(tenantSocketCounts.entries()),
+  };
+}
+
 function parseAllowedOrigins() {
   const raw = process.env.ALLOWED_ORIGINS || '';
   const defaults = ['https://chatorai.com', 'http://localhost:3000'];
@@ -161,6 +177,7 @@ module.exports = {
   emitToTenant,
   emitToTenantConversations,
   emitToSession,
+  getSocketMetrics,
   tenantRoom,
   conversationRoom,
 };

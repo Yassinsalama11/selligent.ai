@@ -1,0 +1,11 @@
+{
+  "name": "@chatorai/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix ../../airos/frontend run dev",
+    "build": "npm --prefix ../../airos/frontend run build",
+    "start": "npm --prefix ../../airos/frontend run start",
+    "lint": "npm --prefix ../../airos/frontend run lint"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@chatorai/worker",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "@chatorai/ai-core": "file:../../packages/ai-core",
+    "@chatorai/db": "file:../../packages/db",
+    "@chatorai/shared": "file:../../packages/shared",
+    "bullmq": "^5.7.0",
+    "ioredis": "^5.4.1",
+    "tsx": "^4.19.2",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "^5.7.2"
+  }
+}

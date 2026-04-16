@@ -47,6 +47,12 @@ model Tenant {
   tokenBudgets       TenantTokenBudget[]
   aiCallLogs         AiCallLog[]
   actionAudits       ActionAudit[]
+  encryptionKey      TenantEncryptionKey?
+  retentionPolicy    RetentionPolicy?
+  privacyJobs        PrivacyJob[]
+  evalScores         MessageEvalScore[]
+  corrections        ReplyCorrection[]
+  memory             TenantMemory[]
 
   @@map("tenants")
 }
@@ -151,6 +157,8 @@ model Message {
   conversation  Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   aiSuggestions AiSuggestion[]
+  evalScores    MessageEvalScore[]
+  corrections   ReplyCorrection[]
 
   @@index([conversationId])
   @@map("messages")
@@ -199,6 +207,7 @@ model AiSuggestion {
   tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   message      Message?      @relation(fields: [messageId], references: [id])
   conversation Conversation? @relation(fields: [conversationId], references: [id])
+  corrections  ReplyCorrection[]
 
   @@map("ai_suggestions")
 }
@@ -512,6 +521,63 @@ model AiCallLog {
 // ACTION SDK (Task 0-C5)
 // ─────────────────────────────────────────
 
+// ─────────────────────────────────────────
+// PII ENCRYPTION (Task 1-C2)
+// ─────────────────────────────────────────
+
+model TenantEncryptionKey {
+  tenantId   String   @id @map("tenant_id") @db.Uuid
+  encDek     String   @map("enc_dek")
+  keyVersion Int      @default(1) @map("key_version")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_encryption_keys")
+}
+
+// ─────────────────────────────────────────
+// RETENTION & DSR (Task 1-C4)
+// ─────────────────────────────────────────
+
+model RetentionPolicy {
+  tenantId          String   @id @map("tenant_id") @db.Uuid
+  messagesDays      Int      @default(365)  @map("messages_days")
+  conversationsDays Int      @default(730)  @map("conversations_days")
+  auditLogDays      Int      @default(2555) @map("audit_log_days")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("retention_policies")
+}
+
+model PrivacyJob {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  type        String    @db.VarChar(20)
+  subjectId   String?   @map("subject_id") @db.VarChar(255)
+  status      String    @default("pending") @db.VarChar(20)
+  requestedBy String?   @map("requested_by") @db.Uuid
+  resultUrl   String?   @map("result_url")
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz()
+  error       String?
+  metadata    Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("privacy_jobs")
+}
+
+// ─────────────────────────────────────────
+// ACTION SDK (Task 0-C5)
+// ─────────────────────────────────────────
+
 model ActionAudit {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId        String   @map("tenant_id") @db.Uuid
@@ -532,4 +598,90 @@ model ActionAudit {
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, createdAt(sort: Desc)])
   @@map("action_audits")
+}
+
+// ─────────────────────────────────────────
+// EVAL SCORING (Task 2-C1)
+// ─────────────────────────────────────────
+
+model MessageEvalScore {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  messageId String?  @map("message_id") @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  score     Int
+  pass      Boolean
+  reasoning String?
+  model     String   @db.VarChar(100)
+  latencyMs Int?     @map("latency_ms")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  message Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("message_eval_scores")
+}
+
+// ─────────────────────────────────────────
+// CORRECTION LOOP (Task 2-C2)
+// ─────────────────────────────────────────
+
+model ReplyCorrection {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  messageId      String?   @map("message_id") @db.Uuid
+  suggestionId   String?   @map("suggestion_id") @db.Uuid
+  editType       String    @map("edit_type") @db.VarChar(20)
+  originalReply  String    @map("original_reply")
+  correctedReply String?   @map("corrected_reply")
+  correctedBy    String    @map("corrected_by") @db.Uuid
+  exportedAt     DateTime? @map("exported_at") @db.Timestamptz()
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  message    Message?      @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  suggestion AiSuggestion? @relation(fields: [suggestionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([exportedAt])
+  @@map("reply_corrections")
+}
+
+// ─────────────────────────────────────────
+// PLATFORM SIGNALS (Task 2-C3)
+// ─────────────────────────────────────────
+
+model PlatformSignal {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  signalType   String   @map("signal_type") @db.VarChar(100)
+  payload      Json     @default("{}")
+  modelVersion String?  @map("model_version") @db.VarChar(100)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([signalType, createdAt(sort: Desc)])
+  @@map("platform_signals")
+}
+
+// ─────────────────────────────────────────
+// TENANT MEMORY (Task 2-C5)
+// ─────────────────────────────────────────
+
+model TenantMemory {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  subject    String    @db.VarChar(255)
+  predicate  String    @db.VarChar(255)
+  object     String
+  source     String    @default("inferred") @db.VarChar(50)
+  confidence Decimal   @default(1.0) @db.Decimal(4, 3)
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz()
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, subject, predicate])
+  @@index([tenantId, subject])
+  @@index([tenantId, expiresAt])
+  @@map("tenant_memory")
 }

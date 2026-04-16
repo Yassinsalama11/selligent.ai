@@ -8,8 +8,53 @@
   const SERVER   = (script && script.getAttribute('data-server')) || 'https://api.chatorai.com';
   const COLOR    = (script && script.getAttribute('data-color')) || '#2563EB';
   const POSITION = (script && script.getAttribute('data-position')) || 'bottom-right';
+  const SENTRY_DSN = (script && script.getAttribute('data-sentry-dsn')) || '';
+  const SENTRY_ENVIRONMENT = (script && script.getAttribute('data-sentry-environment')) || 'production';
+  const SENTRY_RELEASE = (script && script.getAttribute('data-sentry-release')) || '';
+  const SENTRY_SRC = (script && script.getAttribute('data-sentry-src')) || '';
 
   if (!TENANT_ID) { console.warn('[ChatOrAI] data-tenant missing'); return; }
+
+  function reportError(error, context) {
+    if (window.Sentry && typeof window.Sentry.captureException === 'function') {
+      window.Sentry.captureException(error, { extra: context || {} });
+      return;
+    }
+    console.error('[ChatOrAI] widget error', error, context || {});
+  }
+
+  function initSentry() {
+    if (!SENTRY_DSN) return;
+
+    const boot = () => {
+      if (!window.Sentry || typeof window.Sentry.init !== 'function') return;
+      window.Sentry.init({
+        dsn: SENTRY_DSN,
+        environment: SENTRY_ENVIRONMENT,
+        release: SENTRY_RELEASE || undefined,
+        initialScope: {
+          tags: {
+            tenant_id: TENANT_ID,
+            widget: 'airos-widget',
+          },
+        },
+      });
+    };
+
+    if (window.Sentry) {
+      boot();
+      return;
+    }
+
+    if (!SENTRY_SRC) return;
+    const sentryScript = document.createElement('script');
+    sentryScript.src = SENTRY_SRC;
+    sentryScript.async = true;
+    sentryScript.onload = boot;
+    document.head.appendChild(sentryScript);
+  }
+
+  initSentry();
 
   // ── Session persistence ──────────────────────────────────────────────────
   const SESSION_KEY = `airos_session_${TENANT_ID}`;
@@ -170,6 +215,19 @@
   let socket = null;
   let typingTimeout = null;
 
+  window.addEventListener('error', (event) => {
+    reportError(event.error || new Error(event.message || 'Widget error'), {
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+    });
+  });
+
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason instanceof Error ? event.reason : new Error(String(event.reason || 'Unhandled widget rejection'));
+    reportError(reason, { tenantId: TENANT_ID });
+  });
+
   // ── Toggle ───────────────────────────────────────────────────────────────
   btn.addEventListener('click', () => {
     isOpen = !isOpen;
@@ -267,6 +325,16 @@
       socket.on('disconnect', () => {
         console.log('[ChatOrAI] disconnected');
         socket = null;
+      });
+
+      socket.on('connect_error', (error) => {
+        reportError(error, { tenantId: TENANT_ID, source: 'socket_connect_error' });
+      });
+    };
+    s.onerror = () => {
+      reportError(new Error('Failed to load Socket.IO client'), {
+        tenantId: TENANT_ID,
+        server: SERVER,
       });
     };
     document.head.appendChild(s);

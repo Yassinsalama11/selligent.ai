@@ -258,16 +258,17 @@ function playNotif() {
 
 /* ─── Frontend AI Engine ─────────────────────────────────────────────────── */
 /*
-  Reads the user's AI config from localStorage (set in Settings → AI Configuration)
-  and calls the AI provider directly from the browser.
-  This means each user's own API key is used — no backend key needed.
+  AI replies run server-side via POST /v1/ai/reply (SSE).
+  Provider keys live only in the API process — never in the browser bundle.
+  `getAiConfig()` only reports whether the tenant has *enabled* AI (a flag,
+  no key) so the existing "Configure AI" UI hint still works.
 */
 function getAiConfig() {
   try {
     const raw = typeof window !== 'undefined' ? localStorage.getItem('airos_ai_cfg') : null;
     if (!raw) return null;
     const cfg = JSON.parse(raw);
-    if (!cfg.apiKey?.trim()) return null;
+    if (cfg?.enabled === false) return null;
     return cfg;
   } catch { return null; }
 }
@@ -289,137 +290,108 @@ function parseAiJson(content) {
   }
 }
 
-async function runFrontendAI(conv, inboundMessage, recentMessages = []) {
-  const cfg = getAiConfig();
-  if (!cfg) {
-    log.ai('No AI config found — go to Settings → AI Configuration to add your API key');
+async function runFrontendAI(conv, inboundMessage, recentMessages = [], { onDelta } = {}) {
+  // The platform now provides the API key server-side. We still read local
+  // preferences (provider/model/etc.) when present, but having no config is fine.
+  const cfg = getAiConfig() || {};
+  if (cfg.enabled === false) {
+    log.ai('AI disabled for this tenant by user setting');
     return null;
   }
 
-  log.ai(`calling ${cfg.provider} / ${cfg.model} for conv ${conv.id}`);
+  const token = typeof window !== 'undefined' ? localStorage.getItem('airos_token') : null;
+  if (!token) {
+    log.ai('No auth token; cannot call /v1/ai/reply');
+    return null;
+  }
 
-  const history = recentMessages.slice(-6).map(m =>
-    `${m.direction === 'inbound' ? 'Customer' : 'Agent'}: ${m.content}`
-  ).join('\n');
+  log.ai(`POST /v1/ai/reply for conv ${conv.id} (provider=${cfg?.provider || 'default'})`);
 
-  const userPrompt = `You are an AI assistant for an eCommerce business.
-Customer: ${conv.customerName} (${conv.customerPhone})
-Message: "${inboundMessage.content}"
-${history ? `\nRecent history:\n${history}` : ''}
+  const history = recentMessages.slice(-6).map(m => ({
+    direction: m.direction === 'inbound' ? 'inbound' : 'outbound',
+    content:   m.content,
+  }));
 
-Respond ONLY with valid JSON:
-{
-  "intent": "ready_to_buy|interested|price_objection|inquiry|complaint|other",
-  "lead_score": <integer 0-100>,
-  "suggested_reply": "<reply in same language as customer, max 2 sentences>"
-}`;
-
+  let res;
   try {
-    let result = null;
-
-    if (cfg.provider === 'openai' || !cfg.provider) {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${cfg.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: cfg.model || 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: cfg.systemPrompt || 'You are a helpful assistant for an eCommerce business. Reply in the same language as the customer.' },
-            { role: 'user',   content: userPrompt },
-          ],
-          temperature: cfg.temperature ?? 0.4,
-          max_tokens:  Math.min(cfg.maxTokens || 300, 4096),
-          response_format: { type: 'json_object' },
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error?.message || `OpenAI ${res.status}`);
-      }
-      const data = await res.json();
-      result = parseAiJson(data.choices?.[0]?.message?.content);
-
-    } else if (cfg.provider === 'anthropic') {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': cfg.apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: cfg.model || 'claude-haiku-4-5-20251001',
-          max_tokens: Math.min(cfg.maxTokens || 300, 4096),
-          system: cfg.systemPrompt || 'You are a helpful assistant. Reply in JSON only.',
-          messages: [{ role: 'user', content: userPrompt }],
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error?.message || `Anthropic ${res.status}`);
-      }
-      const data = await res.json();
-      result = parseAiJson(data.content?.[0]?.text);
-
-    } else if (cfg.provider === 'google') {
-      const model = cfg.model || 'gemini-2.0-flash';
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cfg.apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: userPrompt }] }],
-            generationConfig: { temperature: cfg.temperature ?? 0.4, maxOutputTokens: Math.min(cfg.maxTokens || 300, 4096) },
-          }),
-        }
-      );
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error?.message || `Google ${res.status}`);
-      }
-      const data = await res.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      result = parseAiJson(text?.replace(/```json\n?|\n?```/g, '').trim());
-
-    } else if (cfg.provider === 'mistral') {
-      const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${cfg.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: cfg.model || 'mistral-small-latest',
-          messages: [
-            { role: 'system', content: cfg.systemPrompt || 'You are a helpful assistant. Reply in JSON only.' },
-            { role: 'user',   content: userPrompt },
-          ],
-          temperature: cfg.temperature ?? 0.4,
-          max_tokens:  Math.min(cfg.maxTokens || 300, 4096),
-          response_format: { type: 'json_object' },
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error?.message || `Mistral ${res.status}`);
-      }
-      const data = await res.json();
-      result = parseAiJson(data.choices?.[0]?.message?.content);
-    }
-
-    log.ai('result', result);
-    return result;
-
+    res = await fetch(`${API_BASE}/v1/ai/reply`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        conversation_id: conv.id,
+        last_message:    inboundMessage.content,
+        history,
+        customer:        { name: conv.customerName, phone: conv.customerPhone },
+        provider:        cfg?.provider,
+        model:           cfg?.model,
+        temperature:     cfg?.temperature,
+        max_tokens:      cfg?.maxTokens,
+        system_prompt:   cfg?.systemPrompt,
+      }),
+    });
   } catch (err) {
-    log.error('AI call failed:', err.message);
+    log.error('AI request failed:', err.message);
     toast.error(`AI error: ${err.message}`, { duration: 5000 });
     return null;
   }
+
+  if (!res.ok || !res.body) {
+    const msg = `AI ${res.status}${res.statusText ? `: ${res.statusText}` : ''}`;
+    log.error(msg);
+    toast.error(msg, { duration: 5000 });
+    return null;
+  }
+
+  const reader  = res.body.getReader();
+  const decoder = new TextDecoder();
+  let   buffer  = '';
+  let   finalText = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let sepIdx;
+      while ((sepIdx = buffer.indexOf('\n\n')) !== -1) {
+        const rawEvent = buffer.slice(0, sepIdx);
+        buffer = buffer.slice(sepIdx + 2);
+
+        let evtName = 'message';
+        let dataLines = [];
+        for (const line of rawEvent.split('\n')) {
+          if (line.startsWith('event:')) evtName = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+        }
+        if (!dataLines.length) continue;
+
+        let payload;
+        try { payload = JSON.parse(dataLines.join('\n')); } catch { continue; }
+
+        if (evtName === 'text' && payload.delta) {
+          finalText += payload.delta;
+          onDelta?.(payload.delta);
+        } else if (evtName === 'done') {
+          finalText = payload.text || finalText;
+        } else if (evtName === 'error') {
+          throw new Error(payload.message || 'stream error');
+        }
+      }
+    }
+  } catch (err) {
+    log.error('AI stream failed:', err.message);
+    toast.error(`AI error: ${err.message}`, { duration: 5000 });
+    return null;
+  }
+
+  const result = parseAiJson(finalText) || { suggested_reply: finalText };
+  log.ai('result', result);
+  return result;
 }
 
 /* -- Static data ------------------------------------------------------------ */
@@ -552,7 +524,12 @@ export default function ConversationsPage() {
   const [suggestion, setSuggestion]   = useState(null); // AI suggestion for current open conv
   const [liveReply,  setLiveReply]    = useState('');
   // AI config status — re-check whenever user might have saved settings
-  const [aiConfigured, setAiConfigured] = useState(() => !!getAiConfig());
+  // Default true — the platform provides keys server-side.
+  // Only false when the user has explicitly disabled AI in settings.
+  const [aiConfigured, setAiConfigured] = useState(() => {
+    const cfg = getAiConfig();
+    return cfg === null || cfg.enabled !== false;
+  });
   useEffect(() => {
     function checkAiCfg() { setAiConfigured(!!getAiConfig()); }
     window.addEventListener('storage', checkAiCfg);

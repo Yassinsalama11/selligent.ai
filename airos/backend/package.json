@@ -14,6 +14,11 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@chatorai/ai-core": "file:../../packages/ai-core",
+    "@chatorai/db": "file:../../packages/db",
+    "@chatorai/eval": "file:../../packages/eval",
+    "@chatorai/action-sdk": "file:../../packages/action-sdk",
+    "zod": "^3.23.0",
     "@anthropic-ai/sdk": "^0.27.0",
     "bcrypt": "^5.1.1",
     "bullmq": "^5.7.0",
