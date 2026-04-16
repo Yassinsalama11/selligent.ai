@@ -1,4 +1,5 @@
 const Anthropic = require('@anthropic-ai/sdk');
+const { resolvePromptContent } = require('./promptRegistry');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -15,7 +16,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
  *
  * @returns {{ intent, lead_score, estimated_value, suggested_stage, language, sentiment, summary }}
  */
-async function detectIntent({ message, customer = {}, history = [], products = [], offers = [] }) {
+async function detectIntent({ tenantId, message, customer = {}, history = [], products = [], offers = [] }) {
   const customerCtx = JSON.stringify({
     name: customer.name || 'Unknown',
     total_spent: customer.total_spent || 0,
@@ -36,7 +37,13 @@ async function detectIntent({ message, customer = {}, history = [], products = [
     `${o.name}: ${o.type} ${o.value}${o.code ? ` (code: ${o.code})` : ''}`
   ).join('\n') || 'No active offers';
 
-  const prompt = `You are an AI sales analysis engine for an Arabic eCommerce business.
+  const baseInstruction = await resolvePromptContent(
+    tenantId,
+    'intent-detector',
+    'You are an AI sales analysis engine for an Arabic eCommerce business.'
+  );
+
+  const prompt = `${baseInstruction}
 Analyze the incoming message and return a JSON object only — no extra text.
 
 {

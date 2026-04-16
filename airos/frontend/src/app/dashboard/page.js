@@ -1,336 +1,381 @@
 'use client';
-import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
-import toast from 'react-hot-toast';
-import { useState, useEffect } from 'react';
-import { api } from '@/lib/api';
 
-const REV = [
-  { d:'Mon', r:3200, deals:8  },
-  { d:'Tue', r:4800, deals:12 },
-  { d:'Wed', r:3900, deals:9  },
-  { d:'Thu', r:6200, deals:15 },
-  { d:'Fri', r:5800, deals:14 },
-  { d:'Sat', r:7200, deals:18 },
-  { d:'Sun', r:6400, deals:16 },
-];
-const PIPELINE = [
-  { label:'New Leads',   n:24, color:'#6366f1' },
-  { label:'Engaged',     n:18, color:'#8b5cf6' },
-  { label:'Negotiation', n:11, color:'#06b6d4' },
-  { label:'Closing',     n:7,  color:'#10b981' },
-];
-const CHANNELS = [
-  { name:'WhatsApp', msgs:420, color:'#25D366', icon:'📱' },
-  { name:'Instagram',msgs:280, color:'#E1306C', icon:'📸' },
-  { name:'Messenger',msgs:150, color:'#0099FF', icon:'💬' },
-  { name:'Live Chat', msgs:95, color:'#6366f1', icon:'⚡' },
-];
-const LEADS = [
-  { name:'Ahmed M.',   intent:'ready_to_buy',    score:91, ch:'📱', ago:'2m',  val:599,  c:'#10b981' },
-  { name:'Sara K.',    intent:'interested',       score:67, ch:'📸', ago:'5m',  val:299,  c:'#6366f1' },
-  { name:'Omar H.',    intent:'price_objection',  score:38, ch:'💬', ago:'12m', val:null, c:'#f59e0b' },
-  { name:'Layla S.',   intent:'inquiry',          score:22, ch:'⚡', ago:'18m', val:null, c:'#64748b' },
-  { name:'Youssef A.', intent:'ready_to_buy',     score:88, ch:'📱', ago:'24m', val:1200, c:'#10b981' },
-];
+import { useMemo } from 'react';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+} from 'recharts';
+
+import { api } from '@/lib/api';
+import { usePollingResource } from '@/lib/usePollingResource';
+import {
+  EmptyState,
+  LoadingGrid,
+  StatusBanner,
+} from '@/components/dashboard/ResourceState';
+
+const money = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0,
+});
+
+const channelMeta = {
+  whatsapp: { label: 'WhatsApp', color: '#25D366', icon: '📱' },
+  instagram: { label: 'Instagram', color: '#E1306C', icon: '📸' },
+  messenger: { label: 'Messenger', color: '#0099FF', icon: '💬' },
+  livechat: { label: 'Live Chat', color: '#6366f1', icon: '⚡' },
+};
+
+function buildRange(days) {
+  const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  return `?from=${from.toISOString().slice(0, 10)}`;
+}
 
 function ChartTip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
+
   return (
-    <div style={{ background:'var(--bg4)', border:'1px solid var(--b2)', borderRadius:10,
-      padding:'10px 14px', fontSize:12 }}>
-      <p style={{ color:'var(--t3)', marginBottom:5 }}>{label}</p>
-      {payload.map((p,i) => (
-        <p key={i} style={{ color:p.color, fontWeight:600 }}>
-          {p.dataKey === 'r' ? `$${(+p.value).toLocaleString()}` : `${p.value} deals`}
-        </p>
+    <div style={{
+      background: 'var(--bg4)',
+      border: '1px solid var(--b2)',
+      borderRadius: 12,
+      padding: '10px 12px',
+      fontSize: 12,
+    }}>
+      <div style={{ color: 'var(--t3)', marginBottom: 4 }}>{label}</div>
+      {payload.map((entry) => (
+        <div key={entry.dataKey} style={{ color: entry.color, fontWeight: 700 }}>
+          {entry.dataKey === 'revenue'
+            ? money.format(Number(entry.value || 0))
+            : `${entry.value} deals`}
+        </div>
       ))}
     </div>
   );
 }
 
-function KPICard({ icon, label, value, delta, color, sub }) {
-  const pos = parseFloat(delta) >= 0;
+function MetricCard({ label, value, sub, color, icon }) {
   return (
-    <div className="kpi">
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:18 }}>
-        <div style={{ width:46, height:46, borderRadius:13, display:'flex', alignItems:'center',
-          justifyContent:'center', fontSize:22, background:`${color}15`, border:`1px solid ${color}25`,
-          flexShrink:0 }}>
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{
+          width: 44,
+          height: 44,
+          borderRadius: 14,
+          background: `${color}18`,
+          border: `1px solid ${color}25`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 20,
+        }}>
           {icon}
         </div>
-        <span style={{ fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:99,
-          background: pos ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
-          color: pos ? '#34d399' : '#f87171' }}>
-          {pos ? '▲' : '▼'} {delta}
-        </span>
+        <div style={{ fontSize: 11, color: 'var(--t4)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          Live
+        </div>
       </div>
-      <div style={{ fontSize:28, fontWeight:900, letterSpacing:'-0.03em',
-        fontFamily:'Space Grotesk', color:'var(--t1)', marginBottom:4 }}>
-        {value}
+      <div>
+        <div style={{ fontSize: 30, fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--t1)' }}>
+          {value}
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t2)', marginTop: 4 }}>{label}</div>
+        <div style={{ fontSize: 12, color: 'var(--t4)', marginTop: 4 }}>{sub}</div>
       </div>
-      <div style={{ fontSize:13, fontWeight:600, color:'var(--t2)', marginBottom:2 }}>{label}</div>
-      <div style={{ fontSize:12, color:'var(--t4)' }}>{sub}</div>
-    </div>
-  );
-}
-
-function SectionHeader({ title, action, href }) {
-  return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
-      <span style={{ fontSize:15, fontWeight:700, color:'var(--t1)' }}>{title}</span>
-      {action && (
-        <a href={href} style={{ fontSize:13, color:'#818cf8', fontWeight:500 }}>{action}</a>
-      )}
     </div>
   );
 }
 
 export default function DashboardPage() {
-  const [user, setUser] = useState({});
-  const [overview, setOverview] = useState(null);
-  useEffect(() => {
-    try { setUser(JSON.parse(localStorage.getItem('airos_user') || '{}')); } catch {}
-  }, []);
-  useEffect(() => {
-    let cancelled = false;
+  const { data, error, loading, lastUpdated, reload } = usePollingResource(async () => {
+    const rangeQuery = buildRange(6);
+    const [revenue, deals, conversations] = await Promise.all([
+      api.get(`/api/reports/revenue${rangeQuery}`),
+      api.get('/api/deals'),
+      api.get('/api/conversations?limit=100'),
+    ]);
 
-    async function loadOverview() {
-      try {
-        const data = await api.get('/api/dashboard');
-        if (!cancelled) setOverview(data);
-      } catch {}
+    return {
+      revenue: Array.isArray(revenue) ? revenue : [],
+      deals: Array.isArray(deals) ? deals : [],
+      conversations: Array.isArray(conversations) ? conversations : [],
+    };
+  }, [], { intervalMs: 45000, initialData: { revenue: [], deals: [], conversations: [] } });
+
+  const revenueSeries = useMemo(() => {
+    const rows = data?.revenue || [];
+    return rows.map((row) => ({
+      date: new Date(row.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      revenue: Number(row.revenue || 0),
+      dealsWon: Number(row.deals_won || 0),
+    }));
+  }, [data]);
+
+  const stageSeries = useMemo(() => {
+    const counts = new Map();
+    for (const deal of data?.deals || []) {
+      const stage = String(deal.stage || 'new_lead');
+      counts.set(stage, (counts.get(stage) || 0) + 1);
     }
 
-    loadOverview();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    return [
+      ['new_lead', '#6366f1'],
+      ['engaged', '#8b5cf6'],
+      ['negotiation', '#06b6d4'],
+      ['closing', '#10b981'],
+      ['won', '#22c55e'],
+      ['lost', '#f97316'],
+    ].map(([stage, color]) => ({
+      stage,
+      label: stage.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()),
+      total: counts.get(stage) || 0,
+      color,
+    }));
+  }, [data]);
 
-  const dateStr = new Date().toLocaleDateString('en-US', { month:'long', year:'numeric' });
-  const revenueSeries = overview?.trend?.length
-    ? overview.trend.map((row) => ({
-        d: new Date(row.date).toLocaleDateString('en-US', { weekday:'short' }),
-        r: Number(row.revenue || 0),
-        deals: Number(row.dealsWon || 0),
+  const channelSeries = useMemo(() => {
+    const counts = new Map();
+    for (const conversation of data?.conversations || []) {
+      const channel = String(conversation.channel || 'unknown');
+      counts.set(channel, (counts.get(channel) || 0) + 1);
+    }
+
+    return [...counts.entries()]
+      .map(([channel, total]) => ({
+        channel,
+        total,
+        ...channelMeta[channel],
       }))
-    : REV;
-  const pipeline = overview?.deals_by_stage?.length
-    ? overview.deals_by_stage.map((stage, index) => ({
-        label: String(stage.stage || 'other').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()),
-        n: Number(stage.count || 0),
-        color: ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'][index % 6],
-      }))
-    : PIPELINE;
-  const channels = overview?.channels?.length
-    ? overview.channels.map((channel) => ({
-        name: String(channel.channel || 'unknown').replace(/^\w/, (char) => char.toUpperCase()),
-        msgs: Number(channel.conversations || 0),
-        color: { whatsapp:'#25D366', instagram:'#E1306C', messenger:'#0099FF', livechat:'#6366f1' }[channel.channel] || '#94a3b8',
-        icon: { whatsapp:'📱', instagram:'📸', messenger:'💬', livechat:'⚡' }[channel.channel] || '💬',
-      }))
-    : CHANNELS;
-  const hotLeads = overview?.hot_leads?.length
-    ? overview.hot_leads.map((lead) => ({
-        name: lead.name,
-        intent: lead.intent || 'inquiry',
-        score: Number(lead.score || 0),
-        ch: { whatsapp:'📱', instagram:'📸', messenger:'💬', livechat:'⚡' }[lead.channel] || '💬',
-        ago: new Date(lead.updatedAt).toLocaleDateString('en-US', { month:'short', day:'numeric' }),
-        val: Number(lead.estimatedValue || 0) || null,
-        c: Number(lead.score || 0) > 70 ? '#10b981' : Number(lead.score || 0) > 40 ? '#6366f1' : '#f59e0b',
-      }))
-    : LEADS;
-  const totalRevenue = revenueSeries.reduce((sum, row) => sum + Number(row.r || 0), 0);
-  const totalConversations = channels.reduce((sum, row) => sum + Number(row.msgs || 0), 0);
-  const dealsWon = pipeline.find((stage) => String(stage.label).toLowerCase() === 'won')?.n
-    || Number(overview?.today?.deals_won || 0);
-  const aiUsageRate = `${Number(overview?.ai_usage?.rate || 0).toFixed(0)}%`;
+      .sort((left, right) => right.total - left.total);
+  }, [data]);
+
+  const recentConversations = useMemo(() => (
+    [...(data?.conversations || [])]
+      .sort((left, right) => new Date(right.updated_at) - new Date(left.updated_at))
+      .slice(0, 6)
+  ), [data]);
+
+  const totals = useMemo(() => {
+    const deals = data?.deals || [];
+    const conversations = data?.conversations || [];
+    return {
+      revenue: revenueSeries.reduce((sum, row) => sum + row.revenue, 0),
+      activeDeals: deals.filter((deal) => !['won', 'lost'].includes(deal.stage)).length,
+      wonDeals: deals.filter((deal) => deal.stage === 'won').length,
+      openConversations: conversations.filter((conversation) => conversation.status === 'open').length,
+      pipelineValue: deals
+        .filter((deal) => !['won', 'lost'].includes(deal.stage))
+        .reduce((sum, deal) => sum + Number(deal.estimated_value || 0), 0),
+    };
+  }, [data, revenueSeries]);
 
   return (
-    <div style={{ padding:'28px 28px 40px', display:'flex', flexDirection:'column', gap:20 }}>
-
-      {/* ── Page header ─────────────────────────────────────────────────── */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+    <div style={{ padding: '28px 28px 40px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         <div>
-          <h1 style={{ fontSize:22, fontWeight:800, marginBottom:4 }}>
-            {user?.company ? `${user.company} — ` : ''}Revenue Control Center
-          </h1>
-          <p style={{ fontSize:13, color:'var(--t3)' }}>
-            Real-time business intelligence · {dateStr}
+          <h1 style={{ fontSize: 24, fontWeight: 900, marginBottom: 6 }}>Revenue Control Center</h1>
+          <p style={{ fontSize: 13, color: 'var(--t3)' }}>
+            Real dashboard data from deals, conversations, and revenue reports.
           </p>
         </div>
-        <div style={{ display:'flex', gap:10 }}>
-          <select className="input" style={{ width:'auto', fontSize:13, padding:'8px 14px' }}>
-            <option>Last 7 days</option>
-            <option>Last 30 days</option>
-            <option>This month</option>
-          </select>
-          <button className="btn btn-primary btn-sm" onClick={() => {
-            const csv = ['Date,Revenue,Deals', ...revenueSeries.map(r => `${r.d},${r.r},${r.deals}`)].join('\n');
-            const a = Object.assign(document.createElement('a'), {
-              href: URL.createObjectURL(new Blob([csv], { type:'text/csv' })),
-              download: 'airos-overview.csv',
-            });
-            a.click();
-            toast.success('Overview exported!');
-          }}>↓ Export</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {lastUpdated && (
+            <div style={{ fontSize: 12, color: 'var(--t4)' }}>
+              Updated {lastUpdated.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+            </div>
+          )}
+          <button className="btn btn-ghost btn-sm" onClick={reload}>Refresh</button>
         </div>
       </div>
 
-      {/* ── KPIs ────────────────────────────────────────────────────────── */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16 }}>
-        <KPICard icon="💰" label="Total Revenue"  value={`$${totalRevenue.toLocaleString()}`} delta="0%" color="#10b981" sub="Selected period" />
-        <KPICard icon="💬" label="Conversations"  value={totalConversations.toLocaleString()} delta="0%" color="#6366f1" sub="Selected period" />
-        <KPICard icon="🎯" label="Deals Won"      value={dealsWon.toLocaleString()} delta="0%" color="#8b5cf6" sub="Selected period" />
-        <KPICard icon="🤖" label="AI Usage Rate"  value={aiUsageRate} delta="0%" color="#06b6d4" sub="Suggestions used" />
-      </div>
+      {error && (
+        <StatusBanner
+          tone="error"
+          title="Overview data could not be loaded"
+          description={error}
+          actionLabel="Retry"
+          onAction={reload}
+        />
+      )}
 
-      {/* ── Charts row ──────────────────────────────────────────────────── */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 300px', gap:16 }}>
+      {loading ? (
+        <LoadingGrid />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16 }}>
+          <MetricCard
+            label="Revenue"
+            value={money.format(totals.revenue)}
+            sub="Last 7 days"
+            color="#10b981"
+            icon="💰"
+          />
+          <MetricCard
+            label="Open Conversations"
+            value={totals.openConversations.toLocaleString()}
+            sub="Current inbox load"
+            color="#6366f1"
+            icon="💬"
+          />
+          <MetricCard
+            label="Active Deals"
+            value={totals.activeDeals.toLocaleString()}
+            sub={`Pipeline ${money.format(totals.pipelineValue)}`}
+            color="#8b5cf6"
+            icon="🎯"
+          />
+          <MetricCard
+            label="Deals Won"
+            value={totals.wonDeals.toLocaleString()}
+            sub="Closed successfully"
+            color="#06b6d4"
+            icon="🏁"
+          />
+        </div>
+      )}
 
-        {/* Revenue area chart */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) minmax(280px,1fr)', gap: 16 }}>
         <div className="card">
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:22 }}>
-            <span style={{ fontSize:15, fontWeight:700 }}>Revenue & Deals</span>
-            <div style={{ display:'flex', gap:16, fontSize:12, color:'var(--t3)' }}>
-              {[['#6366f1','Revenue'],['#06b6d4','Deals']].map(([c,l]) => (
-                <span key={l} style={{ display:'flex', alignItems:'center', gap:5 }}>
-                  <span style={{ width:10, height:3, borderRadius:99, background:c, display:'inline-block' }} />
-                  {l}
-                </span>
-              ))}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--t1)' }}>Revenue Trend</div>
+              <div style={{ fontSize: 12, color: 'var(--t4)', marginTop: 4 }}>
+                /api/reports/revenue over the last 7 days
+              </div>
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={195}>
-            <AreaChart data={revenueSeries} margin={{ left:0, right:0, top:4, bottom:0 }}>
-              <defs>
-                <linearGradient id="gr" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#6366f1" stopOpacity={0.32}/>
-                  <stop offset="100%" stopColor="#6366f1" stopOpacity={0}/>
-                </linearGradient>
-                <linearGradient id="gd" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.22}/>
-                  <stop offset="100%" stopColor="#06b6d4" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="d" tick={{ fill:'#3a4558', fontSize:11 }} axisLine={false} tickLine={false} />
-              <Tooltip content={<ChartTip />} />
-              <Area type="monotone" dataKey="r"     stroke="#6366f1" strokeWidth={2} fill="url(#gr)" />
-              <Area type="monotone" dataKey="deals" stroke="#06b6d4" strokeWidth={2} fill="url(#gd)" />
-            </AreaChart>
-          </ResponsiveContainer>
+
+          {revenueSeries.length ? (
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={revenueSeries}>
+                <defs>
+                  <linearGradient id="overviewRevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#6366f1" stopOpacity={0.32} />
+                    <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="date" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTip />} />
+                <Area type="monotone" dataKey="revenue" stroke="#6366f1" strokeWidth={2} fill="url(#overviewRevenue)" />
+                <Area type="monotone" dataKey="dealsWon" stroke="#06b6d4" strokeWidth={2} fillOpacity={0} />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <EmptyState
+              title="No revenue data yet"
+              description="Once report rows are generated, the 7-day revenue trend will appear here."
+            />
+          )}
         </div>
 
-        {/* Pipeline mini */}
-        <div className="card" style={{ display:'flex', flexDirection:'column' }}>
-          <SectionHeader title="Deal Pipeline" />
-          <div style={{ display:'flex', flexDirection:'column', gap:16, flex:1 }}>
-            {pipeline.map(s => (
-              <div key={s.label}>
-                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:7 }}>
-                  <span style={{ fontSize:13, color:'var(--t2)' }}>{s.label}</span>
-                  <span style={{ fontSize:13, fontWeight:700, color:s.color }}>{s.n}</span>
-                </div>
-                <div style={{ height:5, borderRadius:99, background:'var(--s2)' }}>
-                  <div style={{ height:5, borderRadius:99, background:s.color,
-                    width:`${pipeline[0]?.n ? (s.n / Math.max(pipeline[0].n, 1)) * 100 : 0}%`, transition:'width 0.7s ease' }} />
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ marginTop:20, paddingTop:18, borderTop:'1px solid var(--b1)' }}>
-            <p style={{ fontSize:11.5, color:'var(--t4)', marginBottom:5 }}>Overall Conversion</p>
-            <p className="gt" style={{ fontSize:30, fontWeight:900, fontFamily:'Space Grotesk' }}>29.2%</p>
-          </div>
+        <div className="card">
+          <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--t1)', marginBottom: 18 }}>Deal Stages</div>
+          {stageSeries.some((entry) => entry.total > 0) ? (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={stageSeries}>
+                <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTip />} />
+                <Bar dataKey="total" radius={[8, 8, 0, 0]}>
+                  {stageSeries.map((entry) => (
+                    <Cell key={entry.stage} fill={entry.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <EmptyState
+              title="No deals available"
+              description="As new conversations are qualified, the live stage mix will populate here."
+            />
+          )}
         </div>
       </div>
 
-      {/* ── Bottom row ──────────────────────────────────────────────────── */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 300px', gap:16 }}>
-
-        {/* Hot leads */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.2fr) minmax(280px,0.8fr)', gap: 16 }}>
         <div className="card">
-          <SectionHeader title="🔥 Hot Leads — Live" action="View all →" href="/dashboard/conversations" />
-          <div style={{ display:'flex', flexDirection:'column' }}>
-            {hotLeads.map((l,i) => (
-              <div key={i}
-                style={{ display:'flex', alignItems:'center', gap:14, padding:'11px 12px',
-                  borderRadius:10, cursor:'pointer', transition:'background 0.12s',
-                  borderBottom: i < LEADS.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}
-                onMouseEnter={e => e.currentTarget.style.background='var(--s1)'}
-                onMouseLeave={e => e.currentTarget.style.background='transparent'}
-              >
-                {/* Avatar */}
-                <div style={{ width:38, height:38, borderRadius:'50%', flexShrink:0,
-                  background:'linear-gradient(135deg,rgba(99,102,241,0.22),rgba(139,92,246,0.18))',
-                  display:'flex', alignItems:'center', justifyContent:'center',
-                  fontWeight:700, fontSize:14, border:'1px solid rgba(99,102,241,0.18)' }}>
-                  {l.name[0]}
-                </div>
-
-                {/* Info */}
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:3 }}>
-                    <span style={{ fontWeight:600, fontSize:14, color:'var(--t1)' }}>{l.name}</span>
-                    <span style={{ fontSize:14 }}>{l.ch}</span>
-                    <span className="badge" style={{ background:`${l.c}12`, color:l.c,
-                      border:`1px solid ${l.c}22`, fontSize:10.5 }}>
-                      {l.intent.replace(/_/g,' ')}
-                    </span>
+          <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--t1)', marginBottom: 18 }}>Recent Conversations</div>
+          {recentConversations.length ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {recentConversations.map((conversation) => (
+                <div
+                  key={conversation.id}
+                  style={{
+                    border: '1px solid var(--b1)',
+                    borderRadius: 14,
+                    padding: '14px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)' }}>
+                      {conversation.customer_name || 'Unknown customer'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--t4)', marginTop: 4 }}>
+                      {conversation.last_message || 'No messages yet'}
+                    </div>
                   </div>
-                  <p style={{ fontSize:12, color:'var(--t4)' }}>{l.ago} ago</p>
-                </div>
-
-                {/* Score */}
-                <div style={{ textAlign:'right', flexShrink:0, minWidth:36 }}>
-                  <p style={{ fontSize:17, fontWeight:800, color:l.c, lineHeight:1 }}>{l.score}</p>
-                  <p style={{ fontSize:10.5, color:'var(--t4)', marginTop:2 }}>score</p>
-                </div>
-
-                {/* Value */}
-                {l.val != null && (
-                  <div style={{ textAlign:'right', flexShrink:0, minWidth:50 }}>
-                    <p style={{ fontSize:13.5, fontWeight:700, color:'var(--t1)', lineHeight:1 }}>${l.val}</p>
-                    <p style={{ fontSize:10.5, color:'var(--t4)', marginTop:2 }}>est.</p>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 12.5, color: 'var(--t2)', fontWeight: 700 }}>
+                      {channelMeta[conversation.channel]?.icon || '💬'} {channelMeta[conversation.channel]?.label || conversation.channel}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--t4)', marginTop: 4 }}>
+                      {new Date(conversation.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No conversations found"
+              description="Connected channels will start feeding this list as soon as messages arrive."
+            />
+          )}
         </div>
 
-        {/* Channel breakdown */}
         <div className="card">
-          <SectionHeader title="Channel Breakdown" />
-          <div style={{ display:'flex', flexDirection:'column', gap:15, marginBottom:20 }}>
-            {channels.map(ch => {
-              const pct = totalConversations > 0 ? Math.round((ch.msgs / totalConversations) * 100) : 0;
-              return (
-                <div key={ch.name}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:7 }}>
-                    <span style={{ fontSize:13, color:'var(--t2)', display:'flex', alignItems:'center', gap:7 }}>
-                      {ch.icon} {ch.name}
-                    </span>
-                    <span style={{ fontSize:13, fontWeight:700, color:ch.color }}>{pct}%</span>
+          <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--t1)', marginBottom: 18 }}>Channel Mix</div>
+          {channelSeries.length ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {channelSeries.map((channel) => (
+                <div key={channel.channel}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t2)' }}>
+                      {channel.icon} {channel.label || channel.channel}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: channel.color || '#94a3b8', fontWeight: 800 }}>
+                      {channel.total}
+                    </div>
                   </div>
-                  <div style={{ height:5, borderRadius:99, background:'var(--s2)' }}>
-                    <div style={{ height:5, borderRadius:99, background:ch.color, width:`${pct}%` }} />
+                  <div style={{ height: 6, borderRadius: 999, background: 'var(--s2)' }}>
+                    <div
+                      style={{
+                        height: 6,
+                        borderRadius: 999,
+                        width: `${(channel.total / Math.max(channelSeries[0]?.total || 1, 1)) * 100}%`,
+                        background: channel.color || '#94a3b8',
+                      }}
+                    />
                   </div>
                 </div>
-              );
-            })}
-          </div>
-          <ResponsiveContainer width="100%" height={80}>
-            <BarChart data={CHANNELS} barSize={24} margin={{ left:0, right:0 }}>
-              <XAxis dataKey="name" tick={{ fill:'#3a4558', fontSize:10 }} axisLine={false} tickLine={false} />
-              <Bar dataKey="msgs" radius={[4,4,0,0]}>
-                {CHANNELS.map((ch,i) => <Cell key={i} fill={ch.color} opacity={0.85} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No channel activity yet"
+              description="Conversation channel distribution appears after the first synced messages."
+            />
+          )}
         </div>
-
       </div>
     </div>
   );

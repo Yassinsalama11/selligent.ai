@@ -228,7 +228,7 @@ async function persistOutboundAutomationMessage({
 
   try {
     const io = getIO();
-    io.to(`tenant:${tenantId}`).emit('message:new', {
+    io.to(`tenant:${tenantId}:conversations`).emit('message:new', {
       message: saved,
       conversation,
       customer,

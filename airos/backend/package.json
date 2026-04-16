@@ -8,7 +8,10 @@
     "dev": "nodemon src/index.js",
     "worker": "node src/workers/messageProcessor.js",
     "report-scheduler": "node src/workers/reportScheduler.js",
-    "db:init": "node scripts/init-db.js"
+    "db:init": "node scripts/init-db.js",
+    "db:migrate:phase0-codex": "node scripts/migrate-phase0-codex.js",
+    "db:migrate:qwen-takeover": "node scripts/migrate-qwen-takeover.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
@@ -27,6 +30,7 @@
     "openai": "^6.34.0",
     "pg": "^8.11.5",
     "socket.io": "^4.7.5",
+    "@socket.io/redis-adapter": "^8.3.0",
     "stripe": "^22.0.1",
     "uuid": "^9.0.1"
   },

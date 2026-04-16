@@ -1,5 +1,6 @@
 -- AIROS Database Schema
 -- Multi-tenant SaaS — PostgreSQL
+-- Last updated: 2026-04-14
 
 -- Enable UUID generation
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -181,6 +182,91 @@ CREATE TABLE integrations (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE audit_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  actor_type VARCHAR(50) NOT NULL,
+  actor_id VARCHAR(255),
+  action VARCHAR(100) NOT NULL,
+  entity_type VARCHAR(100) NOT NULL,
+  entity_id VARCHAR(255) NOT NULL,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE prompt_versions (
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  id VARCHAR(120) NOT NULL,
+  version VARCHAR(32) NOT NULL,
+  prompt_hash VARCHAR(64) NOT NULL,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (tenant_id, id, version)
+);
+
+CREATE TABLE tenant_prompt_pins (
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  prompt_id VARCHAR(120) NOT NULL,
+  version VARCHAR(32) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (tenant_id, prompt_id),
+  FOREIGN KEY (tenant_id, prompt_id, version)
+    REFERENCES prompt_versions(tenant_id, id, version)
+    ON DELETE CASCADE
+);
+
+CREATE TABLE ingestion_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  source_url TEXT NOT NULL,
+  status VARCHAR(50) DEFAULT 'queued',
+  pages_seen INTEGER DEFAULT 0,
+  chunks_stored INTEGER DEFAULT 0,
+  error TEXT,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE knowledge_chunks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  job_id UUID REFERENCES ingestion_jobs(id) ON DELETE SET NULL,
+  source_url TEXT NOT NULL,
+  title TEXT,
+  heading TEXT,
+  content_hash VARCHAR(64) NOT NULL,
+  content TEXT NOT NULL,
+  token_count INTEGER DEFAULT 0,
+  embedding JSONB DEFAULT '[]',
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(tenant_id, content_hash)
+);
+
+CREATE TABLE tenant_profiles (
+  tenant_id UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  source_job_id UUID REFERENCES ingestion_jobs(id) ON DELETE SET NULL,
+  profile JSONB NOT NULL DEFAULT '{}',
+  status VARCHAR(50) DEFAULT 'draft',
+  reviewed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE migration_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  provider VARCHAR(50) NOT NULL,
+  status VARCHAR(50) DEFAULT 'queued',
+  external_account TEXT,
+  imported_counts JSONB DEFAULT '{}',
+  error TEXT,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ─────────────────────────────────────────
 -- REPORTING TABLES
 -- ─────────────────────────────────────────
@@ -231,5 +317,18 @@ CREATE INDEX idx_customers_tenant ON customers(tenant_id);
 CREATE INDEX idx_products_tenant ON products(tenant_id);
 CREATE INDEX idx_products_source ON products(tenant_id, source);
 CREATE INDEX idx_offers_tenant_active ON offers(tenant_id, is_active);
+CREATE INDEX idx_audit_log_tenant_created ON audit_log(tenant_id, created_at DESC);
+CREATE INDEX idx_prompt_versions_tenant_prompt ON prompt_versions(tenant_id, id, created_at DESC);
+CREATE INDEX idx_ingestion_jobs_tenant_created ON ingestion_jobs(tenant_id, created_at DESC);
+CREATE INDEX idx_knowledge_chunks_tenant ON knowledge_chunks(tenant_id, created_at DESC);
+CREATE INDEX idx_migration_jobs_tenant_created ON migration_jobs(tenant_id, created_at DESC);
 CREATE INDEX idx_report_daily_tenant_date ON report_daily(tenant_id, date DESC);
 CREATE INDEX idx_report_agent_tenant_date ON report_agent_daily(tenant_id, date DESC);
+
+-- ─────────────────────────────────────────
+-- UNIQUE CONSTRAINTS (for ON CONFLICT upserts)
+-- ─────────────────────────────────────────
+
+ALTER TABLE channel_connections ADD CONSTRAINT uq_channel_tenant UNIQUE (tenant_id, channel);
+ALTER TABLE products ADD CONSTRAINT uq_product_tenant_external_source UNIQUE (tenant_id, external_id, source);
+ALTER TABLE customers ADD CONSTRAINT uq_customer_tenant_channel UNIQUE (tenant_id, channel_customer_id, channel);

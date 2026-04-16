@@ -1,10 +1,10 @@
 const express   = require('express');
 const router    = express.Router();
-const OpenAI    = require('openai');
 const { normalizeWhatsApp } = require('./normalizer');
-const { getOrCreateConversation, addMessage, getMessages, updateConversation } = require('../../core/inMemoryStore');
-const { getIO } = require('../livechat/socket');
-const { getTenantByWhatsAppPhoneId } = require('../../core/tenantManager');
+const { emitToTenantConversations } = require('../livechat/socket');
+const { getTenantByWhatsAppPhoneId, getOrCreateCustomer } = require('../../core/tenantManager');
+const { getOrCreateConversation } = require('../../db/queries/conversations');
+const { saveMessage, getMessages } = require('../../db/queries/messages');
 const { query } = require('../../db/pool');
 const {
   normalizeTenantSettings,
@@ -12,8 +12,7 @@ const {
   isWithinWorkingHours,
   isBlockedSpammer,
 } = require('../../core/tenantSettings');
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const { addToQueue } = require('../../workers/messageProcessor');
 
 /* ── GET /webhooks/whatsapp — Meta verification ────────────────────────────── */
 router.get('/whatsapp', (req, res) => {
@@ -54,178 +53,77 @@ async function processWhatsAppMessage(rawMsg, contacts, metadata) {
   const tenantMatch = metadata?.phone_number_id
     ? await getTenantByWhatsAppPhoneId(metadata.phone_number_id)
     : null;
-  const tenantRow = tenantMatch?.tenant_id
-    ? await query('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantMatch.tenant_id]).then((result) => result.rows[0] || null)
+  const tenantId = tenantMatch?.tenant_id;
+  const tenantRow = tenantId
+    ? await query('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantId]).then((r) => r.rows[0] || null)
     : null;
   const settings = normalizeTenantSettings(tenantRow?.settings);
-  const company = buildCompanyContext(tenantRow || {});
 
   // 1. Normalize
-  const unified = normalizeWhatsApp('default', rawMsg, contacts);
-  const { customer, message } = unified;
+  const unified = normalizeWhatsApp(tenantId || 'default', rawMsg, contacts);
+  const { customer: custInfo, message } = unified;
 
   if (isBlockedSpammer({
-    phone: customer.phone,
-    channelCustomerId: customer.id,
-    name: customer.name,
+    phone: custInfo.phone,
+    channelCustomerId: custInfo.id,
+    name: custInfo.name,
   }, settings.spammers)) {
-    console.warn(`[WhatsApp] blocked message from configured spammer ${customer.phone}`);
+    console.warn(`[WhatsApp] blocked message from configured spammer ${custInfo.phone}`);
     return;
   }
 
-  console.log(`[WhatsApp] Message from ${customer.name} (${customer.phone}): ${message.content}`);
+  if (!tenantId) {
+    console.warn('[WhatsApp] No tenant found for phone_number_id:', metadata?.phone_number_id);
+    return;
+  }
 
-  // 2. Get or create conversation
-  const conv = getOrCreateConversation(customer.phone, customer.name, 'whatsapp');
+  console.log(`[WhatsApp] Message from ${custInfo.name} (${custInfo.phone}): ${message.content}`);
 
-  // 3. Build message record
-  const msgRecord = {
-    id:        `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+  // 2. Get or create customer + conversation in DB
+  const dbCustomer = await getOrCreateCustomer(tenantId, {
+    channel: 'whatsapp',
+    channelCustomerId: custInfo.phone || custInfo.id,
+    name: custInfo.name,
+    phone: custInfo.phone,
+    avatar: custInfo.avatar_url,
+  });
+  const conv = await getOrCreateConversation(tenantId, dbCustomer.id, 'whatsapp');
+
+  // 3. Persist message to DB
+  const savedMsg = await saveMessage(tenantId, conv.id, {
     direction: 'inbound',
-    type:      message.type,
-    content:   message.content,
+    type: message.type,
+    content: message.content,
     media_url: message.media_url,
-    sent_by:   'customer',
-    at:        new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' }),
-    timestamp: message.timestamp,
-  };
-  addMessage(conv.id, msgRecord);
+    sent_by: 'customer',
+    metadata: { wa_message_id: rawMsg.id, timestamp: message.timestamp },
+  });
 
-  // 4. Emit new message to dashboard immediately
+  // 4. Emit to dashboard
   try {
-    const io = getIO();
-    io.emit('whatsapp:message', {
+    emitToTenantConversations(tenantId, 'message:new', {
       conversation: conv,
-      message: msgRecord,
-      customer,
+      message: savedMsg,
+      customer: dbCustomer,
+      channel: 'whatsapp',
     });
   } catch (e) {
     console.warn('[WhatsApp] Socket emit failed:', e.message);
   }
 
-  // 5. AI intent + reply suggestion (async, non-blocking)
+  // 5. Enqueue for AI processing via BullMQ worker
   if (message.content && message.type === 'text') {
-    runAI(conv, msgRecord, customer, {
-      settings,
-      company,
-      token: tenantMatch?.credentials?.access_token || process.env.WHATSAPP_TOKEN,
-      phoneNumberId: metadata?.phone_number_id || tenantMatch?.credentials?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID,
-    }).catch(err =>
-      console.error('[WhatsApp AI]', err.message)
-    );
-  }
-}
-
-async function runAI(conv, msgRecord, customer, tenantContext = {}) {
-  const history = getMessages(conv.id).slice(-8);
-  const settings = tenantContext.settings || normalizeTenantSettings();
-  const company = tenantContext.company || { name: 'our store' };
-
-  const prompt = `${settings.aiConfig?.systemPrompt || 'You are an AI assistant for an Arabic eCommerce business.'}
-Analyze this customer message and respond with JSON only.
-
-Business: ${company.name}
-Customer: ${customer.name} (${customer.phone})
-Message: "${msgRecord.content}"
-
-Recent history:
-${history.slice(0, -1).map(m => `${m.direction === 'inbound' ? 'Customer' : 'Agent'}: ${m.content}`).join('\n')}
-
-Return this exact JSON:
-{
-  "intent": "ready_to_buy|interested|price_objection|inquiry|complaint|other",
-  "lead_score": <0-100 integer>,
-  "language": "arabic|english|mixed",
-  "suggested_reply": "<natural reply in the same language as the customer, max 2 sentences>"
-}`;
-
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.4,
-    max_tokens: 200,
-    response_format: { type: 'json_object' },
-  });
-
-  const content = completion.choices?.[0]?.message?.content;
-  let ai = null;
-  if (typeof content === 'object' && content !== null) {
-    ai = content;
-  } else if (typeof content === 'string') {
-    try {
-      ai = JSON.parse(content);
-    } catch {
-      return;
-    }
-  }
-
-  if (!ai || typeof ai !== 'object') return;
-
-  // Update conversation with AI analysis
-  updateConversation(conv.id, {
-    intent:    ai.intent,
-    score:     ai.lead_score,
-    language:  ai.language,
-  });
-
-  // BOT MODE: auto-send reply via WhatsApp
-  const withinHours = isWithinWorkingHours(settings.global);
-  const outboundText = !withinHours && settings.waSettings?.away_msg
-    ? settings.waSettings.away_msg
-    : ai.suggested_reply;
-
-  if (settings.aiConfig?.autoReply && outboundText && tenantContext.token && tenantContext.phoneNumberId) {
-    try {
-      const sendRes = await fetch(
-        `https://graph.facebook.com/v19.0/${tenantContext.phoneNumberId}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${tenantContext.token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            to: conv.customerPhone,
-            type: 'text',
-            text: { body: outboundText },
-          }),
-        }
-      );
-      const sendData = await sendRes.json();
-      if (!sendData.error) {
-        const { addMessage: addMsg } = require('../../core/inMemoryStore');
-        addMsg(conv.id, {
-          id: `ai_${Date.now()}`,
-          direction: 'outbound',
-          content: outboundText,
-          type: 'text',
-          sent_by: 'ai',
-          at: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-          timestamp: new Date().toISOString(),
-        });
-        console.log(`[WhatsApp Bot] ✅ auto-replied to ${conv.customerPhone}: "${outboundText}"`);
-      } else {
-        console.error('[WhatsApp Bot] send error:', sendData.error.message);
-      }
-    } catch (sendErr) {
-      console.error('[WhatsApp Bot] send failed:', sendErr.message);
-    }
-  }
-
-  // Emit AI data to dashboard
-  try {
-    const io = getIO();
-    io.emit('whatsapp:ai', {
+    addToQueue({
+      channel: 'whatsapp',
+      tenant_id: tenantId,
       conversation_id: conv.id,
-      intent:          ai.intent,
-      lead_score:      ai.lead_score,
-      language:        ai.language,
-      suggested_reply: ai.suggested_reply,
-    });
-  } catch {}
-
-  console.log(`[WhatsApp AI] intent=${ai.intent} score=${ai.lead_score} reply="${ai.suggested_reply}"`);
+      customer_id: dbCustomer.id,
+      message_id: savedMsg.id,
+      phone_number_id: metadata?.phone_number_id,
+      raw: rawMsg,
+      contacts,
+    }).catch(err => console.error('[WhatsApp] Queue failed:', err.message));
+  }
 }
 
 module.exports = router;

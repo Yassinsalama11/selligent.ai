@@ -4,12 +4,13 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { adminApi, clearAdminSession, getAdminProfile, hasAdminSession, setAdminSession } from '@/lib/adminApi';
+import { adminApi, getAdminProfile, logoutAdmin, setAdminSession } from '@/lib/adminApi';
 
 const NAV = [
   { href:'/admin',         icon:'◈',  label:'Overview', exact:true },
   { href:'/admin/clients', icon:'🏢', label:'Clients' },
   { href:'/admin/billing', icon:'💳', label:'Billing' },
+  { href:'/admin/ingestion', icon:'🕸', label:'Ingestion' },
   { href:'/admin/logs',    icon:'📋', label:'Logs' },
   { href:'/admin/system',  icon:'🖥', label:'System' },
   { href:'/admin/team',    icon:'👥', label:'Team' },
@@ -47,18 +48,14 @@ export default function AdminLayout({ children }) {
         return;
       }
 
-      if (!hasAdminSession()) {
-        router.replace('/admin/login');
-        return;
-      }
-
       try {
         const data = await adminApi.get('/api/admin/auth/me');
         if (cancelled) return;
         setMe(data.admin);
-        setAdminSession({ token: localStorage.getItem('chatorai_admin_token'), admin: data.admin });
+        setAdminSession({ admin: data.admin });
       } catch {
         if (cancelled) return;
+        router.replace('/admin/login');
       } finally {
         if (!cancelled) setReady(true);
       }
@@ -70,8 +67,8 @@ export default function AdminLayout({ children }) {
     };
   }, [pathname, router]);
 
-  function logout() {
-    clearAdminSession();
+  async function logout() {
+    await logoutAdmin();
     router.replace('/admin/login');
   }
 

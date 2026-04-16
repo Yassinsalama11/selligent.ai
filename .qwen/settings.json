@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(which *)",
+      "Bash(railway *)",
+      "Bash(brew *)",
+      "Bash(docker ps)",
+      "Bash(chmod *)",
+      "Bash(psql *)",
+      "Bash(rm *)"
+    ]
+  },
+  "$version": 3
+}

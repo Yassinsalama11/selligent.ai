@@ -127,7 +127,22 @@ export default function SignupPage() {
         setToken(data.token);
         localStorage.setItem('airos_user', JSON.stringify(data.user));
         localStorage.removeItem('airos_trial_end');
-        window.location.href = '/dashboard';
+
+        await fetch(`${API_BASE}/api/onboarding/start`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${data.token}`,
+          },
+          body: JSON.stringify({
+            account,
+            presence,
+            aiData,
+            plan,
+          }),
+        }).catch(() => null);
+
+        window.location.href = '/dashboard/onboarding';
       } else {
         alert(data.error || 'Registration failed');
         setPayLoading(null);

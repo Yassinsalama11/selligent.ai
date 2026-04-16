@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
@@ -398,7 +399,7 @@ export default function ContactsPage() {
         <div style={{ background:'var(--bg2)', border:'1px solid var(--b1)', borderRadius:16, overflow:'hidden' }}>
           {/* Table header */}
           <div style={{ display:'grid',
-            gridTemplateColumns:'40px 2fr 1.4fr 1.5fr 80px 90px 110px 90px',
+            gridTemplateColumns:'40px 2fr 1.4fr 1.5fr 80px 90px 110px 170px',
             gap:0, padding:'0 16px', borderBottom:'1px solid var(--b1)',
             background:'rgba(255,255,255,0.02)' }}>
             {/* Checkbox */}
@@ -457,7 +458,7 @@ export default function ContactsPage() {
             <div key={c.id}
               onClick={() => setView(c)}
               style={{ display:'grid',
-                gridTemplateColumns:'40px 2fr 1.4fr 1.5fr 80px 90px 110px 90px',
+                gridTemplateColumns:'40px 2fr 1.4fr 1.5fr 80px 90px 110px 170px',
                 gap:0, padding:'0 16px', cursor:'pointer',
                 borderBottom: i < displayed.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
                 background: selected.has(c.id) ? 'rgba(99,102,241,0.06)' : 'transparent',
@@ -521,6 +522,12 @@ export default function ContactsPage() {
               {/* Actions */}
               <div style={{ display:'flex', alignItems:'center', gap:6, padding:'14px 8px' }}
                 onClick={e => e.stopPropagation()}>
+                <Link href={`/dashboard/contacts/timeline?id=${encodeURIComponent(c.id)}`}
+                  style={{ fontSize:11, padding:'4px 9px', borderRadius:7, cursor:'pointer', fontWeight:600,
+                    background:'rgba(6,182,212,0.09)', color:'#67e8f9',
+                    border:'1px solid rgba(6,182,212,0.18)', transition:'all 0.15s' }}>
+                  Timeline
+                </Link>
                 <button onClick={e => openEdit(c, e)}
                   style={{ fontSize:11, padding:'4px 9px', borderRadius:7, cursor:'pointer', fontWeight:600,
                     background:'rgba(99,102,241,0.1)', color:'#a5b4fc',

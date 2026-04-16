@@ -1,5 +1,6 @@
 import './globals.css';
 import { Toaster } from 'react-hot-toast';
+import FrontendErrorTracking from '@/components/FrontendErrorTracking';
 
 export const metadata = {
   title: 'ChatOrAI — AI Revenue Operating System',
@@ -19,6 +20,7 @@ export default function RootLayout({ children }) {
         />
       </head>
       <body>
+        <FrontendErrorTracking />
         {children}
         <Toaster
           position="bottom-right"

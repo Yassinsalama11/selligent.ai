@@ -1,7 +1,15 @@
 const { query } = require('../pool');
 
+function normalizeDateRange(from, to) {
+  return {
+    from: from || '2000-01-01',
+    to: to || new Date().toISOString().slice(0, 10),
+  };
+}
+
 async function getRevenueReport(tenantId, { from, to, channel, agent } = {}) {
-  const params = [tenantId, from || '2000-01-01', to || 'now()'];
+  const range = normalizeDateRange(from, to);
+  const params = [tenantId, range.from, range.to];
   let channelFilter = '';
   if (channel) { params.push(channel); channelFilter = `AND channel = $${params.length}`; }
 
@@ -20,7 +28,8 @@ async function getRevenueReport(tenantId, { from, to, channel, agent } = {}) {
 }
 
 async function getConversionReport(tenantId, { from, to, channel } = {}) {
-  const params = [tenantId, from || '2000-01-01', to || 'now()'];
+  const range = normalizeDateRange(from, to);
+  const params = [tenantId, range.from, range.to];
   let channelFilter = '';
   if (channel) { params.push(channel); channelFilter = `AND channel = $${params.length}`; }
 
@@ -39,6 +48,7 @@ async function getConversionReport(tenantId, { from, to, channel } = {}) {
 }
 
 async function getAIPerformanceReport(tenantId, { from, to } = {}) {
+  const range = normalizeDateRange(from, to);
   const res = await query(`
     SELECT
       SUM(ai_suggestions_sent) AS sent,
@@ -48,13 +58,14 @@ async function getAIPerformanceReport(tenantId, { from, to } = {}) {
       AVG(conversion_rate) AS avg_conversion_rate
     FROM report_daily
     WHERE tenant_id = $1 AND date BETWEEN $2 AND $3
-  `, [tenantId, from || '2000-01-01', to || 'now()']);
+  `, [tenantId, range.from, range.to]);
 
   return res.rows[0];
 }
 
 async function getAgentReport(tenantId, { from, to, user_id } = {}) {
-  const params = [tenantId, from || '2000-01-01', to || 'now()'];
+  const range = normalizeDateRange(from, to);
+  const params = [tenantId, range.from, range.to];
   let agentFilter = '';
   if (user_id) { params.push(user_id); agentFilter = `AND r.user_id = $${params.length}`; }
 
@@ -75,6 +86,7 @@ async function getAgentReport(tenantId, { from, to, user_id } = {}) {
 }
 
 async function getChannelReport(tenantId, { from, to } = {}) {
+  const range = normalizeDateRange(from, to);
   const res = await query(`
     SELECT channel,
       SUM(total_conversations) AS conversations,
@@ -84,7 +96,7 @@ async function getChannelReport(tenantId, { from, to } = {}) {
     FROM report_daily
     WHERE tenant_id = $1 AND date BETWEEN $2 AND $3 AND channel IS NOT NULL
     GROUP BY channel ORDER BY revenue DESC
-  `, [tenantId, from || '2000-01-01', to || 'now()']);
+  `, [tenantId, range.from, range.to]);
 
   return res.rows;
 }

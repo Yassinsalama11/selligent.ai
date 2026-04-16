@@ -2,8 +2,8 @@
 import { useState, useRef, useEffect, useReducer, useLayoutEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
-import { io } from 'socket.io-client';
 import { API_BASE, api as secureApi } from '@/lib/api';
+import { connectSocket } from '@/lib/socket';
 
 // Module-level auto-reply map — updated synchronously when toggle changes.
 // This bypasses React's async useEffect/storeRef update cycle so socket
@@ -664,16 +664,41 @@ export default function ConversationsPage() {
     const pollTimer = setInterval(fetchConvs, 5000);
 
     /* ── Socket.io ── */
-    const socket = io(API_BASE, {
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10,
-      reconnectionDelay: 2000,
-    });
+    const token = typeof window !== 'undefined' ? localStorage.getItem('airos_token') : null;
+    const socket = connectSocket(token);
     socketRef.current = socket;
 
     socket.on('connect',    () => log.ws('connected', socket.id));
     socket.on('disconnect', () => log.ws('disconnected'));
     socket.on('connect_error', e => log.error('socket error', e.message));
+
+    socket.on('message:new', ({ conversation, message }) => {
+      if (!conversation || !message) return;
+      const normalizedConversation = {
+        ...conversation,
+        customerName: conversation.customerName || conversation.customer_name || 'Customer',
+        customerPhone: conversation.customerPhone || conversation.customer_phone || '',
+        updatedAt: conversation.updatedAt || conversation.updated_at,
+      };
+      dispatch({ type: 'INBOUND_MESSAGE', conv: normalizedConversation, message });
+      playNotif();
+    });
+
+    socket.on('ai:suggestion', ({ conversation_id, analysis, suggestion, deal }) => {
+      const intent = analysis?.intent || suggestion?.intent || deal?.intent;
+      const leadScore = analysis?.lead_score || suggestion?.lead_score || deal?.lead_score;
+      const suggestedReply = suggestion?.suggested_reply || suggestion?.text || '';
+      if (!conversation_id) return;
+
+      dispatch({ type: 'SET_AI_TYPING', convId: conversation_id, value: false });
+      dispatch({ type: 'UPDATE_CONV', convId: conversation_id, fields: { intent, score: leadScore } });
+
+      if (suggestedReply && storeRef.current.activeId === conversation_id) {
+        window.dispatchEvent(new CustomEvent('airos:ai-suggestion', {
+          detail: { convId: conversation_id, text: suggestedReply, score: leadScore, intent },
+        }));
+      }
+    });
 
     socket.on('whatsapp:message', ({ conversation, message }) => {
       log.msg('inbound', message.id, message.content?.slice(0, 40));
@@ -835,7 +860,15 @@ export default function ConversationsPage() {
       });
     });
 
-    return () => { socket.disconnect(); clearInterval(pollTimer); };
+    return () => {
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('connect_error');
+      socket.off('message:new');
+      socket.off('ai:suggestion');
+      socket.disconnect();
+      clearInterval(pollTimer);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -1,4 +1,4 @@
-const { query } = require('../pool');
+const { query, withTransaction } = require('../pool');
 
 async function upsertProducts(tenantId, products) {
   const results = [];
@@ -31,11 +31,23 @@ async function upsertProducts(tenantId, products) {
   return results;
 }
 
-async function getActiveProducts(tenantId, { limit = 100 } = {}) {
+async function getActiveProducts(tenantId, { limit = 100, source } = {}) {
+  const params = [tenantId];
+  const filters = ['tenant_id = $1', 'is_active = TRUE'];
+
+  if (source) {
+    params.push(source);
+    filters.push(`source = $${params.length}`);
+  }
+
+  params.push(limit);
+
   const res = await query(`
-    SELECT * FROM products WHERE tenant_id = $1 AND is_active = TRUE
-    ORDER BY name LIMIT $2
-  `, [tenantId, limit]);
+    SELECT * FROM products
+    WHERE ${filters.join(' AND ')}
+    ORDER BY name
+    LIMIT $${params.length}
+  `, params);
   return res.rows;
 }
 
@@ -48,4 +60,50 @@ async function getProductCatalogSummary(tenantId) {
   return res.rows;
 }
 
-module.exports = { upsertProducts, getActiveProducts, getProductCatalogSummary };
+async function deleteCatalogProduct(
+  tenantId,
+  productId,
+  source,
+  { actorType = 'system', actorId = null, metadata = {} } = {}
+) {
+  return withTransaction(async (client) => {
+    const deleted = await client.query(
+      `DELETE FROM products
+       WHERE tenant_id = $1 AND id = $2 AND source = $3
+       RETURNING *`,
+      [tenantId, productId, source]
+    );
+
+    const product = deleted.rows[0];
+    if (!product) return null;
+
+    await client.query(
+      `INSERT INTO audit_log
+        (tenant_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        tenantId,
+        actorType,
+        actorId,
+        'catalog.product.deleted',
+        'product',
+        product.id,
+        JSON.stringify({
+          source,
+          product_name: product.name,
+          external_id: product.external_id,
+          ...metadata,
+        }),
+      ]
+    );
+
+    return product;
+  });
+}
+
+module.exports = {
+  upsertProducts,
+  getActiveProducts,
+  getProductCatalogSummary,
+  deleteCatalogProduct,
+};

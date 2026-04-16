@@ -64,6 +64,7 @@ if (require.main === module) {
     let analysis;
     try {
       analysis = await detectIntent({
+        tenantId,
         message: messageText,
         customer,
         history,
@@ -135,7 +136,7 @@ if (require.main === module) {
     // ── 8. Push AI results to dashboard in real-time ──────────────────────────
     try {
       const io = getIO();
-      io.to(`tenant:${tenantId}`).emit('ai:suggestion', {
+      io.to(`tenant:${tenantId}:conversations`).emit('ai:suggestion', {
         conversation_id: conversation.id,
         deal: updatedDeal || deal,
         analysis,

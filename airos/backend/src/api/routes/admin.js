@@ -2,9 +2,11 @@ const crypto = require('crypto');
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const Stripe = require('stripe');
 
 const { query, withTransaction } = require('../../db/pool');
 const { adminAuthMiddleware } = require('../middleware/adminAuth');
+const { logAuditEvent } = require('../../db/queries/audit');
 
 const router = express.Router();
 const SALT_ROUNDS = 12;
@@ -45,6 +47,44 @@ function sanitizeAdmin(admin) {
   return safe;
 }
 
+function setAdminCookie(res, token) {
+  res.cookie('chatorai_admin_session', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: '/',
+  });
+}
+
+function clearAdminCookie(res) {
+  res.clearCookie('chatorai_admin_session', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+  });
+}
+
+async function logAdminAction(req, action, entityType, entityId, metadata = {}) {
+  try {
+    await logAuditEvent({
+      tenantId: null,
+      actorType: 'platform_admin',
+      actorId: req.admin?.id || 'unknown',
+      action,
+      entityType,
+      entityId,
+      metadata: {
+        request_id: req.requestId,
+        ...metadata,
+      },
+    });
+  } catch {
+    // Audit logging should not block admin control-plane operations.
+  }
+}
+
 async function getPlatformAdminByEmail(email) {
   const result = await query(`
     SELECT id, email, name, role, password_hash, created_at
@@ -75,6 +115,23 @@ function getConfiguredAdmin(email, password) {
     created_at: null,
     source: 'env',
   };
+}
+
+async function ensureConfiguredAdmin(email, password) {
+  const configured = getConfiguredAdmin(email, password);
+  if (!configured) return null;
+
+  const existing = await getPlatformAdminByEmail(configured.email);
+  if (existing) return existing;
+
+  const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+  const created = await query(`
+    INSERT INTO users (tenant_id, email, password_hash, name, role)
+    VALUES (NULL, $1, $2, $3, 'platform_admin')
+    RETURNING id, email, name, role, password_hash, created_at
+  `, [configured.email, passwordHash, configured.name]);
+
+  return created.rows[0];
 }
 
 function buildClientPayload(row) {
@@ -195,7 +252,13 @@ router.post('/auth/login', async (req, res, next) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    let admin = getConfiguredAdmin(email, password);
+    let admin = null;
+    try {
+      admin = await ensureConfiguredAdmin(email, password);
+    } catch (err) {
+      if (err.code !== 'ECONNREFUSED' && err.code !== 'DB_UNAVAILABLE') throw err;
+    }
+
     if (!admin) {
       try {
         admin = await getPlatformAdminByEmail(email);
@@ -217,13 +280,33 @@ router.post('/auth/login', async (req, res, next) => {
     }
 
     const safeAdmin = sanitizeAdmin(admin);
+    const token = signAdminToken(safeAdmin);
+    setAdminCookie(res, token);
+    await logAuditEvent({
+      tenantId: null,
+      actorType: 'platform_admin',
+      actorId: safeAdmin.id,
+      action: 'admin.login',
+      entityType: 'admin_session',
+      entityId: safeAdmin.id,
+      metadata: {
+        request_id: req.requestId,
+        email: safeAdmin.email,
+      },
+    }).catch(() => {});
+
     return res.json({
-      token: signAdminToken(safeAdmin),
       admin: safeAdmin,
     });
   } catch (err) {
     return next(err);
   }
+});
+
+router.post('/auth/logout', adminAuthMiddleware, async (req, res) => {
+  await logAdminAction(req, 'admin.logout', 'admin_session', req.admin.id);
+  clearAdminCookie(res);
+  res.json({ ok: true });
 });
 
 router.get('/auth/me', adminAuthMiddleware, async (req, res, next) => {
@@ -394,6 +477,12 @@ router.post('/clients', adminAuthMiddleware, async (req, res, next) => {
       last_seen: null,
     });
 
+    await logAdminAction(req, 'admin.client.created', 'tenant', created.tenant.id, {
+      plan: created.tenant.plan,
+      status: created.tenant.status,
+      owner_email: created.owner.email,
+    });
+
     return res.status(201).json({
       client: clientPayload,
       generatedPassword: created.generatedPassword,
@@ -444,10 +533,128 @@ router.patch('/clients/:id', adminAuthMiddleware, async (req, res, next) => {
 
     const clients = await fetchClients({ search: '', limit: 500 });
     const clientPayload = clients.find((entry) => entry.id === req.params.id);
+    await logAdminAction(req, 'admin.client.updated', 'tenant', req.params.id, {
+      plan: normalizePlan(req.body?.plan ?? current.plan),
+      status: normalizeStatus(req.body?.status ?? current.status),
+    });
     return res.json({ client: clientPayload || buildClientPayload(result.rows[0]) });
   } catch (err) {
     return next(err);
   }
+});
+
+router.get('/billing', adminAuthMiddleware, async (req, res, next) => {
+  try {
+    const clients = await fetchClients({ limit: 500 });
+    const tenantPlans = clients.map((client) => ({
+      tenantId: client.id,
+      name: client.name,
+      email: client.email,
+      plan: client.plan,
+      status: client.status,
+      monthlyValue: client.status === 'active' ? client.monthlyValue : 0,
+    }));
+
+    let stripeSubscriptions = [];
+    if (process.env.STRIPE_SECRET_KEY) {
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+      const subscriptions = await stripe.subscriptions.list({ limit: 50, status: 'all' });
+      stripeSubscriptions = subscriptions.data.map((subscription) => ({
+        id: subscription.id,
+        customer: subscription.customer,
+        status: subscription.status,
+        currentPeriodEnd: subscription.current_period_end
+          ? new Date(subscription.current_period_end * 1000).toISOString()
+          : null,
+        amount: subscription.items.data.reduce((sum, item) => (
+          sum + Number(item.price?.unit_amount || 0)
+        ), 0) / 100,
+        currency: subscription.currency,
+      }));
+    }
+
+    const totals = tenantPlans.reduce((acc, plan) => {
+      acc.activeTenants += plan.status === 'active' ? 1 : 0;
+      acc.projectedMrr += plan.monthlyValue;
+      return acc;
+    }, { activeTenants: 0, projectedMrr: 0 });
+
+    res.json({
+      totals,
+      tenantPlans,
+      stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
+      stripeSubscriptions,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/logs', adminAuthMiddleware, async (req, res, next) => {
+  try {
+    const result = await query(`
+      SELECT id, actor_type, actor_id, action, entity_type, entity_id, metadata, created_at
+      FROM audit_log
+      WHERE tenant_id IS NULL
+      ORDER BY created_at DESC
+      LIMIT $1
+    `, [Number(req.query.limit || 100)]);
+
+    res.json(result.rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/ingestion', adminAuthMiddleware, async (req, res, next) => {
+  try {
+    const result = await query(`
+      SELECT
+        j.id,
+        j.tenant_id,
+        t.name AS tenant_name,
+        t.email AS tenant_email,
+        j.source_url,
+        j.status,
+        j.pages_seen,
+        j.chunks_stored,
+        j.error,
+        j.metadata,
+        j.created_at,
+        j.updated_at
+      FROM ingestion_jobs j
+      JOIN tenants t ON t.id = j.tenant_id
+      ORDER BY j.created_at DESC
+      LIMIT $1
+    `, [Number(req.query.limit || 100)]);
+
+    const totals = result.rows.reduce((acc, job) => {
+      acc.total += 1;
+      acc.pagesSeen += Number(job.pages_seen || 0);
+      acc.chunksStored += Number(job.chunks_stored || 0);
+      acc.byStatus[job.status] = (acc.byStatus[job.status] || 0) + 1;
+      return acc;
+    }, {
+      total: 0,
+      pagesSeen: 0,
+      chunksStored: 0,
+      byStatus: {},
+    });
+
+    res.json({ totals, jobs: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/system/health', adminAuthMiddleware, async (req, res) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    databaseConfigured: Boolean(process.env.DATABASE_URL),
+    redisConfigured: Boolean(process.env.REDIS_URL),
+    stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
+  });
 });
 
 module.exports = router;

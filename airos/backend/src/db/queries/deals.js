@@ -17,6 +17,60 @@ async function getOrCreateDeal(tenantId, conversationId, customerId) {
   return res.rows[0];
 }
 
+async function createDeal(tenantId, {
+  customer_id,
+  conversation_id = null,
+  stage = 'new_lead',
+  intent = 'manual',
+  lead_score = 0,
+  estimated_value = 0,
+  probability = 0,
+  currency = 'USD',
+  notes = '',
+} = {}) {
+  if (!customer_id) throw new Error('customer_id is required');
+
+  const customer = await query(
+    'SELECT id FROM customers WHERE id = $1 AND tenant_id = $2 LIMIT 1',
+    [customer_id, tenantId]
+  );
+  if (!customer.rows[0]) {
+    const err = new Error('Customer not found');
+    err.status = 404;
+    throw err;
+  }
+
+  if (conversation_id) {
+    const conversation = await query(
+      'SELECT id FROM conversations WHERE id = $1 AND tenant_id = $2 AND customer_id = $3 LIMIT 1',
+      [conversation_id, tenantId, customer_id]
+    );
+    if (!conversation.rows[0]) conversation_id = null;
+  }
+
+  const res = await query(`
+    INSERT INTO deals (
+      tenant_id, conversation_id, customer_id, stage, intent,
+      lead_score, estimated_value, probability, currency, notes
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    RETURNING *
+  `, [
+    tenantId,
+    conversation_id,
+    customer_id,
+    stage,
+    intent,
+    lead_score,
+    estimated_value,
+    probability,
+    currency,
+    notes,
+  ]);
+
+  return res.rows[0];
+}
+
 async function updateDeal(tenantId, dealId, updates) {
   const allowed = ['stage', 'intent', 'lead_score', 'estimated_value', 'probability', 'currency', 'notes'];
   const fields = Object.keys(updates).filter(k => allowed.includes(k));
@@ -82,4 +136,4 @@ async function listDeals(tenantId, { stage, limit = 100 } = {}) {
   return res.rows;
 }
 
-module.exports = { getOrCreateDeal, updateDeal, closeDeal, listDeals };
+module.exports = { createDeal, getOrCreateDeal, updateDeal, closeDeal, listDeals };

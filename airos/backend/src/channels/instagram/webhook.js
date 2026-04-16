@@ -1,13 +1,12 @@
 const express = require('express');
 const router  = express.Router();
-const OpenAI  = require('openai');
-const { getOrCreateConversation, addMessage, getMessages, updateConversation } = require('../../core/inMemoryStore');
-const { getIO } = require('../livechat/socket');
-const { getTenantByPageId } = require('../../core/tenantManager');
+const { emitToTenantConversations } = require('../livechat/socket');
+const { getTenantByPageId, getOrCreateCustomer } = require('../../core/tenantManager');
+const { getOrCreateConversation } = require('../../db/queries/conversations');
+const { saveMessage } = require('../../db/queries/messages');
 const { query } = require('../../db/pool');
 const { normalizeTenantSettings, buildCompanyContext, isBlockedSpammer } = require('../../core/tenantSettings');
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const { addToQueue } = require('../../workers/messageProcessor');
 
 /* ── Fetch real customer name from Meta Graph API ───────────────────────────── */
 async function fetchIgName(userId, token) {
@@ -98,16 +97,14 @@ async function processInstagramMessage(msg, entryId) {
   const msgId    = msg.message?.mid || `ig_${Date.now()}`;
   const pageId   = msg.recipient?.id || entryId;
   const tenantMatch = pageId ? await getTenantByPageId(pageId, 'instagram') : null;
-  const tenantRow = tenantMatch?.tenant_id
-    ? await query('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantMatch.tenant_id]).then((result) => result.rows[0] || null)
+  const tenantId = tenantMatch?.tenant_id;
+  const tenantRow = tenantId
+    ? await query('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantId]).then((r) => r.rows[0] || null)
     : null;
   const settings = normalizeTenantSettings(tenantRow?.settings);
-  const company = buildCompanyContext(tenantRow || {});
 
   const token = tenantMatch?.credentials?.access_token || process.env.INSTAGRAM_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
-  if (!token) console.warn(`[Instagram] missing INSTAGRAM_PAGE_TOKEN env var`);
 
-  // Fetch real customer name
   const realName = token ? await fetchIgName(senderId, token) : null;
   const displayName = realName || `IG_${senderId.slice(-6)}`;
 
@@ -119,113 +116,49 @@ async function processInstagramMessage(msg, entryId) {
     return;
   }
 
+  if (!tenantId) {
+    console.warn('[Instagram] No tenant found for page_id:', pageId);
+    return;
+  }
+
   console.log(`[Instagram] Message from ${displayName} (${senderId}) page=${pageId}: ${text}`);
 
-  const conv = getOrCreateConversation(senderId, displayName, 'instagram');
+  // Persist to DB
+  const dbCustomer = await getOrCreateCustomer(tenantId, {
+    channel: 'instagram',
+    channelCustomerId: senderId,
+    name: displayName,
+  });
+  const conv = await getOrCreateConversation(tenantId, dbCustomer.id, 'instagram');
 
-  // Update name if we got a real one
-  if (realName) updateConversation(conv.id, { customerName: realName });
-
-  const msgRecord = {
-    id:        msgId,
+  const savedMsg = await saveMessage(tenantId, conv.id, {
     direction: 'inbound',
-    type:      'text',
-    content:   text,
-    sent_by:   'customer',
-    at:        new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-    timestamp: new Date((msg.timestamp || Date.now()) * 1000).toISOString(),
-  };
-  addMessage(conv.id, msgRecord);
-
-  try {
-    const io = getIO();
-    io.emit('instagram:message', { conversation: { ...conv, customerName: displayName }, message: msgRecord });
-  } catch {}
-
-  if (text) {
-    runAI(conv, msgRecord, senderId, pageId, displayName, token, { settings, company }).catch(err =>
-      console.error('[Instagram AI]', err.message)
-    );
-  }
-}
-
-async function runAI(conv, msgRecord, senderId, pageId, customerName, token, tenantContext = {}) {
-  const history = getMessages(conv.id).slice(-8);
-  const settings = tenantContext.settings || normalizeTenantSettings();
-  const company = tenantContext.company || { name: 'our store' };
-
-  const prompt = `${settings.aiConfig?.systemPrompt || 'You are an AI assistant for an Arabic eCommerce business.'}
-Business: ${company.name}
-Customer: ${customerName} (Instagram)
-Message: "${msgRecord.content}"
-
-Recent history:
-${history.slice(0, -1).map(m => `${m.direction === 'inbound' ? 'Customer' : 'Agent'}: ${m.content}`).join('\n')}
-
-Return this exact JSON:
-{
-  "intent": "ready_to_buy|interested|price_objection|inquiry|complaint|other",
-  "lead_score": <0-100 integer>,
-  "language": "arabic|english|mixed",
-  "suggested_reply": "<natural reply in the same language as the customer, max 2 sentences>"
-}`;
-
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.4,
-    max_tokens: 200,
-    response_format: { type: 'json_object' },
+    type: 'text',
+    content: text,
+    sent_by: 'customer',
+    metadata: { ig_message_id: msgId, timestamp: new Date((msg.timestamp || Date.now()) * 1000).toISOString() },
   });
 
-  let ai;
-  try { ai = JSON.parse(completion.choices[0].message.content); } catch { return; }
-  if (!ai) return;
-
-  updateConversation(conv.id, { intent: ai.intent, score: ai.lead_score, language: ai.language });
-
-  // BOT MODE: auto-send reply via Instagram API
-  if (settings.aiConfig?.autoReply && ai.suggested_reply && token) {
-    try {
-      const sendRes = await fetch(
-        `https://graph.facebook.com/v19.0/${pageId}/messages`,
-        {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            recipient: { id: senderId },
-            message:   { text: ai.suggested_reply },
-            messaging_type: 'RESPONSE',
-          }),
-        }
-      );
-      const d = await sendRes.json();
-      if (!d.error) {
-        addMessage(conv.id, {
-          id: `ai_${Date.now()}`, direction: 'outbound', content: ai.suggested_reply,
-          type: 'text', sent_by: 'ai',
-          at: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-          timestamp: new Date().toISOString(),
-        });
-        console.log(`[Instagram Bot] ✅ replied to ${customerName}: "${ai.suggested_reply}"`);
-      } else {
-        console.error('[Instagram Bot] send error:', d.error.message);
-      }
-    } catch (e) {
-      console.error('[Instagram Bot] send failed:', e.message);
-    }
-  }
-
   try {
-    const io = getIO();
-    io.emit('instagram:ai', {
-      conversation_id: conv.id,
-      intent: ai.intent, lead_score: ai.lead_score,
-      language: ai.language, suggested_reply: ai.suggested_reply,
+    emitToTenantConversations(tenantId, 'message:new', {
+      conversation: conv,
+      message: savedMsg,
+      customer: dbCustomer,
+      channel: 'instagram',
     });
   } catch {}
 
-  console.log(`[Instagram AI] intent=${ai.intent} score=${ai.lead_score}`);
+  if (text) {
+    addToQueue({
+      channel: 'instagram',
+      tenant_id: tenantId,
+      conversation_id: conv.id,
+      customer_id: dbCustomer.id,
+      message_id: savedMsg.id,
+      page_id: pageId,
+      raw: msg,
+    }).catch(err => console.error('[Instagram] Queue failed:', err.message));
+  }
 }
 
 module.exports = router;

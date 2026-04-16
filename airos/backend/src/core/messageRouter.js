@@ -130,7 +130,7 @@ async function routeMessage(jobData) {
   // ── 6. Emit to dashboard via Socket.io ───────────────────────────────────
   try {
     const io = getIO();
-    io.to(`tenant:${tenantId}`).emit('message:new', {
+    io.to(`tenant:${tenantId}:conversations`).emit('message:new', {
       message: savedMessage,
       conversation: assignedConversation,
       customer,

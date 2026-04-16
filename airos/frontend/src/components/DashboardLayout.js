@@ -15,6 +15,9 @@ const NAV = [
   { href: '/dashboard/tickets',       icon: '🎫', label: 'Tickets'                     },
   { href: '/dashboard/products',      icon: '📦', label: 'Products'                    },
   { href: '/dashboard/reports',       icon: '📊', label: 'Reports'                     },
+  { href: '/dashboard/prompts',       icon: '🧠', label: 'Prompts'                     },
+  { href: '/dashboard/business-profile', icon: '🏷', label: 'Business Profile'          },
+  { href: '/dashboard/migrations',    icon: '⇄',  label: 'Migrations'                  },
   { href: '/dashboard/settings',      icon: '⚙',  label: 'Settings'                    },
 ];
 

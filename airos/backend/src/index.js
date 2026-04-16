@@ -12,15 +12,25 @@ const channelsRoutes = require('./api/routes/channels');
 const productsRoutes = require('./api/routes/products');
 const reportsRoutes = require('./api/routes/reports');
 const catalogRoutes = require('./api/routes/catalog');
+const promptsRoutes = require('./api/routes/prompts');
 const settingsRoutes = require('./api/routes/settings');
 const customersRoutes = require('./api/routes/customers');
 const broadcastRoutes = require('./api/routes/broadcast');
 const adminRoutes = require('./api/routes/admin');
+const ingestRoutes = require('./api/routes/ingest');
+const businessProfileRoutes = require('./api/routes/businessProfile');
+const migrationRoutes = require('./api/routes/migrations');
 
 const { authMiddleware } = require('./api/middleware/auth');
 const { tenantMiddleware } = require('./api/middleware/tenant');
 const { initSocketServer } = require('./channels/livechat/socket');
 const { startReportScheduler } = require('./core/reportScheduler');
+const { initTelemetry, requestTracer, getMetricsSnapshot } = require('./core/telemetry');
+const { logger } = require('./core/logger');
+const { pool } = require('./db/pool');
+const { getRedisClient } = require('./db/redis');
+
+const telemetry = initTelemetry();
 
 const app = express();
 const server = http.createServer(app);
@@ -32,25 +42,79 @@ initSocketServer(server);
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors({
   origin: (origin, cb) => {
-    const allowed = [
-      'https://chatorai.com',
-      'http://localhost:3000',
-      process.env.FRONTEND_URL,
-    ];
+    const raw = process.env.ALLOWED_ORIGINS || '';
+    const defaults = ['https://chatorai.com', 'http://localhost:3000'];
+    const allowed = raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : defaults;
     // Allow Cloudflare Pages preview deployments and no-origin requests
     if (!origin || allowed.includes(origin) || origin.endsWith('.pages.dev')) {
       cb(null, true);
     } else {
-      cb(null, true); // Allow all for now — restrict in production
+      cb(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
+
+// Request tracing (adds request_id, tenant_id, latency tracking)
+app.use(requestTracer);
 app.use(morgan('dev'));
 
-// Health check
-app.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
+// Health check with dependency status
+app.get('/health', async (req, res) => {
+  const checks = { postgres: 'unknown', redis: 'unknown', timestamp: new Date().toISOString() };
+  let status = 'ok';
+
+  // Check Postgres
+  try {
+    const client = await pool.connect();
+    await client.query('SELECT 1');
+    client.release();
+    checks.postgres = 'ok';
+  } catch (err) {
+    checks.postgres = `error: ${err.message}`;
+    status = 'degraded';
+    logger.error('Health check: Postgres failed', { error: err.message });
+  }
+
+  // Check Redis
+  try {
+    const redis = getRedisClient();
+    if (redis) {
+      await redis.ping();
+      checks.redis = 'ok';
+    } else {
+      checks.redis = 'not configured';
+    }
+  } catch (err) {
+    checks.redis = `error: ${err.message}`;
+    status = 'degraded';
+    logger.error('Health check: Redis failed', { error: err.message });
+  }
+
+  // Check AI providers (optional — don't fail health if AI is down)
+  if (process.env.ANTHROPIC_API_KEY) checks.anthropic = 'configured';
+  if (process.env.OPENAI_API_KEY) checks.openai = 'configured';
+
+  res.status(status === 'ok' ? 200 : 503).json({ status, ...checks });
+});
+
+// Per-tenant metrics endpoint
+app.get('/api/metrics', (req, res) => {
+  res.json(getMetricsSnapshot());
+});
+
+app.post('/api/telemetry/frontend-error', (req, res) => {
+  logger.error('Frontend error reported', {
+    requestId: req.requestId,
+    tenantId: req.tenantId,
+    error: req.body?.message,
+    stack: req.body?.stack,
+    source: req.body?.source,
+    path: req.body?.path,
+  });
+  res.status(202).json({ ok: true, requestId: req.requestId });
+});
 
 // Public routes
 app.use('/api/auth', authRoutes);
@@ -68,59 +132,11 @@ app.use('/api/scan', scanRoutes);
 const onboardingRoutes = require('./api/onboarding');
 app.use('/api/onboarding', onboardingRoutes);
 
-// Live conversations (in-memory store — public for now)
-const { getAllConversations, getMessages, markRead } = require('./core/inMemoryStore');
-app.get('/api/live/conversations', (req, res) => {
-  res.json(getAllConversations());
-});
-app.get('/api/live/conversations/:id/messages', (req, res) => {
-  const msgs = getMessages(decodeURIComponent(req.params.id));
-  res.json(msgs);
-});
-app.post('/api/live/conversations/:id/read', (req, res) => {
-  markRead(decodeURIComponent(req.params.id));
-  res.json({ ok: true });
-});
+// Live conversations — DB-backed (requires auth + tenant)
+const { listConversations, updateConversationStatus } = require('./db/queries/conversations');
+const { getMessages: getConvMessages } = require('./db/queries/messages');
 
-// Send WhatsApp message
-app.post('/api/live/send', async (req, res) => {
-  const { phone, message } = req.body;
-  if (!phone || !message) return res.status(400).json({ error: 'phone and message required' });
-  try {
-    const r = await fetch(`https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: phone,
-        type: 'text',
-        text: { body: message },
-      }),
-    });
-    const data = await r.json();
-    if (data.error) return res.status(400).json({ error: data.error.message });
-
-    // Save outbound message to store
-    const { getOrCreateConversation, addMessage } = require('./core/inMemoryStore');
-    const conv = getOrCreateConversation(phone, phone, 'whatsapp');
-    addMessage(conv.id, {
-      id: `out_${Date.now()}`,
-      direction: 'outbound',
-      content: message,
-      type: 'text',
-      sent_by: 'agent',
-      at: new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' }),
-      timestamp: new Date().toISOString(),
-    });
-
-    res.json({ ok: true, message_id: data.messages?.[0]?.id });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// Send WhatsApp message — moved to protected routes below (POST /api/conversations/:id/send)
 
 // Webhook debug store — last 10 hits
 const _webhookLog = [];
@@ -150,23 +166,44 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/deals', dealsRoutes);
 app.use('/api/conversations', conversationsRoutes);
 app.use('/api/products', productsRoutes);
+app.use('/api/prompts', promptsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/customers', customersRoutes);
 app.use('/api/broadcast', broadcastRoutes);
+app.use('/api/ingest', ingestRoutes);
+app.use('/api/business-profile', businessProfileRoutes);
+app.use('/api/migrations', migrationRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+  logger.error('Unhandled error', {
+    error: err.message,
+    stack: err.stack,
+    requestId: req.requestId,
+    tenantId: req.tenantId,
+    path: req.path,
+    method: req.method,
+  });
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal server error',
+    requestId: req.requestId,
+  });
 });
 
 const PORT = process.env.PORT || 3001;
 if (process.env.ENABLE_REPORT_SCHEDULER !== '0' && process.env.DATABASE_URL) {
   startReportScheduler();
 } else if (process.env.ENABLE_REPORT_SCHEDULER !== '0') {
-  console.warn('[ReportScheduler] skipped because DATABASE_URL is not configured');
+  logger.warn('[ReportScheduler] skipped because DATABASE_URL is not configured');
 }
-server.listen(PORT, () => console.log(`ChatOrAI backend running on port ${PORT}`));
+server.listen(PORT, () => {
+  logger.info('ChatOrAI backend started', {
+    port: PORT,
+    environment: process.env.NODE_ENV || 'development',
+    requestIdTracing: true,
+    telemetry,
+  });
+});
 
 module.exports = { app, server };

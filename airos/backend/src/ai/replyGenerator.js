@@ -1,6 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { query } = require('../db/pool');
 const { normalizeTenantSettings, buildCompanyContext } = require('../core/tenantSettings');
+const { resolvePromptContent } = require('./promptRegistry');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -45,6 +46,11 @@ async function generateReply({
   const tone = company.brandTone || settings.tone || 'friendly and professional';
   const aiConfig = settings.aiConfig || {};
   const knowledgeBase = JSON.stringify(tenant.knowledge_base || {});
+  const baseInstruction = await resolvePromptContent(
+    tenantId,
+    'reply-system',
+    aiConfig.systemPrompt || 'You are a professional sales assistant for an eCommerce store.'
+  );
 
   const historyCtx = history
     .slice(-6)
@@ -63,7 +69,7 @@ async function generateReply({
     `• ${z.name}: from ${(z.rates || [])[0]?.cost ?? '?'} ${z.currency || ''}`
   ).join('\n') || 'None';
 
-  const prompt = `${aiConfig.systemPrompt || 'You are a professional sales assistant for an eCommerce store.'}
+  const prompt = `${baseInstruction}
 
 Business name: ${company.name}
 Industry: ${company.industry || 'eCommerce'}

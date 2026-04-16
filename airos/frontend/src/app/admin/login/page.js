@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import toast, { Toaster } from 'react-hot-toast';
-import { adminApi, hasAdminSession, setAdminSession } from '@/lib/adminApi';
+import { adminApi, setAdminSession } from '@/lib/adminApi';
 
 export default function AdminLogin() {
   const router = useRouter();
@@ -14,7 +14,16 @@ export default function AdminLogin() {
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
-    if (hasAdminSession()) router.replace('/admin');
+    let cancelled = false;
+    adminApi.get('/api/admin/auth/me')
+      .then(() => {
+        if (!cancelled) router.replace('/admin');
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   async function handleSubmit(event) {
@@ -22,7 +31,7 @@ export default function AdminLogin() {
     setLoading(true);
     try {
       const data = await adminApi.post('/api/admin/auth/login', { email, password });
-      setAdminSession({ token: data.token, admin: data.admin });
+      setAdminSession({ admin: data.admin });
       toast.success(`Welcome back, ${String(data.admin?.name || 'Admin').split(' ')[0]}`);
       router.replace('/admin');
     } catch (err) {

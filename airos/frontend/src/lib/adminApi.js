@@ -5,18 +5,12 @@ import { API_BASE } from '@/lib/api';
 const ADMIN_TOKEN_KEY = 'chatorai_admin_token';
 const ADMIN_PROFILE_KEY = 'chatorai_admin_profile';
 
-function getAdminToken() {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(ADMIN_TOKEN_KEY);
-}
-
 async function adminRequest(path, options = {}) {
-  const token = getAdminToken();
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   });
@@ -42,9 +36,9 @@ export const adminApi = {
   patch: (path, body) => adminRequest(path, { method: 'PATCH', body: JSON.stringify(body) }),
 };
 
-export function setAdminSession({ token, admin }) {
+export function setAdminSession({ admin }) {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(ADMIN_TOKEN_KEY, token);
+  localStorage.removeItem(ADMIN_TOKEN_KEY);
   localStorage.setItem(ADMIN_PROFILE_KEY, JSON.stringify(admin));
 }
 
@@ -64,5 +58,13 @@ export function clearAdminSession() {
 }
 
 export function hasAdminSession() {
-  return Boolean(getAdminToken());
+  return Boolean(getAdminProfile());
+}
+
+export async function logoutAdmin() {
+  try {
+    await adminApi.post('/api/admin/auth/logout', {});
+  } finally {
+    clearAdminSession();
+  }
 }

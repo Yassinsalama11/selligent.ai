@@ -169,13 +169,11 @@ Admin login uses hardcoded demo accounts in localStorage.
 
 ### Quick Wins (1–2 weeks)
 
-#### 1. Fix Schema Constraints
-Add missing unique constraints to `schema.sql`:
-```sql
-ALTER TABLE channel_connections ADD CONSTRAINT uq_channel_tenant UNIQUE (tenant_id, channel);
-ALTER TABLE products ADD CONSTRAINT uq_product_tenant_external_source UNIQUE (tenant_id, external_id, source);
-```
-This fixes all `ON CONFLICT` upsert failures immediately.
+#### 1. Fix Schema Constraints ✅ **COMPLETED**
+Unique constraints added to production database and `schema.sql`:
+- `channel_connections (tenant_id, channel)`
+- `products (tenant_id, external_id, source)`
+- `customers (tenant_id, channel_customer_id, channel)`
 
 #### 2. Implement Missing Catalog Delete Routes
 Add `DELETE /v1/catalog/products/:id` to `catalog.js`. WordPress and Shopify already expect this. ~30 lines of code.
@@ -370,16 +368,16 @@ Allow third-party developers to:
 
 ## Quick Wins
 
-| Priority | Task | Estimated Effort | Impact |
-|----------|------|-----------------|--------|
-| 1 | Fix schema constraints | 1 hour | High — fixes upsert failures |
-| 2 | Add catalog delete routes | 2 hours | Medium — unblocks plugins |
-| 3 | Unify brand references | 4 hours | Medium — operational clarity |
-| 4 | Align widget artifact name | 1 hour | High — fixes widget embed |
-| 5 | Remove browser-side AI | 1 day | High — security + consistency |
-| 6 | Wire overview page to backend | 1 day | Medium — real dashboard value |
-| 7 | Fix socket handshake | 2 hours | High — fixes real-time |
-| 8 | Replace demo admin auth | 4 hours | High — production security |
+| Priority | Task | Estimated Effort | Impact | Status |
+|----------|------|-----------------|--------|--------|
+| 1 | Fix schema constraints | 1 hour | High — fixes upsert failures | ✅ Done |
+| 2 | Add catalog delete routes | 2 hours | Medium — unblocks plugins | |
+| 3 | Unify brand references | 4 hours | Medium — operational clarity | |
+| 4 | Align widget artifact name | 1 hour | High — fixes widget embed | |
+| 5 | Remove browser-side AI | 1 day | High — security + consistency | |
+| 6 | Wire overview page to backend | 1 day | Medium — real dashboard value | |
+| 7 | Fix socket handshake | 2 hours | High — fixes real-time | |
+| 8 | Replace demo admin auth | 4 hours | High — production security | |
 
 ---
 
@@ -417,31 +415,32 @@ Allow third-party developers to:
 
 ## Recommended Next Steps
 
-### This Week
-1. Fix schema constraints (1 hour)
-2. Add catalog delete routes (2 hours)
-3. Align widget artifact name (1 hour)
-4. Fix socket handshake (2 hours)
+### ✅ This Week — COMPLETED
+1. ~~Fix schema constraints~~ ✅ **DONE**
+2. ~~Initialize production database~~ ✅ **DONE**
 
 ### Next Week
-5. Remove browser-side AI, move to server endpoint (1 day)
-6. Replace demo admin auth (half day)
-7. Unify brand references (half day)
-8. Wire overview page to backend (1 day)
+3. Add catalog delete routes (2 hours)
+4. Align widget artifact name (1 hour)
+5. Fix socket handshake (2 hours)
+6. Remove browser-side AI, move to server endpoint (1 day)
+7. Replace demo admin auth (half day)
+8. Unify brand references (half day)
+9. Wire overview page to backend (1 day)
 
 ### This Month
-9. Start WhatsApp migration to DB/queue pipeline (begin with webhook → queue, finish with worker persistence)
-10. Add security hardening (CORS, webhook validation, credential encryption)
-11. Bootstrap observability (structured logging, request IDs, health checks)
-12. Begin i18n implementation (locale files, RTL support, next-intl)
+10. Start WhatsApp migration to DB/queue pipeline (begin with webhook → queue, finish with worker persistence)
+11. Add security hardening (CORS, webhook validation, credential encryption)
+12. Bootstrap observability (structured logging, request IDs, health checks)
+13. Begin i18n implementation (locale files, RTL support, next-intl)
 
 ### This Quarter
-13. Complete conversation system unification
-14. Ship real onboarding flow with tenant creation
-15. Wire all dashboard pages to backend APIs
-16. Begin TypeScript migration
-17. Ship email notifications
-18. Implement broadcast and ticket systems
+14. Complete conversation system unification
+15. Ship real onboarding flow with tenant creation
+16. Wire all dashboard pages to backend APIs
+17. Begin TypeScript migration
+18. Ship email notifications
+19. Implement broadcast and ticket systems
 
 ---
 

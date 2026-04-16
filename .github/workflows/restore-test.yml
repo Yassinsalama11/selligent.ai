@@ -1,0 +1,33 @@
+name: Weekly Restore Test
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+jobs:
+  restore-test:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.DATABASE_URL != '' && secrets.S3_BUCKET != '' }}
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      RESTORE_ADMIN_DATABASE_URL: ${{ secrets.RESTORE_ADMIN_DATABASE_URL || secrets.DATABASE_URL }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      BACKUP_PREFIX: ${{ secrets.BACKUP_PREFIX }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Install AWS CLI
+        run: sudo apt-get install -y awscli
+
+      - name: Run restore verification
+        run: |
+          chmod +x airos/infra/backups/restore-test.sh
+          airos/infra/backups/restore-test.sh
