@@ -36,8 +36,8 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: ./airos/backend/Dockerfile
     container_name: airos_backend
     restart: unless-stopped
     depends_on:

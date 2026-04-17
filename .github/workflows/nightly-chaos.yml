@@ -16,9 +16,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Skip when chaos is not configured
-        if: ${{ secrets.CHAOS_MODE == '' }}
-        run: echo "CHAOS_MODE is not configured; skipping nightly chaos."
+      - name: Validate chaos config
+        run: |
+          if [ -z "${{ secrets.CHAOS_MODE }}" ]; then
+            echo "Nightly chaos skipped because CHAOS_MODE is not configured."
+            exit 0
+          fi
 
       - name: Configure SSH key
         if: ${{ secrets.CHAOS_MODE == 'ssh' && secrets.CHAOS_SSH_PRIVATE_KEY != '' }}

@@ -8,7 +8,6 @@ on:
 jobs:
   restore-test:
     runs-on: ubuntu-latest
-    if: ${{ secrets.DATABASE_URL != '' && secrets.S3_BUCKET != '' }}
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       RESTORE_ADMIN_DATABASE_URL: ${{ secrets.RESTORE_ADMIN_DATABASE_URL || secrets.DATABASE_URL }}
@@ -20,6 +19,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate restore config
+        run: |
+          if [ -z "${{ secrets.DATABASE_URL }}" ] || [ -z "${{ secrets.S3_BUCKET }}" ]; then
+            echo "Restore test skipped because DATABASE_URL or S3_BUCKET is not configured."
+            exit 0
+          fi
 
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
