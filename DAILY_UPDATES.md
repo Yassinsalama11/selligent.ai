@@ -460,3 +460,167 @@ Verified:
 - `k6` ingest smoke: `accept_rate=100%`, `p95=605.39ms`
 - Redis restart recovery: `3s` to restored `/health` with `redis=PONG`
 - Worker restart: new worker container start observed in Railway logs at `2026-04-16T21:38:59Z`
+
+---
+
+## 2026-04-16 - Claude Code
+
+### Task
+Phase 1 (1-C1 → 1-C6): International Foundation + MENA Compliance — data residency routing, PII encryption, PII detection, retention/DSR, business understanding generator, initial settings generator, and compliance documentation.
+
+### Actions Taken
+- **1-C1 Data Residency**: Rewrote `packages/db/src/client.js` with multi-cluster PrismaClient pool. `getPrisma(region)` selects `DATABASE_URL_US/EU/GCC`. `getPrismaForTenant(tenantId)` async-resolves the tenant's `dataResidency` and routes queries to the correct regional cluster, with in-process cache.
+- **1-C2 PII Encryption**: Created `packages/db/src/encryption.js` — AES-256-GCM envelope encryption. Per-tenant DEK wrapped by `PII_MASTER_KEY` KEK, stored in new `TenantEncryptionKey` table. Wire format: `enc:v1:<keyVersion>:<ivHex>:<authTagHex>:<ciphertextHex>`. `encrypt/decrypt/rotateDek/evictDekCache` API. DEK cache is process-lifetime.
+- **1-C3 PII Detection**: Created `packages/db/src/piiDetect.js` — regex patterns for EMAIL, PHONE, CREDIT_CARD, IBAN, IP_ADDRESS, SSN, NATIONAL_ID_SA. Presidio HTTP sidecar when `PRESIDIO_URL` set, with Arabic NER via `language=ar` (CAMeLBERT).
+- **1-C4 Retention & DSR**: Created `packages/db/src/retentionScheduler.js` — nightly purge per tenant `RetentionPolicy`. `RetentionPolicy` and `PrivacyJob` models added to schema. Created `airos/backend/src/api/routes/privacy.js` — `POST /v1/privacy/export`, `POST /v1/privacy/delete`, `GET /v1/privacy/jobs`, `POST /v1/privacy/retention`. Retention scheduler started at backend boot.
+- **1-C5 Business Understanding**: Created `packages/ai-core/src/understand/index.js` — Claude Opus reads up to 20 KnowledgeChunks, parses Zod-typed `ProfileSchema`, upserts to `tenant_profiles`. API: `POST /api/understand/profile`.
+- **1-C6 Settings Generator**: Created `packages/ai-core/src/understand/settingsGenerator.js` — TenantProfile → routingRules, tags, cannedReplies (multilingual), qualificationForm, leadScoringModel, agentPersona, workflows. Stored in `Tenant.settings.generated`. API: `POST /api/understand/settings`.
+- **Compliance Docs**: Created `docs/compliance/gdpr.md`, `pdpl-ksa.md`, `uae-dpl.md`, `egypt-dpl.md` — requirement-to-control mapping tables for each regulation.
+- Prisma schema: added `TenantEncryptionKey`, `RetentionPolicy`, `PrivacyJob` models and reverse relations on `Tenant`.
+- Updated `packages/db/src/index.js` and `packages/ai-core/src/index.js` exports.
+- Wired `privacyRoutes`, `understandRoutes`, and `startRetentionScheduler` into `airos/backend/src/index.js`.
+
+### Problems
+- `_getDek()` in `encryption.js` originally called `getPrisma()` (always US cluster) — GCC/EU tenant DEKs would never be found.
+- `privacy.js` imported `getPrisma` from `../../db/pool` (wrong module — that exports `{ pool, query }`).
+- `understand.js` had same wrong import.
+- `packages/ingest` does not exist (Qwen scope) — 1-C5/1-C6 could not depend on it.
+
+### Solutions
+- Fixed `_getDek()` to `const { getPrismaForTenant } = require('./client'); const prisma = await getPrismaForTenant(tenantId)`.
+- Fixed both route files to import from `@chatorai/db`.
+- 1-C5/1-C6 implemented to read existing `KnowledgeChunk` rows from DB — works independently of the ingest pipeline.
+
+### Decisions
+- DEK lazy-requires `./client` inside `_getDek` to avoid circular dependency.
+- `PII_MASTER_KEY` absent → `encrypt()` returns plaintext (dev mode), `decrypt()` of encrypted value throws — safe degradation.
+
+### Status
+✅ **COMPLETED** — All 6 Phase 1 tasks delivered.
+
+### Files Created/Modified
+| File | Action |
+|------|--------|
+| `packages/db/src/client.js` | Rewritten — multi-cluster routing |
+| `packages/db/src/encryption.js` | Created — AES-256-GCM envelope encryption |
+| `packages/db/src/piiDetect.js` | Created — regex + Presidio PII detector |
+| `packages/db/src/retentionScheduler.js` | Created — nightly retention purge |
+| `packages/db/src/index.js` | Updated — exports encryption, detectPii, retention |
+| `packages/db/prisma/schema.prisma` | Updated — TenantEncryptionKey, RetentionPolicy, PrivacyJob |
+| `packages/ai-core/src/understand/index.js` | Created — Claude Opus profile generator |
+| `packages/ai-core/src/understand/settingsGenerator.js` | Created — settings generator |
+| `packages/ai-core/src/index.js` | Updated — exports understand, settings |
+| `airos/backend/src/api/routes/privacy.js` | Created — DSR endpoints |
+| `airos/backend/src/api/routes/understand.js` | Created — profile/settings API |
+| `airos/backend/src/index.js` | Updated — wired privacy, understand, scheduler |
+| `docs/compliance/gdpr.md` | Created |
+| `docs/compliance/pdpl-ksa.md` | Created |
+| `docs/compliance/uae-dpl.md` | Created |
+| `docs/compliance/egypt-dpl.md` | Created |
+
+---
+
+## 2026-04-17 - Claude Code
+
+### Task
+Phase 2 (2-C1 → 2-C5): Self-Serve AI Business Setup — production eval scoring, human correction loop, anonymized telemetry, TenantAgent runtime, and tenant memory.
+
+### Actions Taken
+- **Bug fix**: `privacy.js` — all `getPrisma()` calls replaced with `await getPrismaForTenant(tenantId)` in route handlers, `createJob()`, `processExport()`, and `processDelete()`. EU/GCC tenant data was previously always routed to US cluster.
+- **Schema**: Added 4 new Prisma models (`MessageEvalScore`, `ReplyCorrection`, `PlatformSignal`, `TenantMemory`) and `CopilotLog` (added during Phase 3 prep). Added reverse relations on `Message`, `AiSuggestion`, `Tenant`.
+- **2-C1 Eval v1**: Created `packages/eval/src/production.js` — `scoreProductionReply()` calls Sonnet-as-judge, persists to `message_eval_scores` on tenant's regional cluster. Fire-and-forget hook added in `ai.js` after SSE done event. `GET /v1/eval/tenant/:id` returns scores + pass-rate + avg-score. `GET /v1/eval/scores/:scoreId` for individual records.
+- **2-C2 Correction Loop**: Created `packages/eval/src/miner.js` — weekly job mines unexported `ReplyCorrection` rows, writes JSONL prompt-tuning dataset, marks rows as exported. Created `POST/GET /v1/corrections` endpoints. Weekly miner hooked into boot scheduler (7-day interval).
+- **2-C3 Platform Telemetry**: Created `packages/eval/src/signals.js` — `emitSignal(type, payload, modelVersion)` writes to `platform_signals` (no tenant FK, no raw text). `PLATFORM_TELEMETRY=0` disables. Convenience wrappers: `emitEvalSignal`, `emitLatencySignal`. Integrated into `scoreProductionReply` automatically.
+- **2-C4 TenantAgent**: Created `packages/ai-core/src/agent/index.js` — `TenantAgent` class with `reply()`, `act()`, `summarize()`. Context builder fetches TenantProfile (persona, tone, policies), tenant memory facts, and top-k KnowledgeChunks via cosine similarity on JSON embeddings. `act()` delegates to action registry.
+- **2-C5 Tenant Memory**: Created `packages/ai-core/src/memory/index.js` — `upsertFact`, `getFacts` (confidence ≥ 0.8 gate + expiry filter), `promoteFact`, `deleteFact`, `formatFactsForContext`. Fact triples: `(subject, predicate, object)` with confidence/source/expiresAt. Created `GET/POST/DELETE /v1/memory` REST API.
+- Added `@chatorai/db` to eval package.json deps; `@chatorai/eval` to backend package.json deps.
+- Updated all package index exports.
+- Registered `evalRoutes`, `correctionsRoutes`, `memoryRoutes` in `airos/backend/src/index.js`.
+
+### Problems
+- `packages/eval/src/brain` attempted cross-package import from eval — circular dep (eval → ai-core, ai-core → eval would be circular).
+
+### Solutions
+- Moved all signal emission in Platform Brain to direct `prisma.platformSignal.create()` — bypasses eval package entirely.
+
+### Decisions
+- `messageId` is nullable in `MessageEvalScore` — not all scored replies are persisted Message rows (SSE stream may not write to DB immediately).
+- Knowledge retrieval uses in-process cosine similarity with migration note for pgvector when chunk count > 10k.
+
+### Status
+✅ **COMPLETED** — All 5 Phase 2 tasks delivered + privacy.js cluster-routing bug fixed.
+
+### Files Created/Modified
+| File | Action |
+|------|--------|
+| `packages/db/prisma/schema.prisma` | Updated — 5 new models, reverse relations |
+| `packages/eval/src/production.js` | Created — production eval scorer (2-C1) |
+| `packages/eval/src/miner.js` | Created — weekly correction mining job (2-C2) |
+| `packages/eval/src/signals.js` | Created — anonymized telemetry emitter (2-C3) |
+| `packages/eval/src/index.js` | Updated — exports production, miner, signals |
+| `packages/eval/package.json` | Updated — added @chatorai/db dep |
+| `packages/ai-core/src/agent/index.js` | Created — TenantAgent class (2-C4) |
+| `packages/ai-core/src/memory/index.js` | Created — tenant memory CRUD (2-C5) |
+| `packages/ai-core/src/index.js` | Updated — exports TenantAgent, memory |
+| `airos/backend/src/api/routes/eval.js` | Created — eval dashboard routes |
+| `airos/backend/src/api/routes/corrections.js` | Created — correction endpoints |
+| `airos/backend/src/api/routes/memory.js` | Created — memory CRUD API |
+| `airos/backend/src/api/routes/privacy.js` | Fixed — getPrismaForTenant everywhere |
+| `airos/backend/src/api/routes/ai.js` | Updated — fire-and-forget scoreProductionReply hook |
+| `airos/backend/src/index.js` | Updated — registered 3 new route groups + weekly miner |
+| `airos/backend/package.json` | Updated — added @chatorai/eval dep |
+
+---
+
+## 2026-04-17 - Claude Code
+
+### Task
+Phase 3 (3-C1 → 3-C4): Agent Copilot + Platform Brain + Enterprise — Action SDK built-ins, agent copilot, sub-agent routing, and Platform Brain v1.
+
+### Actions Taken
+- **3-C1 Action SDK Built-ins**: Created `airos/backend/src/actions/builtins.js` — 10 production actions registered at boot:
+  - `order.create` — creates Deal in DB (Shopify/WooCommerce stub for Phase 4)
+  - `order.refund` — `requiresApproval: true`, full ActionAudit trail
+  - `booking.reschedule` — calendar integration stub
+  - `lead.qualify` — creates/upserts Deal with intent + leadScore
+  - `ticket.escalate` — sets conversation status + audit log
+  - `catalog.lookup` — searches Product table with text filter
+  - `payment.link` — generates payment link (Stripe/HyperPay stub for Phase 4)
+  - `customer.update` — updates Customer fields
+  - `conversation.tag` — adds/replaces tags on Customer
+  - `human.handoff` — reassigns conversation to available agent + audit log
+- **3-C2 Agent Copilot**: Created `packages/ai-core/src/copilot/index.js` — `streamCopilotSuggestion()` streams Haiku (claude-haiku-4-5-20251001) for 6 commands: `/suggest-reply`, `/summarize`, `/tag`, `/next-action`, `/translate`, `/rewrite-tone`. `logCopilotOutcome()` writes to `copilot_logs`. Created `airos/backend/src/channels/copilot/socket.js` — `/copilot` Socket.IO namespace with JWT auth middleware, `copilot:request` → streaming `copilot:chunk`/`copilot:done` events, `copilot:outcome` for learning signal logging.
+- **3-C3 Sub-agents**: Created `packages/ai-core/src/agent/subAgents.js` — `routeToSubAgent(intentOrMessage, tenantProfile)` maps text/intent to `sales|support|booking|recovery`. `getSubAgentConfig(role, tenantProfile)` returns persona override, allowed action scopes, KPI list. Vertical-specific routing defaults.
+- **3-C4 Platform Brain v1**: Created `packages/ai-core/src/brain/index.js` — `runAnonymizationPipeline()` aggregates eval scores, correction rates, AI call latency into `platform_signals` (no PII, per-tenant opt-out). `getBenchmarks()` reads PlatformSignal by type/date. `recommendWorkflows({ tenantId })` returns top-N vertical-specific workflow recommendations. Nightly pipeline scheduler (24h interval) wired into boot.
+- Added `CopilotLog` model to schema + `Tenant.copilotLogs` reverse relation.
+- Created `GET /v1/brain/benchmarks` and `GET /v1/brain/workflows/recommend` endpoints.
+- Wired copilot Socket.IO namespace (`initCopilotNamespace(io)`) at boot.
+- Updated all package index exports.
+
+### Problems
+- `brain/index.js` initially imported `emitSignal` from `@chatorai/eval` — would create a circular dependency (`eval` already depends on `ai-core`).
+
+### Solutions
+- Brain writes directly to `prisma.platformSignal.create()` using `getPrisma()` from `@chatorai/db`, bypassing the eval package entirely.
+
+### Decisions
+- Sub-agents are TenantAgent configs (not separate classes) — routing via `routeToSubAgent()` + `getSubAgentConfig()` returns constructor options injected at call time.
+- Copilot uses Haiku for all commands (fastest model, sub-300ms p95 target).
+- Platform Brain v1 uses static vertical-to-workflow map; v2 will add collaborative filtering on platform signals when enough data accumulates.
+
+### Status
+✅ **COMPLETED** — All 4 Phase 3 tasks delivered.
+
+### Files Created/Modified
+| File | Action |
+|------|--------|
+| `packages/db/prisma/schema.prisma` | Updated — CopilotLog model + Tenant relation |
+| `packages/ai-core/src/copilot/index.js` | Created — copilot streaming (3-C2) |
+| `packages/ai-core/src/agent/subAgents.js` | Created — sub-agent router (3-C3) |
+| `packages/ai-core/src/brain/index.js` | Created — Platform Brain v1 (3-C4) |
+| `packages/ai-core/src/index.js` | Updated — exports copilot, subAgents, brain |
+| `airos/backend/src/actions/builtins.js` | Created — 10 built-in actions (3-C1) |
+| `airos/backend/src/actions/index.js` | Updated — requires builtins at boot |
+| `airos/backend/src/channels/copilot/socket.js` | Created — /copilot Socket.IO namespace |
+| `airos/backend/src/api/routes/brain.js` | Created — Platform Brain endpoints |
+| `airos/backend/src/index.js` | Updated — copilot namespace + brain scheduler + brain routes |

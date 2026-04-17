@@ -89,9 +89,12 @@ const refundOrderAction = defineAction({
   },
 });
 
-// Register all built-in actions
+// Register Phase 0 built-in actions
 registry.register(sendWhatsAppAction);
 registry.register(closeConversationAction);
 registry.register(refundOrderAction);
+
+// Register Phase 3 built-in actions (10 additional)
+require('./builtins');
 
 module.exports = { sendWhatsAppAction, closeConversationAction, refundOrderAction };

@@ -53,6 +53,7 @@ model Tenant {
   evalScores         MessageEvalScore[]
   corrections        ReplyCorrection[]
   memory             TenantMemory[]
+  copilotLogs        CopilotLog[]
 
   @@map("tenants")
 }
@@ -660,6 +661,28 @@ model PlatformSignal {
 
   @@index([signalType, createdAt(sort: Desc)])
   @@map("platform_signals")
+}
+
+// ─────────────────────────────────────────
+// COPILOT LOGS (Task 3-C2)
+// ─────────────────────────────────────────
+
+model CopilotLog {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  agentId        String   @map("agent_id") @db.Uuid
+  conversationId String?  @map("conversation_id") @db.Uuid
+  command        String   @db.VarChar(50)
+  suggestion     String
+  outcome        String   @default("ignored") @db.VarChar(20)
+  editedText     String?  @map("edited_text")
+  latencyMs      Int?     @map("latency_ms")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("copilot_logs")
 }
 
 // ─────────────────────────────────────────

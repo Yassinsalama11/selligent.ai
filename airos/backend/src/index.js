@@ -28,6 +28,8 @@ const privacyRoutes = require('./api/routes/privacy');
 const understandRoutes = require('./api/routes/understand');
 const evalRoutes = require('./api/routes/eval');
 const correctionsRoutes = require('./api/routes/corrections');
+const memoryRoutes = require('./api/routes/memory');
+const brainRoutes = require('./api/routes/brain');
 
 // Boot action registry (must require before routes)
 require('./actions');
@@ -35,9 +37,11 @@ require('./actions');
 const { authMiddleware } = require('./api/middleware/auth');
 const { tenantMiddleware } = require('./api/middleware/tenant');
 const { initSocketServer, getSocketMetrics } = require('./channels/livechat/socket');
+const { initCopilotNamespace } = require('./channels/copilot/socket');
 const { startReportScheduler } = require('./core/reportScheduler');
 const { startRetentionScheduler } = require('@chatorai/db').retention;
 const { runMiner } = require('@chatorai/eval');
+const { runAnonymizationPipeline } = require('@chatorai/ai-core').brain;
 const { initTelemetry, requestTracer, getMetricsSnapshot, renderPrometheusMetrics } = require('./core/telemetry');
 const { logger } = require('./core/logger');
 const { pool } = require('./db/pool');
@@ -48,8 +52,9 @@ const telemetry = initTelemetry();
 const app = express();
 const server = http.createServer(app);
 
-// Init Socket.io
-initSocketServer(server);
+// Init Socket.io + copilot namespace (3-C2)
+const io = initSocketServer(server);
+initCopilotNamespace(io);
 
 // Core middleware
 app.use(helmet({ crossOriginResourcePolicy: false }));
@@ -206,6 +211,12 @@ app.use('/v1/privacy', authMiddleware, tenantMiddleware, privacyRoutes);
 app.use('/v1/eval', authMiddleware, tenantMiddleware, evalRoutes);
 app.use('/v1/corrections', authMiddleware, tenantMiddleware, correctionsRoutes);
 
+// Tenant memory facts (2-C5)
+app.use('/v1/memory', authMiddleware, tenantMiddleware, memoryRoutes);
+
+// Platform Brain — benchmarks + workflow recommender (3-C4)
+app.use('/v1/brain', authMiddleware, tenantMiddleware, brainRoutes);
+
 // Global error handler
 app.use((err, req, res, next) => {
   logger.error('Unhandled error', {
@@ -237,6 +248,17 @@ if (process.env.ENABLE_REPORT_SCHEDULER !== '0' && process.env.DATABASE_URL) {
       .catch((err) => logger.error('[CorrectionMiner] failed', { error: err.message }))
       .finally(() => setTimeout(fireMiner, MINER_INTERVAL_MS));
   }, MINER_INTERVAL_MS);
+
+  // Nightly Platform Brain anonymization pipeline (3-C4)
+  const BRAIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+  setTimeout(function fireBrain() {
+    runAnonymizationPipeline()
+      .then(({ tenantsProcessed, signalsEmitted }) =>
+        logger.info('[PlatformBrain] nightly pipeline done', { tenantsProcessed, signalsEmitted }),
+      )
+      .catch((err) => logger.error('[PlatformBrain] pipeline failed', { error: err.message }))
+      .finally(() => setTimeout(fireBrain, BRAIN_INTERVAL_MS));
+  }, BRAIN_INTERVAL_MS);
 } else if (process.env.ENABLE_REPORT_SCHEDULER !== '0') {
   logger.warn('[ReportScheduler] skipped because DATABASE_URL is not configured');
 }

@@ -6,7 +6,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  validate-restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Confirm restore workflow is enabled
+        run: |
+          echo "Restore workflow triggered."
+          if [ -z "${{ secrets.DATABASE_URL }}" ] || [ -z "${{ secrets.S3_BUCKET }}" ]; then
+            echo "Restore test skipped because DATABASE_URL or S3_BUCKET is not configured."
+          else
+            echo "Restore configuration is present, the restore job will run.";
+          fi
+
   restore-test:
+    needs: validate-restore
+    if: ${{ secrets.DATABASE_URL != '' && secrets.S3_BUCKET != '' }}
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -19,13 +36,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Validate restore config
-        run: |
-          if [ -z "${{ secrets.DATABASE_URL }}" ] || [ -z "${{ secrets.S3_BUCKET }}" ]; then
-            echo "Restore test skipped because DATABASE_URL or S3_BUCKET is not configured."
-            exit 0
-          fi
 
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client

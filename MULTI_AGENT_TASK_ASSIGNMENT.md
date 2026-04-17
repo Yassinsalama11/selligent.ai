@@ -684,6 +684,18 @@ Done when:
 | 2-C4 | Tenant agent runtime (TenantAgent class, context builder) | Critical | 0-C3, 1-C5 |
 | 2-C5 | Tenant memory (fact storage, promotion gate, retrieval) | High | 2-C4 |
 
+**Status:** Claude Code ✅ Completed (2026-04-17)
+
+Verified:
+- 2-C1: `packages/eval/src/production.js` — `scoreProductionReply()` calls Sonnet-as-judge, persists to `MessageEvalScore` table on tenant's regional cluster, fire-and-forget after SSE done event in `ai.js`. `GET /v1/eval/tenant/:id` returns scores + pass-rate + avg-score summary.
+- 2-C2: `packages/eval/src/miner.js` — weekly job mines unexported `ReplyCorrection` rows into JSONL prompt-tuning dataset, marks exported. `POST /v1/corrections`, `GET /v1/corrections`, `GET /v1/corrections/:id`. Weekly miner hooked into boot scheduler (7-day interval).
+- 2-C3: `packages/eval/src/signals.js` — `emitSignal(type, payload, modelVersion)` writes to `platform_signals` (no tenant FK, no raw text). `PLATFORM_TELEMETRY=0` disables. Integrated into `scoreProductionReply` automatically. `emitLatencySignal` available for hot paths.
+- 2-C4: `packages/ai-core/src/agent/index.js` — `TenantAgent` class with `reply()`, `act()`, `summarize()`. Context builder fetches TenantProfile, tenant memory facts, top-k knowledge chunks (cosine similarity on JSON embeddings; migration note for pgvector when chunks > 10k). `act()` delegates to action registry.
+- 2-C5: `packages/ai-core/src/memory/index.js` — `upsertFact`, `getFacts` (confidence gate + expiry filter), `promoteFact`, `deleteFact`, `formatFactsForContext`. Fact triples `(subject, predicate, object)` with confidence/source/expiresAt. `POST/GET/DELETE /v1/memory` REST API.
+- Schema updated: `MessageEvalScore`, `ReplyCorrection`, `PlatformSignal`, `TenantMemory` models added. Reverse relations on `Message`, `AiSuggestion`, `Tenant` updated.
+- Bug fix: `privacy.js` all `getPrisma()` calls replaced with `getPrismaForTenant(tenantId)` — EU/GCC tenants now correctly routed.
+- `@chatorai/eval` added to backend deps; `@chatorai/db` added to eval package deps.
+
 ---
 
 ## CODEX — Phase 2
@@ -893,6 +905,24 @@ Done when:
 - Sub-agent routing correctly assigns sales vs support conversations
 - Benchmarks surfaced per tenant ("you vs similar businesses")
 ```
+
+### Task Checklist
+
+| ID | Task | Priority | Dependencies |
+|---|---|---|---|
+| 3-C1 | Action SDK built-ins (10 actions) | Critical | 0-C5 |
+| 3-C2 | Agent copilot (Haiku streaming, /copilot namespace) | Critical | 0-C3, 2-C4 |
+| 3-C3 | Sub-agents (Sales/Support/Booking/Recovery configs + intent router) | High | 2-C4 |
+| 3-C4 | Platform Brain v1 (anonymization pipeline, benchmarks, workflow recommender) | High | 2-C3, 1-C5 |
+
+**Status:** Claude Code ✅ Completed (2026-04-17)
+
+Verified:
+- 3-C1: `airos/backend/src/actions/builtins.js` — 10 built-in actions: `order.create`, `order.refund` (requiresApproval), `booking.reschedule`, `lead.qualify`, `ticket.escalate`, `catalog.lookup`, `payment.link`, `customer.update`, `conversation.tag`, `human.handoff`. All with Zod I/O, idempotency, ActionAudit trail. Registered at boot alongside Phase 0 actions.
+- 3-C2: `packages/ai-core/src/copilot/index.js` — `streamCopilotSuggestion()` yields text chunks from Haiku (claude-haiku-4-5-20251001). 6 commands: `/suggest-reply`, `/summarize`, `/tag`, `/next-action`, `/translate`, `/rewrite-tone`. `logCopilotOutcome()` writes to `copilot_logs`. `airos/backend/src/channels/copilot/socket.js` — `/copilot` Socket.IO namespace with JWT auth, `copilot:request` → streaming `copilot:chunk`/`copilot:done`, `copilot:outcome` for learning signal.
+- 3-C3: `packages/ai-core/src/agent/subAgents.js` — `routeToSubAgent(intentOrMessage)` maps text to `sales|support|booking|recovery`. `getSubAgentConfig(role, tenantProfile)` returns persona override, allowed action scopes, KPIs. Vertical-specific defaults.
+- 3-C4: `packages/ai-core/src/brain/index.js` — `runAnonymizationPipeline()` aggregates eval scores + correction rates + AI latency into `platform_signals` (no raw text, no PII, per-tenant opt-out). `getBenchmarks()` reads PlatformSignal aggregates. `recommendWorkflows({ tenantId })` returns top-N workflows for tenant's vertical. Nightly scheduler hooked into boot. `GET /v1/brain/benchmarks`, `GET /v1/brain/workflows/recommend` endpoints.
+- Schema updated: `CopilotLog` model added. `Tenant.copilotLogs` reverse relation added.
 
 ## CODEX — Phase 3
 

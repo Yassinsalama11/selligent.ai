@@ -9,19 +9,28 @@ permissions:
   contents: read
 
 jobs:
-  nightly-chaos:
+  validate-chaos:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate chaos config
+      - name: Confirm chaos workflow is enabled
         run: |
+          echo "Nightly chaos workflow triggered."
           if [ -z "${{ secrets.CHAOS_MODE }}" ]; then
             echo "Nightly chaos skipped because CHAOS_MODE is not configured."
-            exit 0
+          else
+            echo "CHAOS_MODE is configured, the chaos job will run.";
           fi
+
+  nightly-chaos:
+    needs: validate-chaos
+    if: ${{ secrets.CHAOS_MODE != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Configure SSH key
         if: ${{ secrets.CHAOS_MODE == 'ssh' && secrets.CHAOS_SSH_PRIVATE_KEY != '' }}
@@ -31,7 +40,6 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
 
       - name: Redis fault
-        if: ${{ secrets.CHAOS_MODE != '' }}
         env:
           CHAOS_MODE: ${{ secrets.CHAOS_MODE }}
           CHAOS_TARGET_NAME: redis
@@ -47,7 +55,6 @@ jobs:
         run: bash infra/chaos/kill-redis.sh
 
       - name: Worker fault
-        if: ${{ secrets.CHAOS_MODE != '' }}
         env:
           CHAOS_MODE: ${{ secrets.CHAOS_MODE }}
           CHAOS_TARGET_NAME: worker
@@ -63,7 +70,6 @@ jobs:
         run: bash infra/chaos/kill-worker.sh
 
       - name: Network partition
-        if: ${{ secrets.CHAOS_MODE != '' }}
         env:
           CHAOS_MODE: ${{ secrets.CHAOS_MODE }}
           CHAOS_TARGET_NAME: network-partition
