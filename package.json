@@ -1,0 +1,15 @@
+{
+  "name": "chatorai-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/db",
+    "packages/ai-core",
+    "packages/eval",
+    "packages/action-sdk",
+    "airos/backend"
+  ],
+  "scripts": {
+    "start": "node airos/backend/src/index.js"
+  }
+}
