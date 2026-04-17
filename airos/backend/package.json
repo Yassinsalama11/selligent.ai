@@ -14,10 +14,10 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@chatorai/ai-core": "file:../../packages/ai-core",
-    "@chatorai/db": "file:../../packages/db",
-    "@chatorai/eval": "file:../../packages/eval",
-    "@chatorai/action-sdk": "file:../../packages/action-sdk",
+    "@chatorai/ai-core": "file:./vendor/ai-core",
+    "@chatorai/db": "file:./vendor/db",
+    "@chatorai/eval": "file:./vendor/eval",
+    "@chatorai/action-sdk": "file:./vendor/action-sdk",
     "zod": "^3.23.0",
     "@anthropic-ai/sdk": "^0.27.0",
     "bcrypt": "^5.1.1",
@@ -41,5 +41,11 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
-  }
+  },
+  "workspaces": [
+    "vendor/db",
+    "vendor/ai-core",
+    "vendor/eval",
+    "vendor/action-sdk"
+  ]
 }

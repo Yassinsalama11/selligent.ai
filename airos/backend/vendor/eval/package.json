@@ -1,0 +1,18 @@
+{
+  "name": "@chatorai/eval",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.js",
+  "bin": {
+    "chatorai-eval": "src/cli.js"
+  },
+  "scripts": {
+    "test": "node src/cli.js run --suite golden",
+    "redteam": "node src/cli.js run --suite redteam"
+  },
+  "dependencies": {
+    "@chatorai/ai-core": "file:../ai-core",
+    "@chatorai/db": "file:../db",
+    "@anthropic-ai/sdk": "^0.30.0"
+  }
+}

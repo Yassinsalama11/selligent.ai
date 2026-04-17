@@ -1,0 +1,10 @@
+{
+  "name": "@chatorai/action-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.js",
+  "dependencies": {
+    "@chatorai/db": "file:../db",
+    "zod": "^3.23.0"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "@chatorai/ai-core",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.js",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "openai": "^4.60.0",
+    "@chatorai/db": "file:../db",
+    "zod": "^3.23.0"
+  }
+}
