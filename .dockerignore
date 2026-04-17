@@ -1,0 +1,12 @@
+# Keep the build context lean — exclude everything except what the backend needs
+node_modules
+**/node_modules
+.git
+.github
+apps
+airos/frontend
+airos/widget
+infra
+docs
+*.md
+.env*

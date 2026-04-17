@@ -9,31 +9,41 @@ permissions:
   contents: read
 
 jobs:
-  validate-chaos:
+  check:
     runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.gate.outputs.enabled }}
+      ssh:     ${{ steps.gate.outputs.ssh }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Confirm chaos workflow is enabled
+      - name: Check required secrets
+        id: gate
+        env:
+          CHAOS_MODE:    ${{ secrets.CHAOS_MODE }}
+          CHAOS_SSH_KEY: ${{ secrets.CHAOS_SSH_PRIVATE_KEY }}
         run: |
-          echo "Nightly chaos workflow triggered."
-          if [ -z "${{ secrets.CHAOS_MODE }}" ]; then
-            echo "Nightly chaos skipped because CHAOS_MODE is not configured."
+          if [ -n "$CHAOS_MODE" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "CHAOS_MODE is configured, chaos job will run."
           else
-            echo "CHAOS_MODE is configured, the chaos job will run.";
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Nightly chaos skipped — CHAOS_MODE is not configured."
+          fi
+          if [ "$CHAOS_MODE" = "ssh" ] && [ -n "$CHAOS_SSH_KEY" ]; then
+            echo "ssh=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ssh=false" >> "$GITHUB_OUTPUT"
           fi
 
   nightly-chaos:
-    needs: validate-chaos
-    if: ${{ secrets.CHAOS_MODE != '' }}
+    needs: check
+    if: needs.check.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure SSH key
-        if: ${{ secrets.CHAOS_MODE == 'ssh' && secrets.CHAOS_SSH_PRIVATE_KEY != '' }}
+        if: needs.check.outputs.ssh == 'true'
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "${{ secrets.CHAOS_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
@@ -41,46 +51,46 @@ jobs:
 
       - name: Redis fault
         env:
-          CHAOS_MODE: ${{ secrets.CHAOS_MODE }}
-          CHAOS_TARGET_NAME: redis
-          CHAOS_HEALTHCHECK_URL: ${{ secrets.CHAOS_HEALTHCHECK_URL }}
-          CHAOS_TIMEOUT_SECONDS: ${{ secrets.CHAOS_TIMEOUT_SECONDS }}
-          CHAOS_OUTAGE_SECONDS: ${{ secrets.CHAOS_OUTAGE_SECONDS }}
-          CHAOS_SSH_HOST: ${{ secrets.CHAOS_SSH_HOST }}
-          CHAOS_SSH_USER: ${{ secrets.CHAOS_SSH_USER }}
-          CHAOS_DOCKER_CONTAINER: ${{ secrets.CHAOS_REDIS_CONTAINER }}
-          CHAOS_REMOTE_SERVICE: ${{ secrets.CHAOS_REDIS_REMOTE_SERVICE }}
-          CHAOS_KILL_COMMAND: ${{ secrets.CHAOS_REDIS_KILL_COMMAND }}
-          CHAOS_RECOVER_COMMAND: ${{ secrets.CHAOS_REDIS_RECOVER_COMMAND }}
+          CHAOS_MODE:              ${{ secrets.CHAOS_MODE }}
+          CHAOS_TARGET_NAME:       redis
+          CHAOS_HEALTHCHECK_URL:   ${{ secrets.CHAOS_HEALTHCHECK_URL }}
+          CHAOS_TIMEOUT_SECONDS:   ${{ secrets.CHAOS_TIMEOUT_SECONDS }}
+          CHAOS_OUTAGE_SECONDS:    ${{ secrets.CHAOS_OUTAGE_SECONDS }}
+          CHAOS_SSH_HOST:          ${{ secrets.CHAOS_SSH_HOST }}
+          CHAOS_SSH_USER:          ${{ secrets.CHAOS_SSH_USER }}
+          CHAOS_DOCKER_CONTAINER:  ${{ secrets.CHAOS_REDIS_CONTAINER }}
+          CHAOS_REMOTE_SERVICE:    ${{ secrets.CHAOS_REDIS_REMOTE_SERVICE }}
+          CHAOS_KILL_COMMAND:      ${{ secrets.CHAOS_REDIS_KILL_COMMAND }}
+          CHAOS_RECOVER_COMMAND:   ${{ secrets.CHAOS_REDIS_RECOVER_COMMAND }}
         run: bash infra/chaos/kill-redis.sh
 
       - name: Worker fault
         env:
-          CHAOS_MODE: ${{ secrets.CHAOS_MODE }}
-          CHAOS_TARGET_NAME: worker
-          CHAOS_HEALTHCHECK_URL: ${{ secrets.CHAOS_HEALTHCHECK_URL }}
-          CHAOS_TIMEOUT_SECONDS: ${{ secrets.CHAOS_TIMEOUT_SECONDS }}
-          CHAOS_OUTAGE_SECONDS: ${{ secrets.CHAOS_OUTAGE_SECONDS }}
-          CHAOS_SSH_HOST: ${{ secrets.CHAOS_SSH_HOST }}
-          CHAOS_SSH_USER: ${{ secrets.CHAOS_SSH_USER }}
-          CHAOS_DOCKER_CONTAINER: ${{ secrets.CHAOS_WORKER_CONTAINER }}
-          CHAOS_REMOTE_SERVICE: ${{ secrets.CHAOS_WORKER_REMOTE_SERVICE }}
-          CHAOS_KILL_COMMAND: ${{ secrets.CHAOS_WORKER_KILL_COMMAND }}
-          CHAOS_RECOVER_COMMAND: ${{ secrets.CHAOS_WORKER_RECOVER_COMMAND }}
+          CHAOS_MODE:              ${{ secrets.CHAOS_MODE }}
+          CHAOS_TARGET_NAME:       worker
+          CHAOS_HEALTHCHECK_URL:   ${{ secrets.CHAOS_HEALTHCHECK_URL }}
+          CHAOS_TIMEOUT_SECONDS:   ${{ secrets.CHAOS_TIMEOUT_SECONDS }}
+          CHAOS_OUTAGE_SECONDS:    ${{ secrets.CHAOS_OUTAGE_SECONDS }}
+          CHAOS_SSH_HOST:          ${{ secrets.CHAOS_SSH_HOST }}
+          CHAOS_SSH_USER:          ${{ secrets.CHAOS_SSH_USER }}
+          CHAOS_DOCKER_CONTAINER:  ${{ secrets.CHAOS_WORKER_CONTAINER }}
+          CHAOS_REMOTE_SERVICE:    ${{ secrets.CHAOS_WORKER_REMOTE_SERVICE }}
+          CHAOS_KILL_COMMAND:      ${{ secrets.CHAOS_WORKER_KILL_COMMAND }}
+          CHAOS_RECOVER_COMMAND:   ${{ secrets.CHAOS_WORKER_RECOVER_COMMAND }}
         run: bash infra/chaos/kill-worker.sh
 
       - name: Network partition
         env:
-          CHAOS_MODE: ${{ secrets.CHAOS_MODE }}
-          CHAOS_TARGET_NAME: network-partition
-          CHAOS_HEALTHCHECK_URL: ${{ secrets.CHAOS_HEALTHCHECK_URL }}
-          CHAOS_TIMEOUT_SECONDS: ${{ secrets.CHAOS_TIMEOUT_SECONDS }}
-          CHAOS_OUTAGE_SECONDS: ${{ secrets.CHAOS_OUTAGE_SECONDS }}
-          CHAOS_SSH_HOST: ${{ secrets.CHAOS_SSH_HOST }}
-          CHAOS_SSH_USER: ${{ secrets.CHAOS_SSH_USER }}
-          CHAOS_DOCKER_CONTAINER: ${{ secrets.CHAOS_PARTITION_CONTAINER }}
-          CHAOS_DOCKER_NETWORK: ${{ secrets.CHAOS_DOCKER_NETWORK }}
-          CHAOS_TARGET_PORT: ${{ secrets.CHAOS_TARGET_PORT }}
+          CHAOS_MODE:              ${{ secrets.CHAOS_MODE }}
+          CHAOS_TARGET_NAME:       network-partition
+          CHAOS_HEALTHCHECK_URL:   ${{ secrets.CHAOS_HEALTHCHECK_URL }}
+          CHAOS_TIMEOUT_SECONDS:   ${{ secrets.CHAOS_TIMEOUT_SECONDS }}
+          CHAOS_OUTAGE_SECONDS:    ${{ secrets.CHAOS_OUTAGE_SECONDS }}
+          CHAOS_SSH_HOST:          ${{ secrets.CHAOS_SSH_HOST }}
+          CHAOS_SSH_USER:          ${{ secrets.CHAOS_SSH_USER }}
+          CHAOS_DOCKER_CONTAINER:  ${{ secrets.CHAOS_PARTITION_CONTAINER }}
+          CHAOS_DOCKER_NETWORK:    ${{ secrets.CHAOS_DOCKER_NETWORK }}
+          CHAOS_TARGET_PORT:       ${{ secrets.CHAOS_TARGET_PORT }}
           CHAOS_PARTITION_COMMAND: ${{ secrets.CHAOS_PARTITION_COMMAND }}
-          CHAOS_HEAL_COMMAND: ${{ secrets.CHAOS_HEAL_COMMAND }}
+          CHAOS_HEAL_COMMAND:      ${{ secrets.CHAOS_HEAL_COMMAND }}
         run: bash infra/chaos/partition-net.sh
