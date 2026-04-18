@@ -1,1032 +1,749 @@
 # ChatOrAI — Multi-Agent Task Assignment
 
-Generated: 2026-04-15
-Agents: Claude Code, Codex
+Generated: 2026-04-14
+Agents: Claude Code, Codex, Qwen Code
 
 ---
 
-## Division Strategy
+## Assignment Philosophy
 
-Tasks are divided by **module ownership for parallel execution**, not by perceived agent specialization. All three agents are capable code-generation LLMs with overlapping abilities. Each gets **complete end-to-end ownership** of distinct packages/modules so they can work in parallel without merge conflicts. Each agent gets a mix of complex and routine work.
+Tasks are distributed based on each agent's natural strengths:
 
-- **Claude Code** — operates in the local session with full repo context. Owns in-place refactors of existing `airos/backend/src/*` code, plus new packages: `packages/db`, `packages/ai-core`, `packages/eval`, `packages/action-sdk`.
-- **Codex** — works in its own branch. Owns new app scaffolding and channel hardening: `apps/api`, `apps/worker`, `apps/web`, `packages/channels/*`, `apps/voice-gateway`, `apps/mobile`, plus all reassigned former Qwen Code scope: `packages/i18n`, `packages/ingest`, `packages/commerce`, `packages/verticals/*`, `apps/widget`, `infra/*`.
+- **Claude Code** — Best at: large file comprehension, architectural analysis, complex refactoring, security-sensitive code, prompt engineering, compliance logic. Assigned: architecture unification, security hardening, AI orchestration, compliance features.
 
-**Reassignment Note:** On 2026-04-16, all remaining Qwen Code scope was reassigned to Codex. Completed status markers below use Codex as the executing agent of record for reassigned work.
+- **Codex** — Best at: targeted code generation, API route implementation, UI component wiring, test writing, migration scripts, infrastructure configuration. Assigned: CRUD endpoints, frontend-backend wiring, plugin endpoints, migration scripts, Docker/CI configs.
+
+- **Qwen Code** — Best at: full-stack feature development, system integration, documentation, observability, real-time features, scaffolding new systems. Assigned: real-time/socket unification, observability stack, i18n foundation, onboarding flow, admin panel hardening.
 
 **Every agent logs work in `/DAILY_UPDATES.md` using this format:**
 
 ```
 ## [DATE] - [Agent Name]
+
 ### Task
 ### Actions Taken
 ### Problems
 ### Solutions
 ### Decisions
 ### Status
+
+❌ No log = Task rejected
 ```
 
 ---
 
-## Module Ownership Map
-
-| Package / App | Owner |
-|---|---|
-| `airos/backend/src/*` refactors (in-place) | Claude Code |
-| `packages/db` (Prisma, RLS, repos) | Claude Code |
-| `packages/ai-core` (agent runtime, prompts, cost controls, copilot) | Claude Code |
-| `packages/eval` (eval harness + red-team) | Claude Code |
-| `packages/action-sdk` (typed actions, vault, audit) | Claude Code |
-| `apps/api` (Fastify HTTP) | Codex |
-| `apps/worker` (BullMQ) | Codex |
-| `apps/web` (Next.js dashboard + marketing) | Codex |
-| `apps/voice-gateway` (LiveKit + SIP) | Codex |
-| `apps/mobile` (React Native) | Codex |
-| `packages/channels/*` (WhatsApp, IG, Messenger, webchat) | Codex |
-| `packages/i18n` (locales, RTL, dialect detector) | Codex |
-| `packages/ingest` (crawler, importers, chunker, embedder) | Codex |
-| `packages/commerce` (payment adapters, checkout) | Codex |
-| `packages/verticals/*` (ecommerce, realestate, tourism) | Codex |
-| `apps/widget` (embeddable chat widget) | Codex |
-| `infra/*` (loadtest, chaos, observability, Docker) | Codex |
-
----
-
-## Coordination Rules
-
-- **Branches**: each agent works on `agent/<name>/<phase>-<slug>` branches. PRs target `main`.
-- **Package boundaries are contracts**: if you need something from another agent's package, open a GitHub issue with the desired API shape — don't reach into their internals.
-- **Tests come with code**: no PR merges without unit tests + at least one integration test per new public API.
-- **Eval is the gate**: `packages/eval` runs on every PR. Regressions block merge, no exceptions.
-- **Blocked? Write the block, don't wait silently**: append to `docs/agent-blocks.md` with the exact missing interface or decision needed.
-
----
-
-# PHASE 0 — Stabilize the Core (Days 1–30)
-
----
+# Phase 0 — Stabilize the Core (Weeks 1–4)
 
 ## CLAUDE CODE — Phase 0
 
-### Prompt
+### Task 0-C1: Kill In-Memory Store & Unify Conversation Pipeline
+**Priority:** Critical
+**Files:** `airos/backend/src/core/inMemoryStore.js`, `airos/backend/src/index.js`, `airos/backend/src/core/messageProcessor.js`
 
-```
-You are working in the repo at /Users/yassin/Desktop/AIROS. Read
-CHATORAI_PLATFORM_ROADMAP.md (Phase 0 section) and PROJECT_KNOWLEDGE.md before starting.
+**What to do:**
+1. Read `inMemoryStore.js` and identify all call sites in `index.js`
+2. Replace in-memory conversation storage with PostgreSQL queries via existing `db/queryModules/conversations.js`
+3. Route WhatsApp webhook messages through BullMQ queue (same pipeline as Instagram/Messenger)
+4. Ensure all messages persist to PostgreSQL before AI processing
+5. Add integration tests proving messages survive server restart
+6. Add CI grep-gate that fails build if `inMemoryStore` is imported
 
-Goal: kill all in-memory state, move AI calls server-side, ship the eval harness and
-cost controls.
+**Deliverables:**
+- `inMemoryStore.js` deleted or deprecated
+- WhatsApp flows through `messageProcessor.js` worker
+- All conversations persisted to PostgreSQL
+- Tests proving durability
+- Remove `inMemoryStore` imports from `index.js`
 
-Tasks:
+**Done when:** No restart loses data. WhatsApp conversations are in PostgreSQL.
 
-1. CREATE packages/db WITH PRISMA SCHEMA
-   - Models: Tenant, User, Conversation, Message, Participant, Channel
-   - Every table has tenant_id, created_at, updated_at, deleted_at
-   - RLS policies: tenant_id = current_setting('app.tenant_id')
-   - Repos under packages/db/repos/* with typed queries
+---
 
-2. KILL inMemoryStore.js
-   - Migrate every call site in airos/backend/src/index.js to packages/db/repos/*
-   - Delete airos/backend/src/core/inMemoryStore.js
-   - Add CI grep-gate: build fails if inMemoryStore imported anywhere
+### Task 0-C2: Move AI Execution Server-Side
+**Priority:** Critical
+**Files:** `airos/frontend/src/app/dashboard/conversations/page.js`
 
-3. MOVE AI CALLS SERVER-SIDE
-   - Remove model SDK imports from airos/frontend/src/app/dashboard/conversations/page.js
-   - Create POST /v1/ai/reply (SSE streaming) that calls ai-core
-   - ANTHROPIC_API_KEY must only exist in the API process
-   - Update frontend to call new endpoint instead of direct AI calls
+**What to do:**
+1. Read all AI calls in the conversations page (currently calling Anthropic/OpenAI from browser)
+2. Create new backend route: `POST /api/v1/ai/reply` (SSE streaming)
+3. Move AI provider keys to server-side only (read from env + encrypted tenant credentials)
+4. Implement tenant token budget check before every AI call
+5. Log every AI call: model, prompt hash, tokens in/out, latency, tenant, conversation
+6. Update frontend to call the new server endpoint instead of direct AI calls
+7. Remove all AI SDK imports from frontend
 
-4. BUILD packages/ai-core
-   - Model clients wrapping Anthropic (Opus/Sonnet/Haiku) and OpenAI
-   - Prompt registry: versioned with semver, hashed, stored in prompt_versions table
-   - Each prompt exports { id, version, versions }
-   - Tenants can pin versions, rollback is one operation
+**Deliverables:**
+- `airos/backend/src/api/routes/ai.js` — new server-side AI route
+- `airos/backend/src/ai/aiOrchestrator.js` — budget check + model selection + logging
+- Updated frontend removing browser-side AI
+- All AI calls logged to `ai_call_log` table
 
-5. COST CONTROLS
-   - TenantTokenBudget table (daily + monthly caps)
-   - Middleware in ai-core checks budget before every call
-   - Records spend, auto-tiers model (Opus → Sonnet → Haiku) on budget pressure
-   - Hard cap fails safely (queues for human reply)
-   - Every AI call logged: model, prompt hash, tokens in/out, latency, tenant, conversation
+**Done when:** No AI keys in browser. All AI calls server-side with audit trail.
 
-6. BUILD packages/eval
-   - CLI: chatorai-eval run <suite>
-   - 200-conversation golden set
-   - Grades: correctness, tone, language match, hallucination (Sonnet-as-judge)
-   - packages/eval/redteam: jailbreak, PII-leak, prompt-injection probes
-   - Wire into CI — regressions block merge
+---
 
-7. BUILD packages/action-sdk SKELETON
-   - defineAction({ id, input: zod, output: zod, requiresApproval, scopes, handler })
-   - Idempotency ledger
-   - ActionAudit table
-   - No built-in actions yet (Phase 3)
+### Task 0-C3: Security Hardening — CORS, Webhooks, Rate Limiting
+**Priority:** High
+**Files:** `airos/backend/src/index.js`, `airos/backend/src/api/middleware/`
 
-Done when:
-- grep -r inMemoryStore airos/ returns zero hits in src/
-- Tenant A cannot read Tenant B rows (write a failing-then-passing RLS test)
-- Eval harness reports a baseline score in CI
-- No ANTHROPIC_API_KEY in frontend bundle
-- Cost controls enforce budget limits in test
-```
+**What to do:**
+1. Implement CORS with `ALLOWED_ORIGINS` env list (parse at boot, validate each origin)
+2. Add webhook signature verification for Meta (`X-Hub-Signature-256`) in `airos/backend/src/channels/whatsapp/webhook.js`
+3. Add `@fastify/rate-limit` with Redis-backed per-tenant and per-IP limits
+4. Implement Socket.IO origin validation (same allowed origins list)
+5. Add tenant JWT requirement on all Socket.IO connections
+6. Create `packages/channels/whatsapp/verify.ts` or equivalent JS verification module
 
-### Task Checklist
+**Deliverables:**
+- CORS middleware using `ALLOWED_ORIGINS` env variable
+- Webhook signature verification in all channel webhooks
+- Rate limiting middleware (per-tenant + per-IP)
+- Socket.IO strict origin check
+- Documented security changes in `docs/security.md`
 
-| ID | Task | Priority | Dependencies |
-|---|---|---|---|
-| 0-C1 | Kill inMemoryStore, create packages/db with Prisma + RLS | Critical | None |
-| 0-C2 | Move AI execution server-side (POST /v1/ai/reply SSE) | Critical | None |
-| 0-C3 | Build packages/ai-core (model clients, prompt registry, cost controls) | Critical | None |
-| 0-C4 | Build packages/eval (eval harness + red-team suite) | High | 0-C3 |
-| 0-C5 | Build packages/action-sdk skeleton | High | 0-C1 |
+**Done when:** No open CORS. No unsigned webhook accepted. Rate limits enforced.
 
-**Status:** Codex ✅ Completed (2026-04-16)
-Verified:
-- `packages/db`: Prisma schema with RLS, repos, auditLog, RLS isolation test
-- `packages/ai-core`: Anthropic + OpenAI streaming clients, prompt registry, cost controls (budget tiers, model auto-tiering)
-- `packages/eval`: golden set (200 cases), Sonnet-as-judge, red-team suite (30 probes), CLI, CI gate
-- `packages/action-sdk`: defineAction (Zod I/O, idempotency, approval gate), registry, 3 built-in actions
-- `airos/backend`: AI route moved server-side (`POST /v1/ai/reply` SSE), actions API mounted, inMemoryStore eliminated
+---
+
+### Task 0-C4: Eval Harness v0 + Red-Team Suite
+**Priority:** High
+**Files:** New — `airos/backend/src/eval/` directory
+
+**What to do:**
+1. Create evaluation harness: CLI that runs a golden set of 200 conversations against AI
+2. Grades: correctness, tone, language match, hallucination detection
+3. Create red-team suite: adversarial prompts, jailbreak attempts, PII-leak probes, prompt-injection tests
+4. Wire eval results to dashboard API endpoint
+5. CI integration: eval runs on every PR touching AI code or prompts
+
+**Deliverables:**
+- `airos/backend/src/eval/harness.js` — eval runner
+- `airos/backend/src/eval/redteam.js` — adversarial test suite
+- `airos/backend/src/eval/golden-set.json` — 200 test conversations
+- `airos/backend/src/api/routes/eval.js` — API to trigger and view eval results
+- CI script for PR gate
+
+**Done when:** Eval reports baseline. Red-team blocks merges on regression.
 
 ---
 
 ## CODEX — Phase 0
 
-### Prompt
+### Task 0-X1: Implement Missing Catalog Delete Routes
+**Status:** ✅ Completed (2026-04-15)
+**Priority:** Medium
+**Files:** `airos/backend/src/api/routes/catalog.js`
 
-```
-You are building the HTTP API and worker infrastructure for the ChatOrAI platform.
-Read CHATORAI_PLATFORM_ROADMAP.md sections "Stack Decisions" and "Phase 0" for full
-context.
+**What to do:**
+1. Add `DELETE /v1/catalog/products/:id` endpoint
+2. Query: `DELETE FROM products WHERE tenant_id = $1 AND id = $2 AND source = $3 RETURNING *`
+3. Source comes from query param `?source=woocommerce|shopify`
+4. Add validation: tenant must own the product
+5. Log deletion to audit trail
+6. Add tests for WooCommerce and Shopify deletion flows
 
-The db package (packages/db) and ai-core package (packages/ai-core) are owned by
-Claude Code — import from them via @chatorai/db and @chatorai/ai-core, don't
-redefine their models or logic.
+**Deliverables:**
+- Delete endpoint in `catalog.js`
+- Unit tests for delete with both sources
+- Integration test with plugin deletion flow
 
-Goal: scaffold apps/api (Fastify), apps/worker (BullMQ), harden channels, split
-deployment.
-
-Tasks:
-
-1. SCAFFOLD apps/api
-   - Fastify + TypeScript strict
-   - Zod validation at every HTTP boundary
-   - Routes: /v1/auth, /v1/conversations, /v1/messages, /v1/ai/reply (SSE — calls
-     ai-core), /v1/webhooks/:channel, /v1/tenants, /v1/customers
-   - OpenTelemetry auto-instrumentation
-   - @fastify/rate-limit: Redis-backed, per-tenant + per-IP
-   - Health check: GET /health with Postgres + Redis + AI provider status
-
-2. SCAFFOLD apps/worker
-   - BullMQ + Redis
-   - Queues: inbound.process, outbound.send, ai.reply, eval.run
-   - Worker persists messages via @chatorai/db, publishes to Redis pubsub,
-     triggers Socket.IO emits to tenant room
-
-3. ONE MESSAGE PIPELINE
-   - Inbound event (webhook, socket, API) → normalized InboundMessage (zod schema
-     in packages/shared) → BullMQ inbound.process job → worker persists → Redis
-     pubsub → Socket.IO emits to tenant room
-   - Replace current inline handlers in airos/backend/src/index.js routing
-
-4. HARDEN CHANNELS (packages/channels/*)
-   - Migrate from airos/backend/src/channels/ to packages/channels/
-   - packages/channels/livechat: ALLOWED_ORIGINS env list, Socket.IO strict origin,
-     tenant JWT required on connect, rooms keyed by tenant_id, Redis adapter
-   - packages/channels/<name>/verify.ts: signature validation for Meta
-     (X-Hub-Signature-256), Stripe, Twilio. Reject with 401 before enqueue.
-
-5. DEPLOYMENT SPLIT
-   - Separate Dockerfiles for apps/api, apps/worker, apps/web, apps/scheduler
-   - Railway staging config
-   - infra/terraform/ ECS task definitions for prod
-
-6. BACKUP & RESTORE
-   - Nightly pg_dump to S3, 30-day retention
-   - Weekly restore test in CI
-   - Runbook: docs/runbooks/backup.md
-
-7. STATUS PAGE
-   - apps/status: Next.js page with incident feed
-   - Health endpoint integration
-   - Linked from dashboard footer
-
-8. DASHBOARD WIRING (apps/web)
-   - Replace mock/localStorage data with real API calls in dashboard pages:
-     overview, deals, products, reports, conversations
-   - Remove all demoMode code
-   - Add loading states, error boundaries, retry logic
-
-Done when:
-- All channel webhooks verify signatures and reject forgeries
-- Sockets reject cross-origin and missing-JWT connections
-- apps/api, apps/worker, apps/web deploy separately on Railway staging
-- Weekly restore drill passes in CI
-- Dashboard shows real data from production database
-```
-
-### Task Checklist
-
-| ID | Task | Priority | Dependencies |
-|---|---|---|---|
-| 0-X1 | Scaffold apps/api (Fastify + TS, routes, rate limiting, health) | Critical | packages/db (0-C1) |
-| 0-X2 | Scaffold apps/worker (BullMQ queues, message pipeline) | Critical | packages/db (0-C1) |
-| 0-X3 | One message pipeline (normalize → enqueue → persist → pubsub → emit) | Critical | 0-X1, 0-X2 |
-| 0-X4 | Harden channels (CORS, JWT, signatures, Redis adapter) | High | 0-X1 |
-| 0-X5 | Deployment split (Dockerfiles, Railway config, Terraform stubs) | High | None |
-| 0-X6 | Backup/restore + status page | High | None |
-| 0-X7 | Wire dashboard pages to real APIs, remove demo mode | High | 0-X1, 0-C1 |
-
-**Status:** Codex ✅ Completed (2026-04-16)
-Verified:
-- `apps/api`: Fastify + TypeScript scaffold, Zod-validated route modules, `/health`, auth/conversations/messages/customers/tenants/AI/webhook surfaces, rate-limit + telemetry bootstrap
-- `apps/worker`: BullMQ queues for `inbound.process`, `outbound.send`, `ai.reply`, `eval.run`, persistence via `@chatorai/db`, Redis pubsub realtime bridge
-- `packages/shared`: normalized `InboundMessage` schema, queue constants, realtime channel contract
-- `packages/channels`: Meta/Instagram/Messenger/Stripe/Twilio signature verification and hardened livechat Socket.IO server with strict origin/JWT checks
-- `apps/status`: Next.js status page build with health endpoint integration
-- `apps/web`: split-app wrapper that builds the existing `airos/frontend` dashboard under the new deployment layout
-- Deployment/ops: per-app Dockerfiles, Railway staging config, ECS task-definition stubs, backup runbook
-- Validation: `apps/api` typecheck + tests, `apps/worker` typecheck + tests, `packages/channels` TypeScript check, `apps/status` build, `apps/web` build
-Note: runtime boot against a fully provisioned Prisma/Postgres/Redis stack was not revalidated in this pass because `packages/db` bootstrap remained partially incomplete locally.
+**Done when:** WordPress and Shopify plugins can delete products via API.
 
 ---
 
-## CODEX — Phase 0 (Reassigned From Qwen Code)
+### Task 0-X2: Wire Dashboard Pages to Backend APIs
+**Status:** ✅ Completed (2026-04-15)
+**Priority:** High
+**Files:** `airos/frontend/src/app/dashboard/` (overview, deals, products, reports pages)
 
-### Prompt
+**What to do:**
+For each page (one at a time, starting with overview):
+1. Replace mock/localStorage data with real API calls
+2. Use `api.js` client library to call backend endpoints
+3. Add loading states, error boundaries, retry logic
+4. Remove all demo mode code from these pages
+5. Add `useEffect` for real-time data refresh
 
-```
-You are building the embeddable widget, load-testing infrastructure, observability
-stack, and admin panel for the ChatOrAI platform. Read CHATORAI_PLATFORM_ROADMAP.md
-"Phase 0" for context.
+**Pages to wire (in order):**
+1. `overview/page.js` → `GET /api/reports/revenue`, `GET /api/deals`, `GET /api/conversations`
+2. `deals/page.js` → `GET /api/deals`, `POST /api/deals/:id/stage`
+3. `products/page.js` → `GET /v1/catalog/products`
+4. `reports/page.js` → `GET /api/reports/*`
 
-Goal: ship a production-grade widget, observability, load/chaos testing, and hardened
-admin panel.
+**Deliverables:**
+- 4 dashboard pages wired to real backend
+- All `demoMode` removed from these pages
+- Loading states and error handling
 
-Tasks:
-
-1. REWRITE WIDGET (apps/widget)
-   - Rewrite airos/widget/ into apps/widget as a Preact bundle (<30kb gzipped)
-   - TypeScript strict
-   - Loads via <script src="https://cdn.chatorai.com/widget.js" data-tenant="...">
-   - Features: open/close toggle, message list, composer with file upload, typing
-     indicator, Socket.IO client with tenant JWT handshake
-   - CSS modules (no inline styles), RTL-ready via dir attribute
-   - Connection recovery on disconnect
-   - Bundle size enforced in CI
-
-2. OBSERVABILITY STACK (infra/docker/observability/)
-   - OpenTelemetry auto-instrumentation config for Fastify, BullMQ, Prisma
-   - Grafana dashboards: API latency (p50/p95/p99), worker queue depth, AI token
-     spend per tenant, socket connection count, error rate by tenant
-   - Structured logging: JSON format with tenant_id, request_id threading through
-     logs and jobs
-   - Sentry DSN wiring for the widget
-   - Loki for log aggregation, Tempo for traces, Prometheus for metrics
-
-3. LOAD TESTING (infra/loadtest/)
-   - k6 scripts: ingest.js (500 msg/sec sustained), fanout.js (Socket.IO broadcast
-     to 10k clients), ai-reply.js (100 concurrent SSE streams)
-   - Output Prometheus metrics for Grafana dashboards
-   - Documented expected thresholds in README
-
-4. CHAOS TESTING (infra/chaos/)
-   - Scripts: kill-redis.sh, kill-worker.sh, partition-net.sh
-   - Run nightly against staging
-   - Expected recovery behavior documented in docs/runbooks/chaos.md
-
-5. DISASTER RECOVERY (docs/runbooks/dr.md)
-   - RPO 15min, RTO 1hr
-   - Multi-AZ Postgres streaming replicas
-   - S3 cross-region replication for backups
-   - Quarterly restore drill procedure
-
-6. ADMIN PANEL HARDENING
-   - Replace hardcoded demo admin accounts with real backend auth
-   - Create platform_admin role in database
-   - POST /api/admin/auth/login with proper JWT
-   - Wire admin dashboard pages to real APIs (tenant counts, revenue, billing)
-   - Admin audit log for all actions
-   - Remove all localStorage admin tokens, use HTTP-only cookies
-
-Done when:
-- Widget bundle <30kb gzipped (CI enforced)
-- k6 scripts run green against staging with documented p95 latencies
-- Chaos runs recover within RTO
-- Grafana shows p50/p95/p99 for the full request path end-to-end
-- Admin panel requires real auth, no demo accounts, actions audited
-```
-
-### Task Checklist
-
-| ID | Task | Priority | Dependencies |
-|---|---|---|---|
-| 0-Q1 | Rewrite widget as Preact <30kb bundle | High | packages/channels/livechat (0-X4) |
-| 0-Q2 | Observability stack (OTel, Grafana, Loki, Tempo, Prometheus) | High | None |
-| 0-Q3 | k6 load tests + chaos scripts | High | 0-X1, 0-X2 |
-| 0-Q4 | DR runbook + procedures | High | None |
-| 0-Q5 | Admin panel hardening (real auth, audit log, remove demo) | High | None |
-
-**Completed Tasks**
-- `0-Q2` — Codex ✅ Completed (2026-04-16)
-- `0-Q4` — Codex ✅ Completed (2026-04-16)
-- `0-Q5` — Codex ✅ Completed (2026-04-16)
-- Verified: `infra/docker/observability/` now contains OTel Collector, Prometheus, Loki, Promtail, Tempo, Grafana provisioning, and a starter dashboard.
-- Verified: `apps/api`, `apps/worker`, and `airos/backend` expose Prometheus-style `/metrics` output and optional OTel bootstrap hooks.
-- Verified: `airos/widget` supports optional Sentry DSN wiring, and `docs/widget-embed.md` documents the embed attributes.
-- Verified: `docs/runbooks/dr.md` now explicitly covers multi-AZ Postgres streaming replicas, S3 cross-region replication, and the quarterly restore drill procedure.
-- Verified: admin auth is cookie-backed through `POST /api/admin/auth/login`, `GET /api/admin/auth/me`, and `POST /api/admin/auth/logout`; frontend admin pages use real `/api/admin/*` APIs; platform-admin actions write to `audit_log`; legacy admin localStorage token use has been removed.
-
-`0-Q3` validation progress on Railway staging:
-- Verified live: `/health` returned `200`, `/v1/webhooks/livechat` returned `202`, and `/v1/ai/reply` completed with SSE `event: done` when `provider=openai`.
-- Verified live: `infra/loadtest/ai-reply.js` ran green against staging with `p95=2.36s`; `infra/loadtest/ingest.js` ran green at safe staging rate with `p95=605.39ms`; Redis restart recovered health in `3s`; worker restart brought the service back up cleanly.
-- Remaining blocker before `0-Q3` can be marked complete: there is still no staging Socket.IO/backend service for a live `fanout.js` run or a true network-partition drill.
+**Done when:** Dashboard shows real data from production database.
 
 ---
 
-# PHASE 1 — International Foundation + MENA Compliance (Days 31–60)
+### Task 0-X3: Prompt Versioning System
+**Status:** ✅ Completed (2026-04-15)
+**Priority:** High
+**Files:** New — `airos/backend/src/ai/promptRegistry.js`, `airos/backend/src/db/queryModules/prompts.js`
+
+**What to do:**
+1. Create `prompt_versions` table: `(id, version, prompt_hash, content, created_at, tenant_id)`
+2. Implement prompt registry with semver versioning
+3. Each prompt file exports `{ id, version, versions }`
+4. Add API: `GET /api/prompts`, `POST /api/prompts/:id/rollback`
+5. Tenants can pin prompt versions
+6. Create prompt version diff view in UI
+
+**Deliverables:**
+- `prompt_versions` table migration
+- `promptRegistry.js` module
+- API routes for prompt management
+- Rollback functionality
+
+**Done when:** Every prompt is versioned. Tenants can pin and rollback versions.
 
 ---
+
+### Task 0-X4: Backup & Disaster Recovery Scripts
+**Status:** ✅ Completed (2026-04-15)
+**Priority:** High
+**Files:** New — `airos/infra/backups/` directory
+
+**What to do:**
+1. Create nightly `pg_dump` script to S3 (30-day retention)
+2. Create weekly restore test script that runs in CI
+3. Document disaster recovery runbook: `docs/runbooks/dr.md`
+4. RPO: 15 min, RTO: 1 hour
+5. Create backup verification test (restore dump to temp DB, run schema checks)
+
+**Deliverables:**
+- `airos/infra/backups/backup.sh` — backup script
+- `airos/infra/backups/restore-test.sh` — restore test script
+- `docs/runbooks/dr.md` — disaster recovery runbook
+- CI job for weekly restore test
+
+**Done when:** Backups run nightly. Restore test passes weekly. DR documented.
+
+---
+
+## QWEN CODE — Phase 0
+
+### Task 0-Q1: Real-Time Socket Unification
+**Priority:** High
+**Files:** `airos/backend/src/channels/livechat/socket.js`, `airos/frontend/src/lib/socket.js`, `airos/frontend/src/app/dashboard/conversations/page.js`
+
+**What to do:**
+1. Fix Socket.IO handshake: frontend must pass `tenantId` from auth token
+2. Backend must validate `tenantId` on socket connect
+3. Implement Redis adapter for Socket.IO (for horizontal scaling)
+4. Create tenant-scoped socket rooms: `tenant:${tenantId}:conversations`
+5. Ensure all 4 channels (WhatsApp, Instagram, Messenger, Live Chat) emit to correct tenant rooms
+6. Add socket reconnection logic with session recovery
+7. Test real-time message delivery across all channels
+
+**Deliverables:**
+- Updated socket handshake with tenant validation
+- Redis adapter configured
+- Socket room management per tenant
+- Reconnection logic in frontend
+- Integration tests for real-time delivery
+
+**Done when:** Real-time works reliably. Socket connections are tenant-isolated.
+
+---
+
+### Task 0-Q2: Observability Stack
+**Priority:** High
+**Files:** New — `airos/backend/src/core/telemetry.js`, `airos/backend/src/core/logger.js`
+
+**What to do:**
+1. Add OpenTelemetry auto-instrumentation for Express, BullMQ, pg
+2. Implement structured logging (JSON format with `tenant_id`, `request_id`)
+3. Add request ID tracing through all logs (generate at request start, pass through all middleware, jobs, and AI calls)
+4. Create health check endpoint: `GET /health` with dependency status (Postgres, Redis, AI providers)
+5. Add per-tenant API metrics (request count, latency, error rate)
+6. Integrate Sentry for frontend error tracking
+
+**Deliverables:**
+- `telemetry.js` — OpenTelemetry setup
+- `logger.js` — structured logger with request ID
+- `GET /health` endpoint with dependency checks
+- Per-tenant metrics middleware
+- Sentry integration in frontend
+
+**Done when:** Every request has a trace ID. Health checks work. Errors tracked in Sentry.
+
+---
+
+### Task 0-Q3: Admin Panel Hardening
+**Priority:** High
+**Files:** `airos/frontend/src/app/admin/`, `airos/backend/src/api/routes/admin.js`, `airos/backend/src/api/middleware/adminAuth.js`
+
+**What to do:**
+1. Replace hardcoded demo admin accounts with real backend auth
+2. Create `platform_admin` role in database
+3. Implement proper admin login: `POST /api/admin/auth/login`
+4. Add admin session management with JWT
+5. Wire admin dashboard pages to real backend APIs:
+   - `GET /api/admin/overview` → real tenant counts, revenue, activity
+   - `GET /api/admin/clients` → real tenant list with search/filter
+   - `GET /api/admin/billing` → Stripe subscription data
+6. Add admin audit log for all admin actions
+7. Remove all `localStorage` admin tokens, replace with HTTP-only cookies
+
+**Deliverables:**
+- `POST /api/admin/auth/login` endpoint
+- `platform_admin` role with proper auth
+- Admin dashboard wired to real APIs
+- Audit log for admin actions
+- Session management (HTTP-only cookies)
+
+**Done when:** Admin panel requires real auth. No demo accounts exist. Actions are audited.
+
+---
+
+### Task 0-Q4: Align Widget Artifact Name
+**Priority:** Medium
+**Files:** `airos/widget/build.js`, `airos/frontend/src/app/dashboard/settings/page.js`, documentation
+
+**What to do:**
+1. Check current widget build output name vs code references
+2. Either:
+   - Rename build output to match code references, OR
+   - Update all code references to match build output
+3. Test widget embed in a fresh HTML page
+4. Update documentation with correct embed snippet
+5. Add widget build CI step to prevent future mismatches
+
+**Deliverables:**
+- Consistent widget artifact name across all code
+- Working embed test
+- Updated documentation
+- CI build step for widget
+
+**Done when:** Widget embeds correctly with no 404 on script.
+
+---
+
+# Phase 1 — International Foundation (Weeks 5–10)
 
 ## CLAUDE CODE — Phase 1
 
-### Prompt
+### Task 1-C1: Dialect Detection System
+**Priority:** High
+**Files:** New — `airos/packages/i18n/dialect.js`
 
-```
-Continue in /Users/yassin/Desktop/AIROS. Read Phase 1 of CHATORAI_PLATFORM_ROADMAP.md.
-packages/db, packages/ai-core, and packages/eval exist from Phase 0.
+**What to do:**
+1. Implement dialect detection for Arabic (Khaleeji, Masri, Shami, Maghrebi, MSA)
+2. Stage 1: fast keyword/phrase classifier (~5MB, <5ms in-process)
+3. Stage 2: Claude Haiku fallback for ambiguous messages
+4. Output: `{ language, dialect, confidence }` attached to every inbound message
+5. Train classifier on Arabic dialect datasets
+6. Create dialect detection tests with known samples
 
-Goal: compliance architecture, PII encryption, data residency, and the business
-understanding generator.
+**Deliverables:**
+- `dialect.js` detection module
+- Arabic dialect keyword database
+- Confidence scoring
+- Test suite with 500+ dialect samples
 
-Tasks:
+**Done when:** Dialect detection >90% accuracy on test set.
 
-1. DATA RESIDENCY
-   - Add Tenant.dataResidency enum (us | eu | gcc) to Prisma schema
-   - packages/db/client.ts routes queries to correct Postgres cluster based on tenant
-   - Connection pool per cluster, routing transparent to callers
+---
 
-2. PII ENCRYPTION AT REST
-   - Envelope encryption: per-tenant DEK wrapped by KMS KEK (AWS KMS for US/EU,
-     regional KMS for GCC)
-   - PII columns (phone, email, message.body when flagged) encrypted at repo layer
-   - Route handlers never see plaintext keys
+### Task 1-C2: Multilingual Prompt Registry
+**Priority:** High
+**Files:** New — `airos/backend/src/ai/prompts/` directory
 
-3. PII DETECTION ON INGEST
-   - Presidio for EN/FR/ES + Arabic NER model (CAMeLBERT) for AR
-   - Runs in inbound.process worker before persistence
-   - Detected PII auto-encrypted, flagged in metadata
+**What to do:**
+1. Create prompt registry with locale-aware prompts
+2. Each prompt: `{ id, versions: { 'en', 'ar-msa', 'ar-khaleeji', 'ar-masri', 'ar-shami', 'ar-maghrebi' } }`
+3. Runtime picks dialect match; falls back MSA → English
+4. Prompt loading from filesystem or database
+5. Prompt validation on load (check all locale variants exist)
+6. Create initial prompt templates for all 6 locales
 
-4. RETENTION & DSR
-   - RetentionPolicy per tenant (configurable per table)
-   - Scheduler job deletes expired rows nightly with audit
-   - POST /v1/privacy/export: signed zip of all customer data within 48h
-   - POST /v1/privacy/delete: right-to-erasure, cascades across conversations/
-     messages/embeddings/recordings
-   - Each request creates PrivacyJob row with full audit trail
+**Deliverables:**
+- Prompt registry module
+- 6 locale variants for core prompts (greeting, qualification, escalation, summary)
+- Fallback chain implementation
+- Prompt validation tests
 
-5. BUSINESS UNDERSTANDING GENERATOR
-   - Input: top chunks from crawler (Qwen's packages/ingest) + structured data
-   - Output via Claude Opus with zod-typed schema:
-     { businessName, vertical, offerings[], policies[], tone, primaryLanguage,
-       primaryDialect, openingHours, locations[], faqCandidates[], brandVoiceNotes }
-   - Store as TenantProfile row in packages/db
+**Done when:** AI replies in correct dialect. Fallback chain works.
 
-6. INITIAL SETTINGS GENERATOR
-   - TenantProfile → RoutingRules, Tags, CannedReplies (all detected languages),
-     QualificationForm, LeadScoringModel, AgentPersona, Workflows
-   - Every field editable in review UI (Codex owns UI, you provide the API)
+---
 
-7. COMPLIANCE DOCS
-   - docs/compliance/pdpl-ksa.md, uae-dpl.md, egypt-dpl.md, gdpr.md
-   - Map each requirement to implemented control
+### Task 1-C3: MENA Compliance Framework
+**Priority:** High
+**Files:** New — `airos/backend/src/compliance/` directory
 
-Done when:
-- Tenant in GCC residency has zero rows on US/EU clusters (verified test)
-- DSR export returns complete, signed archive
-- PII leak probe in red-team suite finds zero plaintext PII in backups
-- Business understanding generates accurate profile from crawled site
-```
+**What to do:**
+1. Implement data residency routing (`Tenant.dataResidency: us | eu | gcc`)
+2. Create retention policy scheduler
+3. Build DSR endpoints: `POST /v1/privacy/export`, `POST /v1/privacy/delete`
+4. Implement PII detection on ingest (keyword-based for Arabic + English)
+5. Create compliance audit log
+6. Document PDPL (KSA), UAE DPL, Egypt DPL requirements
 
-### Task Checklist
+**Deliverables:**
+- `compliance/dataResidency.js`
+- `compliance/retention.js` — retention policy scheduler
+- DSR API endpoints
+- PII detection module
+- Compliance documentation
 
-| ID | Task | Priority | Dependencies |
-|---|---|---|---|
-| 1-C1 | Data residency routing (us/eu/gcc) | High | 0-C1 |
-| 1-C2 | PII encryption at rest (envelope encryption, tenant KMS) | High | 1-C1 |
-| 1-C3 | PII detection on ingest (Presidio + Arabic NER) | High | 1-C2 |
-| 1-C4 | Retention policies + DSR endpoints | High | 1-C1 |
-| 1-C5 | Business understanding document generator | High | packages/ingest (1-Q1) |
-| 1-C6 | Initial settings generator (TenantProfile → workspace) | High | 1-C5 |
-
-**Status:** Codex ✅ Completed (2026-04-16)
-
-Verified:
-- 1-C1: `packages/db/src/client.js` rewritten — `getPrisma(region)`, `getPrismaForTenant(tenantId)` (async, cached), `withTenant` routes to correct cluster. Supports `DATABASE_URL_US/EU/GCC` env vars.
-- 1-C2: `packages/db/src/encryption.js` — AES-256-GCM envelope encryption, per-tenant DEK wrapped by `PII_MASTER_KEY` KEK, stored in new `TenantEncryptionKey` table. `encrypt/decrypt/rotateDek` API.
-- 1-C3: `packages/db/src/piiDetect.js` — regex detector (email, phone, CC, IBAN, IP, SSN, SA national ID) + Presidio HTTP sidecar integration when `PRESIDIO_URL` set. Arabic NER routed via Presidio `language=ar`.
-- 1-C4: `RetentionPolicy` + `PrivacyJob` models added to Prisma schema. `packages/db/src/retentionScheduler.js` — nightly purge per tenant policy. `airos/backend/src/api/routes/privacy.js` — `POST /v1/privacy/export`, `POST /v1/privacy/delete`, `GET /v1/privacy/jobs`, `POST /v1/privacy/retention`. Retention scheduler started at boot.
-- 1-C5: `packages/ai-core/src/understand/index.js` — Claude Opus generates Zod-typed TenantProfile from KnowledgeChunks. Stored in `tenant_profiles`. API: `POST /api/understand/profile`.
-- 1-C6: `packages/ai-core/src/understand/settingsGenerator.js` — Claude Opus generates routingRules, tags, cannedReplies (multilingual), qualificationForm, leadScoringModel, agentPersona, workflows from TenantProfile. Stored in `Tenant.settings.generated`. API: `POST /api/understand/settings`.
-- Schema updated: `TenantEncryptionKey`, `RetentionPolicy`, `PrivacyJob` models added. Tenant relations updated.
-- Note: 1-C5/1-C6 implemented without `packages/ingest` dependency — generator reads existing `KnowledgeChunk` rows from DB. Ingest pipeline (Qwen 1-Q1) populates those rows.
+**Done when:** Tenant data routed to correct region. DSR endpoints work. Retention policies enforced.
 
 ---
 
 ## CODEX — Phase 1
 
-### Prompt
+### Task 1-X1: i18n Foundation — Locale Files + Translation Infrastructure
+**Priority:** High
+**Files:** New — `airos/frontend/locales/` directory
 
-```
-You own apps/api, apps/worker, apps/web, and packages/channels. Read Phase 1 of
-CHATORAI_PLATFORM_ROADMAP.md.
+**What to do:**
+1. Set up `next-intl` in Next.js App Router
+2. Create locale files for Arabic (`ar`) and English (`en`)
+3. Extract all user-facing strings from frontend pages to locale files
+4. Implement locale routing: `/en/...`, `/ar/...`
+5. Add language switcher component
+6. Create string extraction script to find missing translations
 
-The i18n package (packages/i18n) is owned by Codex — import from @chatorai/i18n.
-The db package is owned by Claude Code — import from @chatorai/db.
+**Deliverables:**
+- `next-intl` configured in Next.js
+- `locales/ar/common.json`, `locales/en/common.json`
+- Locale routing working
+- Language switcher component
+- Missing translation detection script
 
-Goal: i18n-ready dashboard, money/time layer, language-aware routing, signup flow,
-review UI, migration importers.
-
-Tasks:
-
-1. NEXT.JS i18n INTEGRATION (apps/web)
-   - next-intl with App Router segment [locale]/...
-   - <html dir> from locale (import isRTL from @chatorai/i18n)
-   - Tailwind rtl: variants throughout
-   - Extract all user-facing strings to t('key') calls
-   - Playwright visual-regression tests for EN + AR (LTR + RTL)
-
-2. MONEY + TIME
-   - packages/shared/money.ts: { amount: bigint, currency: ISO4217 }, minor units
-   - Helpers: add, subtract, convert (daily FX rates cached in Redis), format(locale)
-   - Replace every number-type money field across the codebase
-   - Time: UTC in DB, render in tenant/customer timezone
-   - Locale-aware formatting: dates, numbers, currency, relative-time via Intl APIs
-
-3. LANGUAGE-AWARE ROUTING (apps/worker/routing)
-   - Input = InboundMessage with detected language + dialect (from @chatorai/i18n)
-   - Output = chosen queue / agent pool / AI persona / canned-reply set
-   - Rules configurable per tenant via dashboard
-
-4. SIGNUP + ONBOARDING (apps/web)
-   - Next.js server actions create Tenant + User + Workspace, seed feature flags
-   - Email verification (Resend)
-   - XState onboarding state machine in packages/shared/onboarding.ts
-   - Steps: signup → verify → select-vertical → connect-website → connect-socials →
-     connect-commerce → review-profile → review-settings → connect-channels → live
-   - OAuth connect flows for Instagram, Facebook, TikTok, Google Business, Shopify,
-     WooCommerce, Salla, Zid (encrypted credentials in action-sdk vault)
-
-5. REVIEW UI (apps/web)
-   - TenantProfile review screen (all fields editable)
-   - Settings review (routing/tags/canned-replies/qualification/scoring/persona/workflows)
-   - Every field shows diff vs. AI-generated original, with "revert" per field
-   - "Go live" button commits + flips tenant.status to active
-
-6. MIGRATION IMPORTERS (apps/api/src/migrations/)
-   - Intercom: OAuth, paginated import of conversations, customers, macros, tags, teams
-   - Zendesk: same scope
-   - Freshchat, Zoho: stub with TODO
-   - Map external models to ChatOrAI models
-   - One-click migration wizard in onboarding, progress UI
-
-Done when:
-- No raw number money fields remain (grep-gate in CI)
-- Playwright RTL screenshots match baseline
-- Routing sends ar-khaleeji message to Khaleeji agent pool
-- New user goes from signup to live workspace in <15 minutes
-- Intercom migration of 10k conversations succeeds on staging
-```
-
-### Task Checklist
-
-| ID | Task | Priority | Dependencies |
-|---|---|---|---|
-| 1-X1 | Next.js i18n integration + RTL + Playwright tests | High | packages/i18n (1-Q1) |
-| 1-X2 | Money/time layer (bigint currency, timezone rendering) | High | None |
-| 1-X3 | Language-aware routing engine | High | packages/i18n (1-Q1) |
-| 1-X4 | Signup + onboarding flow (XState wizard) | High | 1-X1 |
-| 1-X5 | Review UI for AI-generated settings | High | 1-C5, 1-C6 |
-| 1-X6 | Migration importers (Intercom + Zendesk) | High | 0-X1 |
+**Done when:** All user-facing strings use `t('key')`. Language switcher works.
 
 ---
 
-## CODEX — Phase 1 (Reassigned From Qwen Code)
+### Task 1-X2: RTL Layout Implementation
+**Priority:** High
+**Files:** `airos/frontend/src/app/layout.js`, all dashboard components
 
-### Prompt
+**What to do:**
+1. Set `<html dir="rtl" lang="ar">` for Arabic locale, `<html dir="ltr" lang="en">` for English
+2. Implement RTL-safe CSS (logical properties, flex direction, text alignment)
+3. Test all dashboard pages in RTL mode
+4. Fix layout bugs: margins, paddings, icons, navigation
+5. Add Playwright visual regression tests for both directions
 
-```
-You own packages/i18n and packages/ingest end-to-end. Read Phase 1 of
-CHATORAI_PLATFORM_ROADMAP.md, especially "Arabic and English first-class" and the
-ingestion plan.
+**Deliverables:**
+- RTL layout working across all pages
+- CSS logical properties used throughout
+- Visual regression tests for RTL + LTR
 
-Goal: ship the full i18n package (locales, RTL, dialect detection) and the content
-ingestion pipeline (crawler, chunker, embedder, social + commerce importers).
-
-Tasks:
-
-1. BUILD packages/i18n
-   - Exports: t(key, vars, locale), <Trans> component, useLocale() hook
-   - Locale files: packages/i18n/locales/{en,ar,fr,es,tr,de,pt,id,ur,hi}/*.json
-   - Start with 2000 common UI strings in all 10 locales
-   - ICU MessageFormat for plurals and gender
-   - RTL helpers: isRTL(locale), logical-to-physical property mappers
-   - Tailwind config extension adding rtl: variants
-   - ESLint rule no-literal-strings-in-jsx: every JSX string must come from t()
-
-2. DIALECT DETECTOR (packages/i18n/dialect.ts)
-   - Stage 1: fastText n-gram classifier (~5MB, <5ms inline)
-   - Distinguishes: MSA / Khaleeji / Masri / Shami / Maghrebi
-   - Stage 2: Claude Haiku fallback when confidence < 0.7
-   - Output: { language, dialect, confidence }
-   - Attach to every InboundMessage in the worker pipeline
-
-3. DIALECT TRAINING DATA PIPELINE
-   - Scripts to pull Arabic corpora (Tashkeela, Shami corpus, Masri Twitter corpus)
-   - Cite sources + licenses in README
-   - Tokenize, train/eval split, fasttext training command
-   - Eval on held-out set, target F1 > 0.85 per dialect
-
-4. ARABIC TYPOGRAPHY
-   - packages/i18n/fonts.ts: recommended fonts (IBM Plex Sans Arabic, Noto Naskh,
-     Tajawal) with subsets
-   - Diacritics handling
-   - Number system toggle (Arabic-Indic vs Western)
-
-5. DIALECT-AWARE PROMPT LOCALES
-   - packages/i18n/prompt-locales.ts: fallback chain ar-khaleeji → ar-msa → en
-   - Consumed by ai-core's prompt registry (Claude's package)
-
-6. WEBSITE CRAWLER (packages/ingest/crawler)
-   - Playwright for JS-heavy sites, undici + cheerio for static
-   - robots.txt respected, per-domain rate limit (2 req/sec), 500 pages first pass
-   - Sitemap discovery → BFS → dedupe by content hash (sha256)
-   - Extraction: readability main-content + schema.org + Open Graph
-   - Language detection per page
-
-7. CHUNKER (packages/ingest/chunker)
-   - Semantic chunking: paragraph + heading aware, 500–1200 tokens, 15% overlap
-   - Preserves heading hierarchy as metadata
-
-8. EMBEDDER (packages/ingest/embedder)
-   - Pluggable provider: default voyage-multilingual-2 (best Arabic performance),
-     fallback text-embedding-3-large
-   - Stored in pgvector with tenant_id + source metadata
-
-9. SOCIAL IMPORTERS (packages/ingest/sources/)
-   - {instagram, facebook, tiktok, google-business}: OAuth (tokens from Codex's
-     connect flows), paginated pull, normalize bio + posts + pinned content + reviews
-     into tenant knowledge
-
-10. COMMERCE IMPORTERS (packages/ingest/sources/)
-    - {shopify, woocommerce, salla, zid}: products, variants, inventory, categories,
-      policies (shipping/returns/refund), incremental sync via webhooks
-    - Normalized into Catalog model (defined in packages/db by Claude)
-
-11. DOCUMENT UPLOAD (packages/ingest/documents)
-    - PDF (pdfjs), DOCX (mammoth), Excel (xlsx), menus, brochures
-    - Same chunk + embed pipeline
-
-12. INCREMENTAL RECRAWL
-    - Nightly scheduler job re-fetches changed pages (ETag + Last-Modified)
-    - Updates embeddings, removes stale chunks
-
-Done when:
-- Dialect classifier F1 > 0.85 on held-out test set per dialect
-- All 10 locales load in under 50ms
-- ESLint rule catches literal JSX strings across the monorepo
-- Crawling a sample website + Shopify store populates knowledge base
-- Arabic query retrieves correct Arabic chunks
-- Incremental recrawl only re-embeds changed pages (measured)
-```
-
-### Task Checklist
-
-| ID | Task | Priority | Dependencies |
-|---|---|---|---|
-| 1-Q1 | packages/i18n (t(), locales, RTL helpers, ESLint rule) | Critical | None |
-| 1-Q2 | Dialect detector (fastText + Haiku fallback) | High | None |
-| 1-Q3 | Dialect training data pipeline (corpora, training, eval) | High | None |
-| 1-Q4 | Arabic typography + prompt locale fallback chains | Medium | 1-Q1 |
-| 1-Q5 | Website crawler (Playwright/cheerio, sitemap, dedupe) | High | None |
-| 1-Q6 | Chunker + embedder (semantic chunking, pgvector) | High | 1-Q5 |
-| 1-Q7 | Social importers (Instagram, Facebook, TikTok, Google Business) | High | 1-Q5 |
-| 1-Q8 | Commerce importers (Shopify, WooCommerce, Salla, Zid) | High | 1-Q6 |
-| 1-Q9 | Document upload (PDF, DOCX, Excel) + incremental recrawl | Medium | 1-Q6 |
+**Done when:** Arabic UI looks polished. No layout bugs in RTL.
 
 ---
 
-# PHASE 2 — Self-Serve AI Business Setup (Days 61–90)
+### Task 1-X3: Currency & Timezone Localization
+**Priority:** Medium
+**Files:** `airos/frontend/src/lib/`, `airos/backend/src/`
+
+**What to do:**
+1. Implement multi-currency display (stored as minor units, rendered in local currency)
+2. Add timezone-aware date/time display (stored as UTC, rendered in tenant timezone)
+3. Create currency conversion utilities
+4. Add locale-specific number formatting
+5. Update all dashboard pages to use localized currency and time
+
+**Deliverables:**
+- Currency utilities module
+- Timezone display utilities
+- Localized number formatting
+- Updated dashboard pages
+
+**Done when:** Prices show in local currency. Times show in tenant timezone.
 
 ---
+
+## QWEN CODE — Phase 1
+
+### Task 1-Q1: Knowledge Ingestion Pipeline — Website Crawler
+**Priority:** High
+**Files:** New — `airos/backend/src/ingest/` directory
+
+**What to do:**
+1. Build website crawler: Playwright for JS-heavy sites, `undici` + `cheerio` for static
+2. Respect `robots.txt`, per-domain rate limit, up to 500 pages on first pass
+3. Sitemap discovery → BFS → dedupe by content hash
+4. Content extraction: readability main-content + schema.org + Open Graph
+5. Chunking: semantic (paragraph + heading aware), 500–1200 tokens, 15% overlap
+6. Store chunks in PostgreSQL with `pgvector` embeddings
+7. Create ingestion status dashboard in admin panel
+
+**Deliverables:**
+- `ingest/crawler.js` — website crawler
+- `ingest/chunker.js` — semantic chunking
+- `ingest/embedder.js` — vector embedding
+- `ingest/ingestionJob.js` — job orchestrator
+- Ingestion status page in admin panel
+
+**Done when:** Can crawl a website, chunk content, and store embeddings.
+
+---
+
+### Task 1-Q2: Business Understanding Document Generator
+**Priority:** High
+**Files:** `airos/backend/src/ai/businessAnalyzer.js`
+
+**What to do:**
+1. Take crawled content + structured data → send to Claude Opus with typed output schema
+2. Generate: `{ businessName, vertical, offerings[], policies[], tone, primaryLanguage, primaryDialect, openingHours, locations[], faqCandidates[], brandVoiceNotes }`
+3. Store as `TenantProfile` in database
+4. Create review UI where humans can edit all fields before go-live
+5. Add "regenerate" button to re-analyze with updated data
+
+**Deliverables:**
+- `businessAnalyzer.js` — AI-powered business analysis
+- `TenantProfile` storage and retrieval
+- Review/edit UI for business understanding document
+- Regeneration capability
+
+**Done when:** AI generates accurate business profile. Human can review and edit.
+
+---
+
+### Task 1-Q3: Signup & Onboarding Flow
+**Priority:** High
+**Files:** `airos/frontend/src/app/signup/`, `airos/backend/src/api/routes/onboarding.js`
+
+**What to do:**
+1. Build real tenant creation on signup (not just trial JWT)
+2. Create onboarding wizard: language, country, vertical, website URL, channel connections
+3. Trigger knowledge ingestion after signup
+4. Generate workspace from business understanding document
+5. Create "review and launch" UX
+6. Add onboarding completion tracking
+
+**Deliverables:**
+- Real tenant creation on signup
+- Onboarding wizard UI (5 steps)
+- Post-signup ingestion trigger
+- Workspace generation + review UI
+- Onboarding progress tracker
+
+**Done when:** User can sign up → connect channels → review workspace → go live.
+
+---
+
+# Phase 2 — Tenant Agent + Action SDK + Voice (Weeks 11–18)
 
 ## CLAUDE CODE — Phase 2
 
-### Prompt
+### Task 2-C1: Action SDK — Core Framework
+**Priority:** Critical
+**Files:** New — `airos/backend/src/actionSdk/` directory
 
-```
-Continue in /Users/yassin/Desktop/AIROS. Read Phase 2 of CHATORAI_PLATFORM_ROADMAP.md.
-packages/db, packages/ai-core, packages/eval, packages/action-sdk exist from prior
-phases. Business understanding + settings generators exist from Phase 1.
+**What to do:**
+1. Implement `defineAction({ id, input: zod, output: zod, requiresApproval, scopes, handler })`
+2. Build built-in actions: `order.create`, `order.refund`, `booking.reschedule`, `lead.qualify`, `ticket.escalate`, `catalog.lookup`, `payment.link`
+3. Runtime: agent tool call → allow-list check → if `requiresApproval`, create `PendingAction` and notify human; else execute with idempotency key → write `ActionAudit`
+4. Credential vault: secrets encrypted with tenant KMS key
+5. Full audit trail for every action
 
-Goal: eval v1 (production grading), human correction loop, anonymized telemetry, and
-agent runtime foundations.
+**Deliverables:**
+- `actionSdk/core.js` — action definition and execution framework
+- `actionSdk/builtins.js` — 7 built-in actions
+- `actionSdk/credentialVault.js` — encrypted credential storage
+- `ActionAudit` table and logging
+- Idempotency ledger
 
-Tasks:
+**Done when:** Actions can be defined, executed, audited. Approval gates work.
 
-1. EVAL V1
-   - Every AI reply in production scored by Sonnet-as-judge:
-     correctness, tone-match, language-match, policy-adherence
-   - Scores persist per message + aggregate per tenant
-   - Tenants can mark judgments wrong → ReplyCorrection table
-   - Dashboard API: GET /v1/eval/tenant/:id (aggregate scores)
+---
 
-2. HUMAN CORRECTION LOOP
-   - ReplyCorrection rows: { original_reply, edited_reply, rejection_reason, diff }
-   - "Edit & send" and "Reject with reason" on every AI reply (API endpoints;
-     Codex owns the UI)
-   - Weekly mining job in apps/worker produces prompt-tuning data + retrieval
-     re-ranking signals
+### Task 2-C2: Voice Agent Architecture
+**Priority:** High
+**Files:** New — `airos/backend/src/voice/` directory
 
-3. ANONYMIZED TELEMETRY (opt-in)
-   - Hash-keyed aggregate signals: reply lengths, handle times, conversion outcomes
-     per vertical, prompt performance
-   - Opt-in by default, tenant can disable
-   - No raw text ever captured — only aggregates
-   - Stored in platform_signals table, keyed by (vertical, locale, intent, outcome)
+**What to do:**
+1. Design voice gateway architecture: LiveKit for WebRTC + SIP trunk
+2. Implement audio pipeline: STT → dialect classifier → AI agent → TTS → audio stream
+3. Support barge-in (user interrupts AI mid-speech)
+4. Implement VAD (Voice Activity Detection): Silero, 200ms silence threshold
+5. Live transcript into `Conversation` model (text and voice share one timeline)
+6. Recordings in S3, tenant-scoped encryption
 
-4. TENANT AGENT RUNTIME (packages/ai-core/agent)
-   - class TenantAgent with reply(), act(), summarize()
-   - Context builder: system prompt (persona + policies) + retrieved knowledge
-     (hybrid BM25 + vector top-k via pgvector) + recent conversation + customer
-     profile + tenant memory
-   - Tool schemas typed via zod from action-sdk
+**Deliverables:**
+- `voice/gateway.js` — voice gateway architecture
+- `voice/stt.js` — speech-to-text integration
+- `voice/tts.js` — text-to-speech integration
+- `voice/vad.js` — voice activity detection
+- `voice/bargeIn.js` — interrupt handling
+- Recording storage + encryption
 
-5. TENANT MEMORY (packages/ai-core/memory)
-   - tenant_memory table: { subject, predicate, object, source, confidence, expires_at }
-   - Writes gated by promotion step (confidence > 0.8 + trusted source)
-   - Retrieval by subject + recency
-
-Done when:
-- Eval v1 scores appear on every conversation in dashboard API
-- Correction loop captures edits and produces weekly tuning data
-- Privacy review confirms telemetry contains zero PII
-- Agent can retrieve knowledge and respond in correct dialect with tenant persona
-```
-
-### Task Checklist
-
-| ID | Task | Priority | Dependencies |
-|---|---|---|---|
-| 2-C1 | Eval v1 (production scoring, tenant dashboard) | Critical | 0-C4 |
-| 2-C2 | Human correction loop (edit/reject, weekly mining) | High | 2-C1 |
-| 2-C3 | Anonymized telemetry collection | Medium | 0-C1 |
-| 2-C4 | Tenant agent runtime (TenantAgent class, context builder) | Critical | 0-C3, 1-C5 |
-| 2-C5 | Tenant memory (fact storage, promotion gate, retrieval) | High | 2-C4 |
-
-**Status:** Claude Code ✅ Completed (2026-04-17)
-
-Verified:
-- 2-C1: `packages/eval/src/production.js` — `scoreProductionReply()` calls Sonnet-as-judge, persists to `MessageEvalScore` table on tenant's regional cluster, fire-and-forget after SSE done event in `ai.js`. `GET /v1/eval/tenant/:id` returns scores + pass-rate + avg-score summary.
-- 2-C2: `packages/eval/src/miner.js` — weekly job mines unexported `ReplyCorrection` rows into JSONL prompt-tuning dataset, marks exported. `POST /v1/corrections`, `GET /v1/corrections`, `GET /v1/corrections/:id`. Weekly miner hooked into boot scheduler (7-day interval).
-- 2-C3: `packages/eval/src/signals.js` — `emitSignal(type, payload, modelVersion)` writes to `platform_signals` (no tenant FK, no raw text). `PLATFORM_TELEMETRY=0` disables. Integrated into `scoreProductionReply` automatically. `emitLatencySignal` available for hot paths.
-- 2-C4: `packages/ai-core/src/agent/index.js` — `TenantAgent` class with `reply()`, `act()`, `summarize()`. Context builder fetches TenantProfile, tenant memory facts, top-k knowledge chunks (cosine similarity on JSON embeddings; migration note for pgvector when chunks > 10k). `act()` delegates to action registry.
-- 2-C5: `packages/ai-core/src/memory/index.js` — `upsertFact`, `getFacts` (confidence gate + expiry filter), `promoteFact`, `deleteFact`, `formatFactsForContext`. Fact triples `(subject, predicate, object)` with confidence/source/expiresAt. `POST/GET/DELETE /v1/memory` REST API.
-- Schema updated: `MessageEvalScore`, `ReplyCorrection`, `PlatformSignal`, `TenantMemory` models added. Reverse relations on `Message`, `AiSuggestion`, `Tenant` updated.
-- Bug fix: `privacy.js` all `getPrisma()` calls replaced with `getPrismaForTenant(tenantId)` — EU/GCC tenants now correctly routed.
-- `@chatorai/eval` added to backend deps; `@chatorai/db` added to eval package deps.
+**Done when:** Voice call flows through full pipeline. Transcript saved to conversation.
 
 ---
 
 ## CODEX — Phase 2
 
-### Prompt
+### Task 2-X1: Tenant Agent — Reply & Summarize
+**Priority:** High
+**Files:** `airos/backend/src/ai/agent.js`
 
-```
-You own apps/web, apps/api, and apps/worker. Read Phase 2 + Phase 3 of
-CHATORAI_PLATFORM_ROADMAP.md.
+**What to do:**
+1. Implement `TenantAgent` class with `reply()`, `summarize()` methods
+2. Context builder: system prompt (persona + policies) + retrieved knowledge (hybrid top-k) + recent conversation + customer profile + tenant memory
+3. Implement tenant memory: typed facts `{ subject, predicate, object, source, confidence, expires_at }`
+4. Memory writes gated by confidence threshold + trusted source
+5. Create agent quality scoring API
 
-Goal: ship the conversations inbox at parity, customer timeline, correction UI,
-and start voice gateway.
+**Deliverables:**
+- `agent.js` — tenant agent class
+- Memory storage and retrieval
+- Context builder module
+- Quality scoring endpoint
 
-Tasks:
-
-1. UNIFIED INBOX (apps/web)
-   - Real-time conversation list with all channels (WhatsApp, Instagram, Messenger,
-     livechat, voice)
-   - Channel badge per conversation
-   - Unread count, assignment, priority indicators
-   - Agent presence (online/away/offline)
-   - Conversation filters: status, channel, assignee, tag, language
-
-2. CUSTOMER TIMELINE (apps/web)
-   - Unified view: conversations, messages, deals, actions, sentiment, churn score
-   - Customer profile sidebar: contact info, tags, deal stage, lifetime value
-   - Activity feed: chronological
-   - Quick actions: send message, create deal, add tag, assign agent
-
-3. CORRECTION UI (apps/web)
-   - "Edit & send" button on every AI reply (calls POST /v1/corrections from Claude's API)
-   - "Reject with reason" modal
-   - Diff view showing original vs edited
-   - Correction history per conversation
-
-4. VOICE GATEWAY (apps/voice-gateway)
-   - LiveKit server for WebRTC (widget voice) + SIP trunk (phone)
-   - Inbound call → LiveKit room → Node worker joins → audio to Deepgram (EN)
-     or Whisper-large-v3 fine-tuned (AR) → dialect from @chatorai/i18n → TenantAgent
-     (from @chatorai/ai-core) → TTS (ElevenLabs multilingual + Azure Neural) →
-     stream back with barge-in
-   - VAD: Silero, 200ms silence threshold (tunable per tenant)
-   - Live transcript writes into Conversation model (text + voice same timeline)
-   - Recordings: S3, tenant-scoped encryption, retention per compliance
-
-5. PROACTIVE OUTBOUND (apps/worker/campaigns)
-   - Campaign entity: trigger, audience query, message template, channel, frequency
-     cap, quiet hours, compliance (WhatsApp 24h window, opt-out checks)
-   - Triggers: cart.abandoned, appointment.upcoming, customer.dormant, order.delivered
-   - Scheduled by apps/scheduler, executed by worker
-
-6. MOBILE APP (apps/mobile)
-   - Expo + React Native
-   - Inbox, conversation view, quick replies, voice-note recording
-   - WatermelonDB for offline reads, queued writes sync online
-   - Expo push notifications
-
-Done when:
-- Inbox shows all channels with real-time updates
-- Customer timeline shows full history with quick actions
-- Voice call in English answered by agent within 2s
-- Abandoned-cart campaign fires within 1h, respects quiet hours
-- Mobile app sends queued reply after airplane-mode reconnection
-```
-
-### Task Checklist
-
-| ID | Task | Priority | Dependencies |
-|---|---|---|---|
-| 2-X1 | Unified inbox (real-time, multi-channel, filters) | Critical | 0-X3 |
-| 2-X2 | Customer timeline + profile | High | 0-X1 |
-| 2-X3 | Correction UI (edit/reject/diff) | High | 2-C2 |
-| 2-X4 | Voice gateway (LiveKit, STT/TTS pipeline) | High | 0-X2, 1-Q2 |
-| 2-X5 | Proactive outbound engine (campaigns, triggers, compliance) | High | 0-X2 |
-| 2-X6 | Mobile app (Expo, offline-first, push) | Medium | 0-X1 |
+**Done when:** Agent replies using tenant-specific context and memory.
 
 ---
 
-## CODEX — Phase 2 (Reassigned From Qwen Code)
+### Task 2-X2: Human Correction Loop
+**Priority:** Medium
+**Files:** `airos/backend/src/api/routes/corrections.js`, `airos/frontend/`
 
-### Prompt
+**Deliverables:**
+- "Edit & send" and "Reject with reason" on every AI reply
+- Edits diffed → `ReplyCorrection` rows
+- Weekly mining job produces prompt-tuning signals
 
-```
-You own packages/commerce, packages/verticals/*, and apps/widget. Read Phase 2 + 3 + 4
-of CHATORAI_PLATFORM_ROADMAP.md.
-
-Goal: in-chat checkout, vertical packs, pack validator, and the copilot suggestion
-rendering in the widget.
-
-Tasks:
-
-1. IN-CHAT CHECKOUT (packages/commerce)
-   - One interface: createPaymentLink({ amount, currency, customer, metadata }),
-     captureWebhook(provider, payload, signature),
-     refund({ paymentId, amount, reason })
-   - Provider adapters: Stripe, Mada (Checkout.com/HyperPay/PayTabs), STC Pay,
-     Apple Pay, Tabby, Tamara
-   - Each adapter isolated with own zod-typed config
-   - Webhook signature verification per provider
-   - Order.status updates flow through action-sdk audit trail
-   - Rich payment-card rendering spec for widget + WhatsApp template
-
-2. ECOMMERCE VERTICAL PACK (packages/verticals/ecommerce)
-   Full pack format:
-   - pack.json manifest (id, version, name, locales)
-   - schema/extensions.prisma (CartItem, DiscountCode, Review)
-   - prompts/*.ts (vertical system prompt variants in en + ar-msa + ar-khaleeji +
-     ar-masri)
-   - workflows/*.json (cart-recovery, post-purchase-followup, review-request)
-   - actions/*.ts (product.recommend, cart.addItem, discount.apply)
-   - reports/*.sql (conversion by source, AOV, CAC)
-   - onboarding.ts (extra ecommerce onboarding questions)
-   - eval/*.yaml (≥100 ecommerce conversations)
-
-3. REAL ESTATE VERTICAL PACK (packages/verticals/realestate)
-   - Listings model extension, scheduling-a-viewing workflow, lead-scoring for
-     buyer-intent, mortgage pre-qualification action
-   - Same pack format as ecommerce
-
-4. TOURISM VERTICAL PACK (packages/verticals/tourism)
-   - Booking/availability workflow, itinerary builder action, review aggregation,
-     multi-language tour descriptions
-   - Same pack format
-
-5. PACK VALIDATOR CLI
-   - chatorai-pack validate <path>
-   - Schema lint (all required files present, manifest valid)
-   - Prompt lint (all locale variants present)
-   - Runs eval suite against vertical golden set
-   - Fails on any regression
-
-6. SENTIMENT + CHURN MODEL (packages/ingest/sentiment)
-   - Per-message sentiment scoring (multilingual model, runs in worker)
-   - Per-customer churn score (gradient-boosted on aggregated signals)
-   - Surfaced via API for CustomerTimeline (Codex's UI)
-
-7. WIDGET ENHANCEMENTS (apps/widget)
-   - Voice-note recording (audio sent to API for server-side transcription)
-   - Rich payment card rendering (from packages/commerce spec)
-   - Copilot suggestion rendering (display agent-copilot suggestions inline)
-   - Video call join button (triggers LiveKit room from Codex's voice-gateway)
-
-Done when:
-- Test tenant with ecommerce pack + Shopify can: crawl → profile → activate pack →
-  cart-recovery campaign → checkout via Mada payment link — end-to-end
-- Pack validator passes for all three packs
-- Each pack's eval suite scores > 0.85 on vertical golden set
-- Widget renders payment cards and handles voice notes
-```
-
-### Task Checklist
-
-| ID | Task | Priority | Dependencies |
-|---|---|---|---|
-| 2-Q1 | In-chat checkout (payment adapters, webhook verification) | High | 0-C5 |
-| 2-Q2 | Ecommerce vertical pack (full pack format) | High | 1-Q8, 2-Q1 |
-| 2-Q3 | Real estate vertical pack | High | 2-Q2 (pack format) |
-| 2-Q4 | Tourism vertical pack | High | 2-Q2 (pack format) |
-| 2-Q5 | Pack validator CLI | High | 2-Q2 |
-| 2-Q6 | Sentiment + churn scoring | Medium | 1-Q6 |
-| 2-Q7 | Widget enhancements (voice, payments, video) | Medium | 0-Q1, 2-Q1 |
+**Done when:** Humans can correct AI replies. Corrections feed learning loop.
 
 ---
 
-# PHASE 3 — Agent Copilot + Platform Brain + Enterprise (Days 91–120)
+## QWEN CODE — Phase 2
+
+### Task 2-Q1: Customer Timeline + Inbox
+**Priority:** High
+**Files:** `airos/frontend/src/app/dashboard/contacts/[id]/page.js`, `airos/backend/src/api/routes/customers.js`
+
+**What to do:**
+1. Build unified customer timeline: all conversations, messages, deals, actions, sentiment, churn score
+2. Real-time updates via Socket.IO
+3. Customer profile sidebar: contact info, tags, deal stage, lifetime value
+4. Activity feed: chronological view of all interactions
+5. Quick actions: send message, create deal, add tag, assign to agent
+
+**Deliverables:**
+- Customer timeline page
+- Real-time activity feed
+- Customer profile sidebar
+- Quick action buttons
+
+**Done when:** Support agent can see full customer history and act from one page.
 
 ---
 
-## CLAUDE CODE — Phase 3
+### Task 2-Q2: Migration Importers — Intercom + Zendesk
+**Priority:** High
+**Files:** New — `airos/backend/src/migrations/` directory
 
-### Prompt
+**What to do:**
+1. Build Intercom importer: OAuth connect, paginated import of conversations, customers, macros, tags, teams
+2. Build Zendesk importer: same scope
+3. Map external models to ChatOrAI models
+4. Create one-click migration wizard in onboarding
+5. Add migration status tracking
 
-```
-Goal: Action SDK built-ins live, agent copilot, sub-agents, Platform Brain v1.
+**Deliverables:**
+- `migrations/intercom.js` — Intercom importer
+- `migrations/zendesk.js` — Zendesk importer
+- Migration wizard UI
+- Status tracking
 
-Tasks:
-
-1. ACTION SDK BUILT-INS (10 actions)
-   - order.create, order.refund, booking.reschedule, lead.qualify, ticket.escalate,
-     catalog.lookup, payment.link, customer.update, conversation.tag, human.handoff
-   - Each with full zod I/O, requiresApproval flag, idempotency, ActionAudit
-
-2. AGENT COPILOT (packages/ai-core/copilot)
-   - Subscribes to composer keystrokes + conversation context over websocket
-   - Streams suggestions from Haiku (fast, sub-300ms p95)
-   - Features: /suggest-reply, /summarize, /tag, /next-action, /translate,
-     /rewrite-tone
-   - Every suggestion accepted/edited/rejected is logged for learning
-
-3. SUB-AGENTS
-   - Sales, Support, Booking, Recovery — each a TenantAgent config (persona +
-     allowed actions + KPIs), not separate classes
-   - Routing decides which sub-agent handles a conversation based on intent
-
-4. PLATFORM BRAIN v1 (anonymized)
-   - Nightly anonymization pipeline over opted-in tenants: PII scrubbed, entities
-     generalized, aggregated into PlatformSignal by (vertical, locale, intent, outcome)
-   - Benchmark materialized views: p50/p90 per vertical for first-response time,
-     resolution rate, AI acceptance, conversion rate
-   - Workflow recommender: given TenantProfile, recommend top-N workflows from
-     similar tenants (vertical + size + region)
-   - Setup acceleration: new tenant onboarding uses Platform Brain defaults
-
-Done when:
-- Agent completes order refund end-to-end on Shopify sandbox with full audit trail
-- Copilot suggestions stream in <300ms p95
-- Sub-agent routing correctly assigns sales vs support conversations
-- Benchmarks surfaced per tenant ("you vs similar businesses")
-```
-
-### Task Checklist
-
-| ID | Task | Priority | Dependencies |
-|---|---|---|---|
-| 3-C1 | Action SDK built-ins (10 actions) | Critical | 0-C5 |
-| 3-C2 | Agent copilot (Haiku streaming, /copilot namespace) | Critical | 0-C3, 2-C4 |
-| 3-C3 | Sub-agents (Sales/Support/Booking/Recovery configs + intent router) | High | 2-C4 |
-| 3-C4 | Platform Brain v1 (anonymization pipeline, benchmarks, workflow recommender) | High | 2-C3, 1-C5 |
-
-**Status:** Claude Code ✅ Completed (2026-04-17)
-
-Verified:
-- 3-C1: `airos/backend/src/actions/builtins.js` — 10 built-in actions: `order.create`, `order.refund` (requiresApproval), `booking.reschedule`, `lead.qualify`, `ticket.escalate`, `catalog.lookup`, `payment.link`, `customer.update`, `conversation.tag`, `human.handoff`. All with Zod I/O, idempotency, ActionAudit trail. Registered at boot alongside Phase 0 actions.
-- 3-C2: `packages/ai-core/src/copilot/index.js` — `streamCopilotSuggestion()` yields text chunks from Haiku (claude-haiku-4-5-20251001). 6 commands: `/suggest-reply`, `/summarize`, `/tag`, `/next-action`, `/translate`, `/rewrite-tone`. `logCopilotOutcome()` writes to `copilot_logs`. `airos/backend/src/channels/copilot/socket.js` — `/copilot` Socket.IO namespace with JWT auth, `copilot:request` → streaming `copilot:chunk`/`copilot:done`, `copilot:outcome` for learning signal.
-- 3-C3: `packages/ai-core/src/agent/subAgents.js` — `routeToSubAgent(intentOrMessage)` maps text to `sales|support|booking|recovery`. `getSubAgentConfig(role, tenantProfile)` returns persona override, allowed action scopes, KPIs. Vertical-specific defaults.
-- 3-C4: `packages/ai-core/src/brain/index.js` — `runAnonymizationPipeline()` aggregates eval scores + correction rates + AI latency into `platform_signals` (no raw text, no PII, per-tenant opt-out). `getBenchmarks()` reads PlatformSignal aggregates. `recommendWorkflows({ tenantId })` returns top-N workflows for tenant's vertical. Nightly scheduler hooked into boot. `GET /v1/brain/benchmarks`, `GET /v1/brain/workflows/recommend` endpoints.
-- Schema updated: `CopilotLog` model added. `Tenant.copilotLogs` reverse relation added.
-
-## CODEX — Phase 3
-
-### Prompt
-
-```
-Goal: enterprise features, RBAC, SSO, public API, billing.
-
-Tasks:
-
-1. RBAC — Casbin per tenant, roles owner/admin/supervisor/agent/viewer + custom.
-   Every route declares required permission.
-2. SSO/SCIM — @node-saml/passport-saml + OIDC adapter. SCIM v2 provisioning.
-3. PUBLIC API — versioned REST /v1 + GraphQL read layer. OpenAPI spec, generated
-   SDKs (TS, Python).
-4. BILLING — Stripe Billing. Meters: tokens, conversations, voice_minutes, actions,
-   mau. Free/Starter/Growth/Scale/Enterprise tiers. Usage dashboard + alerts + hard
-   caps. Self-serve upgrade/downgrade.
-5. AFFILIATE/AGENCY — Affiliate entity, referral code, attribution cookies (90d),
-   recurring commission, Stripe Connect payouts. Agency portal.
-
-Done when:
-- Custom roles restrict routes correctly
-- SAML SSO login works with test IdP
-- OpenAPI spec generates working TS + Python SDKs
-- Billing meters track usage accurately, hard caps enforced
-```
-
-## CODEX — Phase 3 (Reassigned From Qwen Code)
-
-### Prompt
-
-```
-Goal: marketplace, white-label, template gallery, additional vertical packs.
-
-Tasks:
-
-1. MARKETPLACE (apps/web/marketplace)
-   - Partners submit packs via GitHub PR to curated registry
-   - CI runs chatorai-pack validate (schema lint, prompt lint, eval)
-   - Approved packs appear in dashboard
-   - Revenue tracked in PackInstall + BillingEvent
-
-2. WHITE-LABEL
-   - Brand entity: domain, logo, colors, widget theme, email sender
-   - Widget and emails render from brand config
-   - Custom domain support
-
-3. TEMPLATE GALLERY (apps/web/templates)
-   - Public, indexed, filterable by vertical
-   - Each template is a pack preview with demo conversations
-   - "Install" CTA triggers signup pre-seeded with template
-
-4. ADDITIONAL VERTICAL PACKS
-   - Healthcare (appointment scheduling, HIPAA-aware prompts)
-   - Education (enrollment, course catalog, student support)
-   - Professional services (consultation booking, case management)
-
-5. SOC 2 CONTROLS
-   - Access logs, change management, backup evidence
-   - Drata/Vanta integration for continuous compliance
-   - Evidence collection automated
-
-Done when:
-- Partner can submit a pack via PR and see it in marketplace after CI passes
-- White-label tenant loads with custom branding on custom domain
-- Template gallery indexed and filterable, one-click install works
-```
+**Done when:** Can migrate from Intercom or Zendesk with one click.
 
 ---
 
-# Task Count Summary
+# Phase 3+ — Future Phases (Weeks 19+)
 
-| Agent | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Total |
-|---|---|---|---|---|---|
-| **Claude Code** | 5 tasks | 6 tasks | 5 tasks | 4 tasks | **20** |
-| **Codex** | 12 tasks | 15 tasks | 13 tasks | 10 tasks | **50** |
+## Tasks Reserved for Later Assignment
+
+These tasks depend on Phase 0–2 completion and will be assigned after foundational work is verified:
+
+- **Vertical Packs** (e-commerce, real estate, tourism) — Assigned pending Phase 2 completion
+- **Platform Brain** (anonymized cross-tenant learning) — Assigned after Phase 2 telemetry verified
+- **Agent Copilot** (real-time human assistance) — Assigned after tenant agent verified
+- **Proactive Outbound Engine** — Assigned after customer data model verified
+- **In-Chat Checkout** — Assigned after Action SDK verified
+- **Mobile App** — Assigned after core API stabilized
+- **SSO/SCIM** — Assigned after RBAC verified
+- **SOC 2 Compliance** — Assigned after all core features shipped
 
 ---
 
-# Task Dependencies (Critical Path)
+# Task Assignment Summary
+
+| Agent | Phase 0 Tasks | Phase 1 Tasks | Phase 2 Tasks | Total |
+|-------|--------------|--------------|--------------|-------|
+| **Claude Code** | 0-C1 (In-Memory Kill), 0-C2 (AI Server-Side), 0-C3 (Security), 0-C4 (Eval) | 1-C1 (Dialect Detection), 1-C2 (Prompt Registry), 1-C3 (Compliance) | 2-C1 (Action SDK), 2-C2 (Voice Agent) | 10 |
+| **Codex** | 0-X1 (Catalog Delete), 0-X2 (Dashboard Wiring), 0-X3 (Prompt Versioning), 0-X4 (Backups) | 1-X1 (i18n Files), 1-X2 (RTL Layout), 1-X3 (Currency/Timezone) | 2-X1 (Tenant Agent), 2-X2 (Correction Loop) | 9 |
+| **Qwen Code** | 0-Q1 (Socket Unification), 0-Q2 (Observability), 0-Q3 (Admin Hardening), 0-Q4 (Widget Fix) | 1-Q1 (Crawler), 1-Q2 (Business Analyzer), 1-Q3 (Onboarding) | 2-Q1 (Customer Timeline), 2-Q2 (Migration Importers) | 9 |
+
+---
+
+# Execution Rules for All Agents
+
+1. **Log every task in `/DAILY_UPDATES.md`** using the required format
+2. **No log = task rejected** — work without documentation doesn't count
+3. **Test before marking done** — every task must have passing tests
+4. **Document API changes** — update any affected documentation
+5. **Never break production** — all changes must be backward compatible or feature-flagged
+6. **Security first** — no secrets in code, no open endpoints without auth
+7. **Communicate blockers** — if a task depends on another agent's work, flag it immediately
+
+---
+
+# Task Dependencies
 
 ```
 Phase 0:
-  0-C1 (packages/db) ──→ 0-X1, 0-X2, 0-X7 (API + worker need db)
-  0-C3 (ai-core)     ──→ 0-C4 (eval needs ai-core)
-  0-X1 (apps/api)     ──→ 0-Q3 (load tests need API endpoint)
-  0-X4 (channels)     ──→ 0-Q1 (widget needs livechat channel)
+  0-C1 (In-Memory Kill) → unblocks 0-Q1 (Socket Unification)
+  0-C2 (AI Server-Side) → unblocks 1-Q2 (Business Analyzer)
+  0-C3 (Security) → no blockers
+  0-C4 (Eval) → unblocks all future AI work
+
+  0-X1 (Catalog Delete) → no blockers
+  0-X2 (Dashboard Wiring) → depends on 0-C1 (real data must exist)
+  0-X3 (Prompt Versioning) → no blockers
+  0-X4 (Backups) → no blockers
+
+  0-Q1 (Socket Unification) → depends on 0-C1
+  0-Q2 (Observability) → no blockers
+  0-Q3 (Admin Hardening) → no blockers
+  0-Q4 (Widget Fix) → no blockers
 
 Phase 1:
-  1-Q1 (i18n)         ──→ 1-X1 (dashboard i18n), 1-X3 (routing)
-  1-Q5 (crawler)      ──→ 1-Q6 (chunker needs crawled pages)
-  1-Q6 (embedder)     ──→ 1-C5 (business understanding needs chunks)
-  1-C5 (biz profile)  ──→ 1-C6, 1-X5 (settings + review UI)
+  1-C1 (Dialect Detection) → unblocks 1-C2 (Prompt Registry dialect variants)
+  1-C2 (Prompt Registry) → unblocks 2-C1 (Action SDK prompts)
+  1-C3 (Compliance) → no blockers
+
+  1-X1 (i18n Files) → unblocks 1-X2 (RTL Layout)
+  1-X2 (RTL Layout) → unblocks 1-Q3 (Onboarding for Arabic users)
+  1-X3 (Currency/Timezone) → no blockers
+
+  1-Q1 (Crawler) → unblocks 1-Q2 (Business Analyzer)
+  1-Q2 (Business Analyzer) → unblocks 1-Q3 (Onboarding)
+  1-Q3 (Onboarding) → no blockers
 
 Phase 2:
-  2-C4 (agent runtime)──→ 2-X4 (voice gateway calls agent)
-  2-C2 (correction)   ──→ 2-X3 (correction UI)
-  2-Q1 (commerce)     ──→ 2-Q2 (ecommerce pack needs payments)
-  2-Q2 (ecomm pack)   ──→ 2-Q3, 2-Q4, 2-Q5 (pack format reused)
+  2-C1 (Action SDK) → unblocks all future action-based features
+  2-C2 (Voice Agent) → no blockers (can run parallel)
+
+  2-X1 (Tenant Agent) → depends on 0-C2 (server-side AI)
+  2-X2 (Correction Loop) → depends on 2-X1
+
+  2-Q1 (Customer Timeline) → depends on 0-C1 (unified conversations)
+  2-Q2 (Migration Importers) → no blockers
 ```
 
 ---
 
-*This document assigns work by module ownership for parallel execution. No agent is
-favored. Each owns complete, end-to-end modules with a mix of complexity levels.
-Inter-agent contracts are defined by package boundaries and import paths.*
+*This document was generated by Qwen Code on 2026-04-14 based on the ChatOrAI Platform Roadmap.*
+*All agents must log their work in /DAILY_UPDATES.md with the specified format.*
+*All agents must mark his tasks are finished to compelete in this file.*
