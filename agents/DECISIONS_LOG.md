@@ -828,4 +828,116 @@ direct `query(` call was missed in one of the 14 files). Such a finding would be
 not a process issue, and would require a targeted fix commit on the same branch.
 
 ---
+### [DECISION-012] F-09-P5-A Conditionally Approved — Technical Pass, Process Violation Logged (5th Cumulative Diff Instance); Per-Phase Branch Policy Correctly Followed
+
+**Logged by:** Claude
+**Authority Level:** Risk Acceptance + Scope Ruling
+**Context:**
+F-09 Phase 5A (Route Handler Migration: 5 files, 21 direct `query()` sites + 1 `withTransaction` block)
+was implemented by Codex on branch `task/f09-p5a` in three commits:
+- A1 `29c1038`: `dashboard.js` — 7 sites → `req.db.query()`, pool import removed
+- A2 `9e13de0`: `onboarding.js` (1 site) + `channels.js` (4 sites) → `queryAdmin()`
+- A3 `07c5bca`: `pool.js` (add `adminWithTransaction`); `ai.js` (1 fire-and-forget site → `queryAdmin()`); `admin.js` (8 direct + `withTransaction` → `adminWithTransaction`)
+
+Gemini's ruling: TECHNICAL PASS / PROCESS FAIL.
+
+Technical pass confirmed for all intended P5-A scope:
+- `dashboard.js`: 7 `query(` → `req.db.query(`, `query` import removed. Route is AFTER
+  tenantMiddleware gate — `req.db` is guaranteed available. ✓
+- `onboarding.js`: 1 `query(` → `queryAdmin(` in `updateTenantOnboarding`. Mounted BEFORE gate. ✓
+- `channels.js`: 4 `query(` → `queryAdmin(`. Mounted BEFORE gate; has `req.user` but no `req.db`.
+  No `req.db` reference introduced. ✓
+- `ai.js`: 1 fire-and-forget `query(` → `queryAdmin(`. Not awaited; `.catch(() => {})` preserved.
+  Reason: `tenantMiddleware` releases the pg client at `res.on('finish')`; the unawaited INSERT
+  executes after `res.end()` — after client release. `queryAdmin()` uses lifecycle-independent
+  `adminPool`. ✓
+- `admin.js`: 8 direct `query(` → `queryAdmin(`. 1 `withTransaction(` → `adminWithTransaction(`.
+  3 `client.query()` calls inside the transaction callback unchanged. ✓
+- `pool.js`: `adminWithTransaction(fn)` added using `adminPool.connect()`, structurally parallel
+  to existing `withTransaction`. Exported. No other changes to pool.js. ✓
+- Exactly 3 commits with correct sub-scope isolation (verified via commit SHA list). ✓
+
+Process fail based on Gemini's full branch diff (branch `task/f09-p5a` vs `main`) containing:
+- `airos/backend/src/index.js`
+- `airos/backend/src/api/middleware/tenant.js`
+- `airos/backend/src/db/queries/tenants.js`
+- `airos/backend/src/db/queries/products.js`
+
+Verification: `git log --oneline -- <file>` for each flagged file returns `7dd2388` as the most
+recent commit touching it (the F-09-P4B baseline commit, approved in DECISION-009/010). Zero
+output when checking commits 29c1038, 9e13de0, 07c5bca against those files — confirmed by running:
+`git log --oneline 29c1038 9e13de0 07c5bca -- <flagged files>` → empty output.
+
+Additionally: `git diff main..task/f09-p5a -- <flagged files>` produces diff output, but the
+source of that diff is the accumulated prior-phase carryover from `7dd2388`, NOT from any of the
+three P5-A commits.
+
+**Decision:**
+F-09-P5-A: CONDITIONALLY APPROVED. Status → DONE.
+
+**Ruling on forbidden files:** All flagged files were last touched in `7dd2388` (the approved
+baseline commit containing F-01 through F-09-P4B-B2 work). Gemini's diff tool compared
+`task/f09-p5a` branch HEAD vs `main`, accumulating all prior-phase changes into the visible diff.
+None of the flagged files appear in commits 29c1038, 9e13de0, or 07c5bca. The files are
+prior-phase carryover, NOT P5-A scope violations. They are NOT counted against P5-A's technical
+or process record.
+
+**Process violation logged (5th instance):** This is the fifth instance of the cumulative branch
+diff pattern:
+- DECISION-006: F-01 — unrelated files in workspace diff
+- DECISION-007: F-09-P2 — prior sub-step files in workspace diff
+- DECISION-010: F-09-P4B-B2 — B1+B3 content in B2 workspace diff
+- DECISION-011: F-09-P4B baseline in P5-C branch diff
+- DECISION-012 (this entry): F-09-P4B baseline in P5-A branch diff
+
+**Note on per-phase branch compliance:** DECISION-011 mandated separate branches per phase.
+Codex correctly created `task/f09-p5a` as a fresh branch from `main` for this task. The diff
+noise is still present because `task/f09-p5a` was branched from `main` which itself contains the
+`7dd2388` baseline — all prior-phase changes remain visible in a full branch diff. This is
+inherent to the long-running repository state and is expected behavior, not a policy violation.
+The per-phase branch policy is confirmed correct and must be continued.
+
+**pool.js architectural note:** `pool.js` is jointly owned (Claude + Codex per OWNERSHIP_MAP).
+The `adminWithTransaction` addition is a surgical, justified change: it uses `adminPool.connect()`
+exactly as `adminPool` is already used by `queryAdmin()`, and is structurally identical to
+`withTransaction`. The change is APPROVED as part of P5-A scope. This does not constitute
+unauthorized architectural deviation; the pool module already had `adminPool` declared for this
+exact class of operation.
+
+**Reason:**
+The technical implementation is correct, verified, and complete. All 5 route files are migrated
+with the correct pool function for their mount position. `adminWithTransaction` resolves a real
+Phase 5 failure path (POST /clients atomic tenant+owner creation would fail under restricted app
+user). Blocking a correct implementation on the basis of Gemini's branch-wide diff accumulating
+pre-approved prior work serves no quality purpose.
+
+**Alternatives Considered:**
+- Full REJECTION: rejected. All P5-A commits are clean; the flagged files are not P5-A changes.
+- Require Gemini to re-run diff scoped to three commit SHAs only: accepted as the correct long-term
+  workflow (as specified in DECISION-011 mandatory policy), but not retroactively applied here
+  since verification via `git log` is definitive.
+
+**Impact:**
+- F-09-P5-A: DONE.
+- F-09-P5-B and F-09-P5-D: Each must be implemented on its own branch (`task/f09-p5b`,
+  `task/f09-p5d`). Gemini review must scope diff to task-specific commit SHAs.
+- F-09-P5-E (DATABASE_URL switch): BLOCKED until P5-A ✓ + P5-B + P5-C ✓ + P5-D are all DONE.
+- `pool.js` now exports `adminWithTransaction` — available for any future task requiring
+  admin-pool-scoped transactions.
+
+**Affected Files (P5-A scope, all DONE):**
+- `airos/backend/src/api/routes/dashboard.js` — A1
+- `airos/backend/src/api/onboarding.js` — A2
+- `airos/backend/src/api/routes/channels.js` — A2
+- `airos/backend/src/db/pool.js` — A3 (adminWithTransaction added)
+- `airos/backend/src/api/routes/ai.js` — A3
+- `airos/backend/src/api/routes/admin.js` — A3
+
+**Revisit Conditions:**
+This ruling is final unless Gemini's technical pass is found to have been incorrect (i.e., a
+`query(` call was missed in one of the 5 files, or the fire-and-forget pattern in ai.js was
+unintentionally altered). Such a finding would be a P5-A bug requiring a targeted fix commit on
+the same branch.
+
+---
 *[Next entry: append below this line using the format above. Do not modify existing entries.]*
