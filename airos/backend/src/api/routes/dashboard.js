@@ -1,5 +1,4 @@
 const express = require('express');
-const { query } = require('../../db/pool');
 
 const router = express.Router();
 
@@ -10,10 +9,10 @@ router.get('/', async (req, res, next) => {
     const today = new Date().toISOString().slice(0, 10);
 
     const [dealsRes, convRes, reportRes, trendRes, hotLeadRes, channelRes, aiUsageRes] = await Promise.all([
-      query(`SELECT stage, COUNT(*) AS count FROM deals WHERE tenant_id = $1 GROUP BY stage`, [tenant_id]),
-      query(`SELECT COUNT(*) AS open FROM conversations WHERE tenant_id = $1 AND status = 'open'`, [tenant_id]),
-      query(`SELECT * FROM report_daily WHERE tenant_id = $1 AND date = $2 AND channel IS NULL`, [tenant_id, today]),
-      query(`
+      req.db.query(`SELECT stage, COUNT(*) AS count FROM deals WHERE tenant_id = $1 GROUP BY stage`, [tenant_id]),
+      req.db.query(`SELECT COUNT(*) AS open FROM conversations WHERE tenant_id = $1 AND status = 'open'`, [tenant_id]),
+      req.db.query(`SELECT * FROM report_daily WHERE tenant_id = $1 AND date = $2 AND channel IS NULL`, [tenant_id, today]),
+      req.db.query(`
         SELECT
           date,
           COALESCE(SUM(revenue_won), 0)::numeric AS revenue,
@@ -23,7 +22,7 @@ router.get('/', async (req, res, next) => {
         GROUP BY date
         ORDER BY date ASC
       `, [tenant_id]),
-      query(`
+      req.db.query(`
         SELECT
           d.id,
           d.intent,
@@ -39,7 +38,7 @@ router.get('/', async (req, res, next) => {
         ORDER BY d.lead_score DESC, c.updated_at DESC
         LIMIT 5
       `, [tenant_id]),
-      query(`
+      req.db.query(`
         SELECT
           channel,
           COUNT(*)::int AS conversations
@@ -48,7 +47,7 @@ router.get('/', async (req, res, next) => {
         GROUP BY channel
         ORDER BY conversations DESC
       `, [tenant_id]),
-      query(`
+      req.db.query(`
         SELECT
           COUNT(*)::int AS sent,
           COUNT(*) FILTER (WHERE was_used = TRUE)::int AS used
