@@ -23,7 +23,6 @@
 
 | # | Task Name | Owner | Depends On | Priority | Notes |
 |---|---|---|---|---|---|
-| F-09-P5-C | Enforce RLS — Phase 5C: Worker & Webhook Migration (query → queryAdmin) | Gemini → Claude | F-09-P4B-B3 ✓, Pre-Activation Audit ✓ | Critical | REVIEW. C1: b4e0e9c (5 channel files). C2: d25da91 (4 core pipeline files). C3: cd2e703 (5 bg processor + AI files). 39 sites replaced. Deferred lines in triggerEngine (L332) and reportScheduler (L285, L292) untouched. |
 | F-09-P5-A | Enforce RLS — Phase 5A: Route Handler Migration (dashboard, channels, admin, onboarding, ai) | Codex | F-09-P4B-B3 ✓ | Critical | dashboard.js + ai.js → req.db.query(). channels.js + admin.js + onboarding.js → queryAdmin(). Brief not yet written. |
 | F-09-P5-B | Enforce RLS — Phase 5B: Query Module Client Params (conversations, messages, deals, prompts, reports, audit) | Codex | F-09-P4B-B1 ✓ | Critical | Add optional client param + ternary fallback to 5 modules. audit.js → queryAdmin(). Same pattern as B1. Brief not yet written. |
 | F-09-P5-D | Enforce RLS — Phase 5D: Special Cases (recycleBin client threading, catalog RLS strategy decision) | Codex | F-09-P5-B | Critical | recycleBin.js client param + thread from settings.js/customers.js. catalog.js: queryAdmin or withCatalogTenant decision required. Brief not yet written. |
@@ -53,7 +52,6 @@
 | # | Task Name | Codex Branch | Gemini Status | Claude Status | Notes |
 |---|---|---|---|---|---|
 | F-09-P4B-B3 | Enforce RLS — Phase 4B Step B3: auth.js queryAdmin Migration | task/f09-phase-2-middleware | Pending | Pending | auth.js only. 7 query() → queryAdmin(). query removed from import. All tenant_id WHERE guards preserved. B3 commit: db27e7a. Baseline: 7dd2388. |
-| F-09-P5-C | Enforce RLS — Phase 5C: Worker & Webhook Migration | task/f09-phase-2-middleware | Pending | Pending | 14 files, 39 sites. C1: b4e0e9c. C2: d25da91. C3: cd2e703. Deferred lines untouched. |
 
 ---
 
@@ -155,6 +153,7 @@
 
 | # | Task Name | Completed By | Notes |
 |---|---|---|---|
+| F-09-P5-C | Enforce RLS — Phase 5C: Worker & Webhook Migration (query → queryAdmin) | Codex | CONDITIONALLY APPROVED (DECISION-011). 14 files, 39 sites. C1: b4e0e9c (5 channel files). C2: d25da91 (4 core pipeline files). C3: cd2e703 (5 bg processor + AI files). messageProcessor.js inline require preserved inside function body. tenantManager.js cross-tenant queries preserved without tenant_id filter. triggerEngine.js L332 + reportScheduler.js L285+L292 deferred indirect calls unchanged. Forbidden files in Gemini's diff are prior-phase carryover in baseline commit 7dd2388 — not P5-C changes. Process violation: 4th cumulative branch diff instance. Per-phase branch policy now mandatory. See DECISION-011. |
 | F-09-P4B-B2 | Enforce RLS — Phase 4B Step B2: Route Caller Propagation | Codex | CONDITIONALLY APPROVED. All 9 broadcast.js call sites, products.js GET /, settings.js (2 sites) pass `req.db`. catalog.js + recycleBin.js untouched. auth.js workspace presence is B3 carryover — not counted as B2. Query-module files are B1 carryover. Process violation logged (cumulative diff hygiene). See DECISION-010. |
 | F-09-P4B-B1 | Enforce RLS — Phase 4B Step B1: Query Module Client Parameter | Codex | APPROVED. Optional `client` param added to `getTenantById`, `updateTenantSettings`, `updateKnowledgeBase` in `tenants.js` and `getActiveProducts` in `products.js`. Ternary fallback pattern applied in all 4 functions. `upsertProducts`, `getProductCatalogSummary`, `deleteCatalogProduct` untouched. Pre-flight audit confirmed all 10 external callers pass ≤2 args — fallback path is the only active code path. Zero behavior change. See DECISION-009. |
 | F-09-P4A | Enforce RLS — Phase 4 Sub-scope A: Prisma Routes (corrections, eval, privacy, builtins) | Codex | APPROVED. All 4 files migrated from `getPrismaForTenant` → `withTenant`. Zero `getPrismaForTenant` references remain. All Prisma operations execute inside `withTenant(tenantId, async (tx) => {...})` callbacks. `privacy.js` background processors use 3 separate `withTenant` calls each for immediate commit visibility. `lead.qualify` `.catch` closure confirmed using `tx.deal.create` not `prisma`. No forbidden files touched. Sub-scope B (query modules + callers) pending. See DECISION-008. |
@@ -167,4 +166,4 @@
 ---
 
 *Board initialized from `/MISSING_TASKS_AND_EXECUTION_GAPS.md` Section 11 (Dependency-Ordered Master Task List).*
-*Last updated: F-09 Pre-Activation Audit complete. F-09-P5-C brief written and promoted to READY. P5-A, P5-B, P5-D added to READY (briefs pending). F-09-P4B-B3 in REVIEW.*
+*Last updated: F-09-P5-C DONE (DECISION-011). F-09-P4B-B3 in REVIEW. P5-A, P5-B, P5-D in READY (briefs pending). Per-phase branch policy now mandatory for all future tasks (DECISION-011).*

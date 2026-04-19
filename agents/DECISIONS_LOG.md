@@ -708,4 +708,124 @@ If a future audit finds that auth.js changes in the current workspace state are 
 incorrect, that is a B3 finding — not a B2 issue. B3 validation will surface any such gaps.
 
 ---
+### [DECISION-011] F-09-P5-C Conditionally Approved — Technical Pass, Process Violation Logged (4th Cumulative Diff Instance); Mandatory Per-Phase Branch Policy Introduced
+
+**Logged by:** Claude
+**Authority Level:** Risk Acceptance + Scope Ruling
+**Context:**
+F-09 Phase 5C (Worker & Webhook Migration: 14 files, 39 `query()` → `queryAdmin()` sites)
+was implemented by Codex on branch `task/f09-phase-2-middleware` in three commits:
+- C1 `b4e0e9c`: 5 channel webhook/socket files
+- C2 `d25da91`: 4 core message pipeline files
+- C3 `cd2e703`: 5 background processor + AI pipeline files
+
+Gemini's ruling: TECHNICAL PASS / PROCESS FAIL.
+
+Technical pass confirmed for all intended P5-C scope:
+- All 39 `query(` call sites replaced with `queryAdmin(` across the 14 in-scope files. ✓
+- `messageProcessor.js`: inline require at line 45 remained inside `processMessage` function body
+  (not hoisted). All 4 Promise.all sites replaced. ✓
+- `tenantManager.js`: cross-tenant channel_connections queries retained no `WHERE tenant_id` filter.
+  All 4 sites replaced. ✓
+- `triggerEngine.js` line 332: `updateTenantSettings(tenantId, normalizedSettings)` — UNCHANGED. ✓
+- `reportScheduler.js` lines 285+292: `updateTenantSettings(tenant.id, settings)` and
+  `getTenantById(tenantId)` — UNCHANGED. ✓
+- 3 commits with correct sub-scope isolation (verified via `git diff-tree --no-commit-id`). ✓
+- Zero forbidden files in any of the 3 P5-C commits. ✓
+
+Process fail based on Gemini's full branch diff (divergence point `285d392`) containing:
+- `airos/backend/src/db/pool.js` — last touched in `7dd2388` (F-09-P2 baseline, approved)
+- `airos/backend/src/api/middleware/tenant.js` — last touched in `7dd2388` (F-09-P2, approved)
+- `airos/backend/src/index.js` — last touched in `7dd2388` (F-09-P2, approved)
+- `airos/backend/src/db/queries/tenants.js` — last touched in `7dd2388` (F-09-P4B-B1, approved)
+- `airos/backend/src/db/queries/products.js` — last touched in `7dd2388` (F-09-P4B-B1, approved)
+
+Verification: `git log --oneline --follow -- <file>` for each flagged file returns `7dd2388`
+as the most recent commit touching it. None appear in b4e0e9c, d25da91, or cd2e703.
+
+**Decision:**
+F-09-P5-C: CONDITIONALLY APPROVED. Status → DONE.
+
+**Ruling on forbidden files:** All five flagged files were last touched in `7dd2388`, the
+deliberate baseline commit that packaged all approved F-01 through F-09-P4B-B2 work. Gemini's
+diff tool compared the entire branch against `main` rather than inspecting the three P5-C commits
+individually. The files are prior-phase carryover, not P5-C scope violations. They are NOT
+counted against P5-C's technical or process record.
+
+**Process violation logged:** This is the **fourth** instance of the cumulative branch diff
+causing spurious process flags:
+- DECISION-006: F-01 — unrelated files in workspace diff
+- DECISION-007: F-09-P2 — prior sub-step files in workspace diff
+- DECISION-010: F-09-P4B-B2 — B1 + B3 content in B2 workspace diff
+- DECISION-011 (this entry): F-09-P4B baseline content in P5-C branch diff
+
+Root cause: all F-09 sub-phases are on a single long-lived branch `task/f09-phase-2-middleware`.
+Each phase's commits are clean, but Gemini's default review compares branch HEAD vs main,
+accumulating every prior phase's changes into one large diff. This will continue to worsen as
+additional phases land on the same branch.
+
+**Mandatory process change — Per-Phase Branch Policy:**
+Starting from the next task (F-09-P5-A or any other task):
+1. **New branch per major sub-phase** is REQUIRED. Codex must create `task/f09-p5a`,
+   `task/f09-p5b`, `task/f09-p5c` (already done), `task/f09-p5d`, `task/f09-p5e` as separate
+   branches rather than piling onto the same long-lived branch.
+2. **Gemini review instructions must specify commit SHAs**, not just branch name, to constrain
+   the diff to the specific task's commits.
+3. Intermediate commits between sub-steps remain mandatory (per DECISION-010).
+4. This policy applies to all multi-phase tasks, not only F-09.
+
+**Reason:**
+The technical implementation is correct, verified, and complete. All 14 files were changed
+exactly as specified. The three commits are cleanly isolated. Blocking or reversing a correct
+implementation due to Gemini's branch-wide diff accumulating prior-phase approved work would
+serve no quality purpose and would delay Phase 5 activation.
+
+**Alternatives Considered:**
+- Full REJECTION and branch rebase/squash before P5-C is accepted: rejected. Rebasing a
+  multi-month long-lived branch to remove prior approved work is disruptive and risks introducing
+  merge errors. The correct fix is the per-phase branch policy going forward.
+- APPROVED unconditionally: rejected. The recurring process pattern must be escalated from
+  "warning" (DECISION-010) to a mandatory policy change (this entry).
+- Require Codex to cherry-pick P5-C commits onto a fresh branch before review: accepted as
+  an option for future phases but not retroactively applied here — the commits are clean and
+  the verification via `git diff-tree` is sufficient.
+
+**Impact:**
+- F-09-P5-C: DONE.
+- F-09-P5-A, P5-B, P5-D: Each must be implemented on its own branch (`task/f09-p5a`, etc.).
+  Gemini review must specify the task-specific commit SHAs.
+- F-09-P5-E (DATABASE_URL switch) remains BLOCKED until P5-A + P5-B + P5-C + P5-D are all DONE.
+- Deferred indirect `updateTenantSettings`/`getTenantById` calls in `triggerEngine.js` (line 332)
+  and `reportScheduler.js` (lines 285, 292) will fail silently under Phase 5 until P5-D completes.
+  P5-E must not be activated until P5-D is DONE.
+
+**Affected Files / Modules:**
+P5-C (now DONE):
+- `airos/backend/src/channels/livechat/socket.js`
+- `airos/backend/src/channels/messenger/webhook.js`
+- `airos/backend/src/channels/instagram/webhook.js`
+- `airos/backend/src/channels/instagram/oauth.js`
+- `airos/backend/src/channels/whatsapp/webhook.js`
+- `airos/backend/src/workers/messageProcessor.js`
+- `airos/backend/src/core/messageRouter.js`
+- `airos/backend/src/core/tenantManager.js`
+- `airos/backend/src/core/dealEngine.js`
+- `airos/backend/src/core/reportScheduler.js`
+- `airos/backend/src/core/triggerEngine.js`
+- `airos/backend/src/ingest/ingestionJob.js`
+- `airos/backend/src/ai/businessAnalyzer.js`
+- `airos/backend/src/ai/replyGenerator.js`
+
+Deferred to P5-D (not changed in P5-C):
+- `airos/backend/src/core/triggerEngine.js` line 332: `updateTenantSettings` indirect call
+- `airos/backend/src/core/reportScheduler.js` lines 285+292: `updateTenantSettings` + `getTenantById` indirect calls
+- `airos/backend/src/core/recycleBin.js`: entire file
+- `airos/backend/src/api/routes/catalog.js`: entire file (requires architectural decision)
+
+**Revisit Conditions:**
+This ruling is final unless Gemini's technical pass is found to have been incorrect (i.e., a
+direct `query(` call was missed in one of the 14 files). Such a finding would be a P5-C bug,
+not a process issue, and would require a targeted fix commit on the same branch.
+
+---
 *[Next entry: append below this line using the format above. Do not modify existing entries.]*
