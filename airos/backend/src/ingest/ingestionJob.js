@@ -1,12 +1,12 @@
 const crypto = require('crypto');
 
-const { query } = require('../db/pool');
+const { queryAdmin } = require('../db/pool');
 const { crawlWebsite } = require('./crawler');
 const { chunkContent } = require('./chunker');
 const { embedText } = require('./embedder');
 
 async function createIngestionJob(tenantId, sourceUrl, metadata = {}) {
-  const result = await query(
+  const result = await queryAdmin(
     `INSERT INTO ingestion_jobs (tenant_id, source_url, status, metadata)
      VALUES ($1, $2, 'queued', $3)
      RETURNING *`,
@@ -23,7 +23,7 @@ async function updateIngestionJob(jobId, fields = {}) {
   const values = keys.map((key) => key === 'metadata' ? JSON.stringify(fields[key]) : fields[key]);
   const sets = keys.map((key, index) => `${key} = $${index + 2}`).join(', ');
 
-  const result = await query(
+  const result = await queryAdmin(
     `UPDATE ingestion_jobs
      SET ${sets}, updated_at = NOW()
      WHERE id = $1
@@ -34,7 +34,7 @@ async function updateIngestionJob(jobId, fields = {}) {
 }
 
 async function listIngestionJobs(tenantId, { limit = 20 } = {}) {
-  const result = await query(
+  const result = await queryAdmin(
     `SELECT *
      FROM ingestion_jobs
      WHERE tenant_id = $1
@@ -52,7 +52,7 @@ async function storeChunks(tenantId, jobId, chunks) {
     const contentHash = crypto.createHash('sha256').update(chunk.content).digest('hex');
     const embedding = await embedText(chunk.content);
 
-    const result = await query(
+    const result = await queryAdmin(
       `INSERT INTO knowledge_chunks
         (tenant_id, job_id, source_url, title, heading, content_hash, content, token_count, embedding, metadata)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
@@ -108,7 +108,7 @@ async function runIngestionJob({ tenantId, sourceUrl, jobId = null, maxPages = 5
 }
 
 async function getKnowledgeChunks(tenantId, { limit = 200 } = {}) {
-  const result = await query(
+  const result = await queryAdmin(
     `SELECT id, source_url, title, heading, content, token_count, created_at
      FROM knowledge_chunks
      WHERE tenant_id = $1

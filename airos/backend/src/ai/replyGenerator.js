@@ -1,5 +1,5 @@
 const Anthropic = require('@anthropic-ai/sdk');
-const { query } = require('../db/pool');
+const { queryAdmin } = require('../db/pool');
 const { normalizeTenantSettings, buildCompanyContext } = require('../core/tenantSettings');
 const { resolvePromptContent } = require('./promptRegistry');
 
@@ -108,7 +108,7 @@ Avoid making up policies, delivery times, or stock details that are not present 
   const confidence = Math.min((leadScore / 100) * 0.9 + 0.1, 1.0);
 
   // Save to ai_suggestions
-  const res = await query(`
+  const res = await queryAdmin(`
     INSERT INTO ai_suggestions
       (tenant_id, message_id, conversation_id, suggested_reply, intent, lead_score, confidence)
     VALUES ($1, $2, $3, $4, $5, $6, $7)

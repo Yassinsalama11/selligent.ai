@@ -1,6 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 
-const { query } = require('../db/pool');
+const { queryAdmin } = require('../db/pool');
 const { getKnowledgeChunks } = require('../ingest/ingestionJob');
 
 function heuristicProfile(tenant = {}, chunks = []) {
@@ -77,7 +77,7 @@ ${content}`;
 
 async function analyzeBusinessProfile(tenantId) {
   const [tenantResult, chunks] = await Promise.all([
-    query('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantId]),
+    queryAdmin('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantId]),
     getKnowledgeChunks(tenantId, { limit: 250 }),
   ]);
 
@@ -97,7 +97,7 @@ async function analyzeBusinessProfile(tenantId) {
 
   if (!profile) profile = heuristicProfile(tenant, chunks);
 
-  const latestJob = await query(
+  const latestJob = await queryAdmin(
     `SELECT id
      FROM ingestion_jobs
      WHERE tenant_id = $1
@@ -106,7 +106,7 @@ async function analyzeBusinessProfile(tenantId) {
     [tenantId]
   ).then((result) => result.rows[0]?.id || null);
 
-  const saved = await query(
+  const saved = await queryAdmin(
     `INSERT INTO tenant_profiles (tenant_id, source_job_id, profile, status)
      VALUES ($1, $2, $3, 'draft')
      ON CONFLICT (tenant_id) DO UPDATE
@@ -122,7 +122,7 @@ async function analyzeBusinessProfile(tenantId) {
 }
 
 async function getTenantProfile(tenantId) {
-  const result = await query(
+  const result = await queryAdmin(
     'SELECT * FROM tenant_profiles WHERE tenant_id = $1 LIMIT 1',
     [tenantId]
   );
@@ -130,7 +130,7 @@ async function getTenantProfile(tenantId) {
 }
 
 async function saveTenantProfile(tenantId, profile, status = 'reviewed') {
-  const result = await query(
+  const result = await queryAdmin(
     `INSERT INTO tenant_profiles (tenant_id, profile, status, reviewed_at)
      VALUES ($1, $2, $3, NOW())
      ON CONFLICT (tenant_id) DO UPDATE

@@ -1,4 +1,4 @@
-const { query } = require('../db/pool');
+const { queryAdmin } = require('../db/pool');
 const { updateTenantSettings } = require('../db/queries/tenants');
 const { normalizeTenantSettings } = require('./tenantSettings');
 const { saveMessage } = require('../db/queries/messages');
@@ -62,7 +62,7 @@ function matchCondition(condition, context) {
 
 async function addCustomerTag(tenantId, customer, tag) {
   const nextTags = [...new Set([...(customer.tags || []), tag])];
-  await query(`
+  await queryAdmin(`
     UPDATE customers
     SET tags = $1
     WHERE id = $2 AND tenant_id = $3
@@ -82,7 +82,7 @@ async function notifyTeam({ tenantId, tenant, settings, trigger, context }) {
     .map((operator) => operator.email);
 
   if (recipients.length === 0) {
-    recipients = await query(`
+    recipients = await queryAdmin(`
       SELECT email
       FROM users
       WHERE tenant_id = $1 AND role IN ('owner', 'admin')

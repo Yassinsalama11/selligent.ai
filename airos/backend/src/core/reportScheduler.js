@@ -1,4 +1,4 @@
-const { query } = require('../db/pool');
+const { queryAdmin } = require('../db/pool');
 const { getTenantById, updateTenantSettings } = require('../db/queries/tenants');
 const { normalizeTenantSettings } = require('./tenantSettings');
 const { sendEmail } = require('./emailService');
@@ -83,14 +83,14 @@ async function buildReportSummary(tenantId, freq = 'daily') {
   const from = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
 
   const [conversationStats, dealStats, aiStats, channelStats, agentStats] = await Promise.all([
-    query(`
+    queryAdmin(`
       SELECT
         COUNT(*)::int AS total_conversations,
         COUNT(*) FILTER (WHERE status = 'open')::int AS open_conversations
       FROM conversations
       WHERE tenant_id = $1 AND created_at >= $2
     `, [tenantId, from]),
-    query(`
+    queryAdmin(`
       SELECT
         COUNT(*) FILTER (WHERE stage = 'won')::int AS deals_won,
         COUNT(*) FILTER (WHERE stage = 'lost')::int AS deals_lost,
@@ -98,7 +98,7 @@ async function buildReportSummary(tenantId, freq = 'daily') {
       FROM deals
       WHERE tenant_id = $1 AND COALESCE(closed_at, updated_at, created_at) >= $2
     `, [tenantId, from]),
-    query(`
+    queryAdmin(`
       SELECT
         COUNT(*)::int AS sent,
         COUNT(*) FILTER (WHERE was_used = TRUE)::int AS used,
@@ -106,7 +106,7 @@ async function buildReportSummary(tenantId, freq = 'daily') {
       FROM ai_suggestions
       WHERE tenant_id = $1 AND created_at >= $2
     `, [tenantId, from]),
-    query(`
+    queryAdmin(`
       SELECT channel, COUNT(*)::int AS conversations
       FROM conversations
       WHERE tenant_id = $1 AND created_at >= $2
@@ -114,7 +114,7 @@ async function buildReportSummary(tenantId, freq = 'daily') {
       ORDER BY conversations DESC
       LIMIT 5
     `, [tenantId, from]),
-    query(`
+    queryAdmin(`
       SELECT
         u.name AS agent_name,
         COALESCE(SUM(r.conversations_handled), 0)::int AS conversations_handled,
@@ -295,7 +295,7 @@ async function runScheduledReportsForTenant(tenantId, scheduleId, options = {}) 
 }
 
 async function processAllTenants() {
-  const tenants = await query(`
+  const tenants = await queryAdmin(`
     SELECT id, name, email, settings
     FROM tenants
     WHERE status = 'active'
