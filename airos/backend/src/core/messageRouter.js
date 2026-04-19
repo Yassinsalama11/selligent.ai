@@ -2,7 +2,7 @@ const { getTenantByWhatsAppPhoneId, getTenantByPageId, getOrCreateCustomer } = r
 const { getOrCreateConversation, assignConversation } = require('../db/queries/conversations');
 const { saveMessage } = require('../db/queries/messages');
 const { getOrCreateDeal } = require('../db/queries/deals');
-const { query } = require('../db/pool');
+const { queryAdmin } = require('../db/pool');
 const { normalizeWhatsApp } = require('../channels/whatsapp/normalizer');
 const { normalizeInstagram } = require('../channels/instagram/normalizer');
 const { normalizeMessenger } = require('../channels/messenger/normalizer');
@@ -70,7 +70,7 @@ async function routeMessage(jobData) {
       return;
   }
 
-  tenantRow = await query(
+  tenantRow = await queryAdmin(
     'SELECT id, name, email, settings, knowledge_base FROM tenants WHERE id = $1',
     [tenantId]
   ).then((result) => result.rows[0] || null);
@@ -168,7 +168,7 @@ async function applyModerationFlags({ tenantId, settings, customer, message }) {
 
   if (profanityDetected) {
     profanityCount += 1;
-    await query(
+    await queryAdmin(
       'UPDATE customers SET preferences = $1 WHERE id = $2 AND tenant_id = $3',
       [JSON.stringify({ ...(customer.preferences || {}), profanity_count: profanityCount }), customer.id, tenantId]
     );
@@ -190,7 +190,7 @@ async function applyModerationFlags({ tenantId, settings, customer, message }) {
 }
 
 async function determineAssignee(tenantId, settings, context) {
-  const users = await query(
+  const users = await queryAdmin(
     `SELECT id, name, role, created_at
      FROM users
      WHERE tenant_id = $1 AND role IN ('owner', 'admin', 'agent')
@@ -209,7 +209,7 @@ async function determineAssignee(tenantId, settings, context) {
 
   const mode = settings.visitorRouting?.mode || 'round_robin';
   if (mode === 'least_active') {
-    const counts = await query(
+    const counts = await queryAdmin(
       `SELECT assigned_to, COUNT(*)::int AS total
        FROM conversations
        WHERE tenant_id = $1 AND status = 'open' AND assigned_to IS NOT NULL

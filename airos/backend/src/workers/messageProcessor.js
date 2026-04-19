@@ -42,7 +42,7 @@ async function processMessage(payload, jobId = 'inline') {
   const { generateReply }    = require('../ai/replyGenerator');
   const { executeTriggers }  = require('../core/triggerEngine');
   const { getMessages }      = require('../db/queries/messages');
-  const { query }            = require('../db/pool');
+  const { queryAdmin }       = require('../db/pool');
   const { getIO }            = require('../channels/livechat/socket');
 
   console.log(`[Worker] Processing ${payload.channel} message`, jobId);
@@ -61,16 +61,16 @@ async function processMessage(payload, jobId = 'inline') {
   // 2. Load context for AI
   const [history, tenantRow, products, offers, shipping] = await Promise.all([
     getMessages(tenantId, conversation.id, { limit: 10 }),
-    query('SELECT * FROM tenants WHERE id = $1', [tenantId]).then(r => r.rows[0]),
-    query(
+    queryAdmin('SELECT * FROM tenants WHERE id = $1', [tenantId]).then(r => r.rows[0]),
+    queryAdmin(
       'SELECT name, price, sale_price, currency, stock_status FROM products WHERE tenant_id = $1 AND is_active = TRUE LIMIT 15',
       [tenantId]
     ).then(r => r.rows),
-    query(
+    queryAdmin(
       'SELECT name, type, value, code FROM offers WHERE tenant_id = $1 AND is_active = TRUE AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 5',
       [tenantId]
     ).then(r => r.rows),
-    query(
+    queryAdmin(
       'SELECT name, rates, currency FROM shipping_zones WHERE tenant_id = $1 LIMIT 4',
       [tenantId]
     ).then(r => r.rows),

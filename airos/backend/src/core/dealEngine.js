@@ -1,5 +1,5 @@
 const { updateDeal, closeDeal } = require('../db/queries/deals');
-const { query } = require('../db/pool');
+const { queryAdmin } = require('../db/pool');
 
 /**
  * Advance deal stage based on AI intent + lead score.
@@ -13,7 +13,7 @@ async function advanceDeal(tenantId, dealId, analysis) {
   const { intent, lead_score, suggested_stage, estimated_value } = analysis;
 
   // Fetch current deal
-  const res = await query(
+  const res = await queryAdmin(
     'SELECT stage FROM deals WHERE id = $1 AND tenant_id = $2',
     [dealId, tenantId]
   );
@@ -59,7 +59,7 @@ async function tryAutoClose(tenantId, dealId, intent) {
 
 async function bumpReportNewLead(tenantId) {
   const today = new Date().toISOString().slice(0, 10);
-  await query(`
+  await queryAdmin(`
     INSERT INTO report_daily (tenant_id, date, new_leads)
     VALUES ($1, $2, 1)
     ON CONFLICT (tenant_id, date, channel)

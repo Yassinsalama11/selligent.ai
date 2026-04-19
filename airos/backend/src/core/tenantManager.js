@@ -1,4 +1,4 @@
-const { query } = require('../db/pool');
+const { queryAdmin } = require('../db/pool');
 const crypto = require('crypto');
 
 const ALGO = 'aes-256-gcm';
@@ -7,7 +7,7 @@ const ALGO = 'aes-256-gcm';
  * Look up which tenant owns a given WhatsApp phone_number_id.
  */
 async function getTenantByWhatsAppPhoneId(phoneNumberId) {
-  const res = await query(`
+  const res = await queryAdmin(`
     SELECT tenant_id, credentials FROM channel_connections
     WHERE channel = 'whatsapp' AND status = 'active'
   `);
@@ -25,7 +25,7 @@ async function getTenantByWhatsAppPhoneId(phoneNumberId) {
  * Look up which tenant owns a given Meta page_id (Instagram or Messenger).
  */
 async function getTenantByPageId(pageId, channel) {
-  const res = await query(`
+  const res = await queryAdmin(`
     SELECT tenant_id, credentials FROM channel_connections
     WHERE channel = $1 AND status = 'active'
   `, [channel]);
@@ -43,14 +43,14 @@ async function getTenantByPageId(pageId, channel) {
  * Get or create a customer record by channel + channel_customer_id.
  */
 async function getOrCreateCustomer(tenantId, { channel, channelCustomerId, name, phone, avatar }) {
-  const existing = await query(`
+  const existing = await queryAdmin(`
     SELECT * FROM customers
     WHERE tenant_id = $1 AND channel = $2 AND channel_customer_id = $3
   `, [tenantId, channel, channelCustomerId]);
 
   if (existing.rows.length > 0) return existing.rows[0];
 
-  const res = await query(`
+  const res = await queryAdmin(`
     INSERT INTO customers (tenant_id, channel, channel_customer_id, name, phone, avatar_url)
     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
   `, [tenantId, channel, channelCustomerId, name, phone, avatar]);
