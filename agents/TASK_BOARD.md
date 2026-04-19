@@ -23,7 +23,7 @@
 
 | # | Task Name | Owner | Depends On | Priority | Notes |
 |---|---|---|---|---|---|
-| F-09-P5-C | Enforce RLS — Phase 5C: Worker & Webhook Migration (query → queryAdmin) | Codex | F-09-P4B-B3 ✓, Pre-Activation Audit ✓ | Critical | 14 files, 39 sites, 3 sub-scopes (C1: webhooks/socket 5 files; C2: core workers 4 files; C3: bg processors 5 files). Brief written. Sub-scopes must be committed and Gemini-validated independently. See brief above. |
+| F-09-P5-C | Enforce RLS — Phase 5C: Worker & Webhook Migration (query → queryAdmin) | Gemini → Claude | F-09-P4B-B3 ✓, Pre-Activation Audit ✓ | Critical | REVIEW. C1: b4e0e9c (5 channel files). C2: d25da91 (4 core pipeline files). C3: cd2e703 (5 bg processor + AI files). 39 sites replaced. Deferred lines in triggerEngine (L332) and reportScheduler (L285, L292) untouched. |
 | F-09-P5-A | Enforce RLS — Phase 5A: Route Handler Migration (dashboard, channels, admin, onboarding, ai) | Codex | F-09-P4B-B3 ✓ | Critical | dashboard.js + ai.js → req.db.query(). channels.js + admin.js + onboarding.js → queryAdmin(). Brief not yet written. |
 | F-09-P5-B | Enforce RLS — Phase 5B: Query Module Client Params (conversations, messages, deals, prompts, reports, audit) | Codex | F-09-P4B-B1 ✓ | Critical | Add optional client param + ternary fallback to 5 modules. audit.js → queryAdmin(). Same pattern as B1. Brief not yet written. |
 | F-09-P5-D | Enforce RLS — Phase 5D: Special Cases (recycleBin client threading, catalog RLS strategy decision) | Codex | F-09-P5-B | Critical | recycleBin.js client param + thread from settings.js/customers.js. catalog.js: queryAdmin or withCatalogTenant decision required. Brief not yet written. |
@@ -53,6 +53,7 @@
 | # | Task Name | Codex Branch | Gemini Status | Claude Status | Notes |
 |---|---|---|---|---|---|
 | F-09-P4B-B3 | Enforce RLS — Phase 4B Step B3: auth.js queryAdmin Migration | task/f09-phase-2-middleware | Pending | Pending | auth.js only. 7 query() → queryAdmin(). query removed from import. All tenant_id WHERE guards preserved. B3 commit: db27e7a. Baseline: 7dd2388. |
+| F-09-P5-C | Enforce RLS — Phase 5C: Worker & Webhook Migration | task/f09-phase-2-middleware | Pending | Pending | 14 files, 39 sites. C1: b4e0e9c. C2: d25da91. C3: cd2e703. Deferred lines untouched. |
 
 ---
 
