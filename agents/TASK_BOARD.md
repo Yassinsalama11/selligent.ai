@@ -25,7 +25,7 @@
 |---|---|---|---|---|---|
 | — | — | — | — | — | — |
 | — | — | — | — | — | — |
-| F-09-P4B-B3 | Enforce RLS — Phase 4B Step B3: auth.js Post-Auth queryAdmin Migration | Codex | F-09-P4B-B1 ✓ (B2 independent) | Critical | Switch 7 `query()` → `queryAdmin()` in post-auth routes. Remove `query` import. Verify all 7 queries have `tenant_id` WHERE guard before converting. See DECISION-009. |
+| — | — | — | — | — | — |
 | F-02 | Real PR Test Gate CI Pipeline | Codex | None | Critical | Create `.github/workflows/ci.yml` with backend-test, frontend-build, typecheck, eval-gate, redteam-gate jobs. |
 | F-11 | PII Encryption at Rest for Messages | Codex | F-01 ✓ | Critical | F-01 now DONE. Wire `encrypt()`/`decrypt()` from `vendor/db/src/encryption.js` into `saveMessage()` and `getMessages()`. |
 | F-04 | Rate Limiting on All Public Endpoints | Codex | None | Critical | Install `express-rate-limit` with Redis store. Auth endpoints: 5 req/min/IP. AI route: per-tenant cap. Webhook: 1000/min/IP. |
@@ -41,7 +41,7 @@
 
 | # | Task Name | Owner | Branch | Started | Notes |
 |---|---|---|---|---|---|
-| — | — | — | — | — | No tasks in progress. |
+| — | — | — | — | — | — | No tasks in progress. |
 
 ---
 
@@ -50,7 +50,7 @@
 
 | # | Task Name | Codex Branch | Gemini Status | Claude Status | Notes |
 |---|---|---|---|---|---|
-| — | — | — | — | — | No tasks in review. |
+| F-09-P4B-B3 | Enforce RLS — Phase 4B Step B3: auth.js queryAdmin Migration | task/f09-phase-2-middleware | Pending | Pending | auth.js only. 7 query() → queryAdmin(). query removed from import. All tenant_id WHERE guards preserved. B3 commit: db27e7a. Baseline: 7dd2388. |
 
 ---
 
@@ -164,4 +164,4 @@
 ---
 
 *Board initialized from `/MISSING_TASKS_AND_EXECUTION_GAPS.md` Section 11 (Dependency-Ordered Master Task List).*
-*Last updated: F-09-P4B-B2 CONDITIONALLY APPROVED → DONE. B3 remains READY as separate official step. Intermediate commit required before B3 begins. See DECISION-010.*
+*Last updated: F-09-P4B-B3 REVIEW. auth.js commit db27e7a (isolated). Baseline 7dd2388. Awaiting Gemini + Claude.*
