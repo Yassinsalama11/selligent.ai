@@ -4,7 +4,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const Stripe = require('stripe');
 
-const { query, withTransaction } = require('../../db/pool');
+const { queryAdmin, adminWithTransaction } = require('../../db/pool');
 const { adminAuthMiddleware } = require('../middleware/adminAuth');
 const { logAuditEvent } = require('../../db/queries/audit');
 
@@ -86,7 +86,7 @@ async function logAdminAction(req, action, entityType, entityId, metadata = {}) 
 }
 
 async function getPlatformAdminByEmail(email) {
-  const result = await query(`
+  const result = await queryAdmin(`
     SELECT id, email, name, role, password_hash, created_at
     FROM users
     WHERE tenant_id IS NULL
@@ -125,7 +125,7 @@ async function ensureConfiguredAdmin(email, password) {
   if (existing) return existing;
 
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-  const created = await query(`
+  const created = await queryAdmin(`
     INSERT INTO users (tenant_id, email, password_hash, name, role)
     VALUES (NULL, $1, $2, $3, 'platform_admin')
     RETURNING id, email, name, role, password_hash, created_at
@@ -180,7 +180,7 @@ async function fetchClients({ search = '', limit = 200 } = {}) {
 
   params.push(Number(limit || 200));
 
-  const result = await query(`
+  const result = await queryAdmin(`
     SELECT
       t.id,
       t.name,
@@ -323,7 +323,7 @@ router.get('/auth/me', adminAuthMiddleware, async (req, res, next) => {
       });
     }
 
-    const admin = await query(`
+    const admin = await queryAdmin(`
       SELECT id, email, name, role, created_at
       FROM users
       WHERE id = $1
@@ -424,7 +424,7 @@ router.post('/clients', adminAuthMiddleware, async (req, res, next) => {
     const tenantEmail = String(ownerEmail).trim().toLowerCase();
     const ownerEmailNormalized = tenantEmail;
 
-    const created = await withTransaction(async (client) => {
+    const created = await adminWithTransaction(async (client) => {
       const existingTenant = await client.query(
         'SELECT id FROM tenants WHERE email = $1 LIMIT 1',
         [tenantEmail],
@@ -497,7 +497,7 @@ router.post('/clients', adminAuthMiddleware, async (req, res, next) => {
 
 router.patch('/clients/:id', adminAuthMiddleware, async (req, res, next) => {
   try {
-    const current = await query(`
+    const current = await queryAdmin(`
       SELECT id, name, email, plan, status, settings, created_at
       FROM tenants
       WHERE id = $1
@@ -514,7 +514,7 @@ router.patch('/clients/:id', adminAuthMiddleware, async (req, res, next) => {
       notes: String(req.body?.notes ?? current.settings?.notes ?? '').trim(),
     };
 
-    const result = await query(`
+    const result = await queryAdmin(`
       UPDATE tenants
       SET
         name = $1,
@@ -592,7 +592,7 @@ router.get('/billing', adminAuthMiddleware, async (req, res, next) => {
 
 router.get('/logs', adminAuthMiddleware, async (req, res, next) => {
   try {
-    const result = await query(`
+    const result = await queryAdmin(`
       SELECT id, actor_type, actor_id, action, entity_type, entity_id, metadata, created_at
       FROM audit_log
       WHERE tenant_id IS NULL
@@ -608,7 +608,7 @@ router.get('/logs', adminAuthMiddleware, async (req, res, next) => {
 
 router.get('/ingestion', adminAuthMiddleware, async (req, res, next) => {
   try {
-    const result = await query(`
+    const result = await queryAdmin(`
       SELECT
         j.id,
         j.tenant_id,

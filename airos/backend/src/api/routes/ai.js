@@ -1,6 +1,6 @@
 const express = require('express');
 const { streamReply } = require('@chatorai/ai-core');
-const { query } = require('../../db/pool');
+const { queryAdmin } = require('../../db/pool');
 const { scoreProductionReply } = require('@chatorai/eval');
 const { recordAiUsage } = require('../../core/telemetry');
 
@@ -128,7 +128,7 @@ router.post('/reply', async (req, res) => {
       latencyMs: finalEvent.latencyMs || (Date.now() - startedAt),
     });
 
-    query(
+    queryAdmin(
       `INSERT INTO ai_call_logs (tenant_id, model, prompt_hash, tokens_in, tokens_out, latency_ms, conversation_id, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [

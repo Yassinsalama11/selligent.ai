@@ -91,4 +91,20 @@ async function queryAdmin(text, params) {
   }
 }
 
-module.exports = { pool, query, withTransaction, queryAdmin };
+async function adminWithTransaction(fn) {
+  ensureDatabaseConfigured();
+  const client = await adminPool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw mapDatabaseError(err);
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { pool, query, withTransaction, queryAdmin, adminWithTransaction };
