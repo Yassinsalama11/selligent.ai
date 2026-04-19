@@ -398,7 +398,7 @@ model KnowledgeChunk {
 
 model TenantProfile {
   tenantId    String    @id @map("tenant_id") @db.Uuid
-  sourceJobId String?   @map("source_job_id") @db.Uuid
+  sourceJobId String?   @unique @map("source_job_id") @db.Uuid
   profile     Json      @default("{}")
   status      String    @default("draft") @db.VarChar(50)
   reviewedAt  DateTime? @map("reviewed_at") @db.Timestamptz()

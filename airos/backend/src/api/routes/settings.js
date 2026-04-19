@@ -1,6 +1,5 @@
 const express = require('express');
 
-const { query, withTransaction } = require('../../db/pool');
 const { updateTenantSettings } = require('../../db/queries/tenants');
 const { normalizeTenantSettings, isPlainObject } = require('../../core/tenantSettings');
 const { getRecycleBin, removeRecycleItem, clearRecycleBin } = require('../../core/recycleBin');
@@ -78,6 +77,7 @@ async function saveRequestTenantSettings(req, nextSettings) {
   const saved = await updateTenantSettings(
     req.user.tenant_id,
     normalizeTenantSettings(nextSettings),
+    req.db,
   );
   req.tenant = {
     ...(req.tenant || {}),
@@ -113,6 +113,7 @@ router.put('/', async (req, res, next) => {
     const saved = await updateTenantSettings(
       req.user.tenant_id,
       normalizeTenantSettings(payload),
+      req.db,
     );
 
     res.json(normalizeTenantSettings(saved?.settings));
@@ -129,11 +130,11 @@ router.get('/usage', async (req, res, next) => {
     const cycleEnd = endOfMonth();
 
     const [conversationsRes, messagesRes, aiRepliesRes, contactsRes, storageRes, broadcastRes] = await Promise.all([
-      query('SELECT COUNT(*)::int AS total FROM conversations WHERE tenant_id = $1', [tenantId]),
-      query('SELECT COUNT(*)::int AS total FROM messages WHERE tenant_id = $1', [tenantId]),
-      query('SELECT COUNT(*)::int AS total FROM ai_suggestions WHERE tenant_id = $1', [tenantId]),
-      query('SELECT COUNT(*)::int AS total FROM customers WHERE tenant_id = $1', [tenantId]),
-      query(`
+      req.db.query('SELECT COUNT(*)::int AS total FROM conversations WHERE tenant_id = $1', [tenantId]),
+      req.db.query('SELECT COUNT(*)::int AS total FROM messages WHERE tenant_id = $1', [tenantId]),
+      req.db.query('SELECT COUNT(*)::int AS total FROM ai_suggestions WHERE tenant_id = $1', [tenantId]),
+      req.db.query('SELECT COUNT(*)::int AS total FROM customers WHERE tenant_id = $1', [tenantId]),
+      req.db.query(`
         SELECT COALESCE(SUM(
           OCTET_LENGTH(COALESCE(content, '')) +
           OCTET_LENGTH(COALESCE(media_url, ''))
@@ -141,7 +142,7 @@ router.get('/usage', async (req, res, next) => {
         FROM messages
         WHERE tenant_id = $1
       `, [tenantId]),
-      query(`
+      req.db.query(`
         SELECT COUNT(*)::int AS total
         FROM messages
         WHERE tenant_id = $1 AND direction = 'outbound'
@@ -189,7 +190,7 @@ router.get('/usage', async (req, res, next) => {
 router.get('/monitor', async (req, res, next) => {
   try {
     const tenantId = req.user.tenant_id;
-    const result = await query(`
+    const result = await req.db.query(`
       SELECT
         c.id,
         c.channel,
@@ -265,96 +266,87 @@ router.post('/import/contacts', async (req, res, next) => {
     }
 
     const tenantId = req.user.tenant_id;
-    const result = await withTransaction(async (client) => {
-      let imported = 0;
-      let skipped = 0;
-      let errors = 0;
+    let imported = 0;
+    let skipped = 0;
+    let errors = 0;
 
-      for (const rawRow of rows) {
-        const row = normalizeImportedRow(rawRow);
-        const identifier = row.email || row.phone;
+    for (const rawRow of rows) {
+      const row = normalizeImportedRow(rawRow);
+      const identifier = row.email || row.phone;
 
-        if (!identifier || (!row.name && !row.phone && !row.email)) {
-          skipped += 1;
-          continue;
-        }
-
-        try {
-          const channelCustomerId = `import:${identifier}`;
-          const preferences = {
-            email: row.email || '',
-            country: row.country || '',
-            imported_at: new Date().toISOString(),
-          };
-
-          const existing = await client.query(`
-            SELECT id, tags, preferences
-            FROM customers
-            WHERE tenant_id = $1 AND channel = 'import' AND channel_customer_id = $2
-            LIMIT 1
-          `, [tenantId, channelCustomerId]);
-
-          if (existing.rows[0]) {
-            const existingRow = existing.rows[0];
-            const mergedTags = [...new Set([...(existingRow.tags || []), ...row.tags])];
-            const mergedPreferences = {
-              ...(existingRow.preferences || {}),
-              ...preferences,
-            };
-
-            await client.query(`
-              UPDATE customers
-              SET
-                name = $1,
-                phone = $2,
-                tags = $3,
-                preferences = $4
-              WHERE id = $5 AND tenant_id = $6
-            `, [
-              row.name || identifier,
-              row.phone || null,
-              JSON.stringify(mergedTags),
-              JSON.stringify(mergedPreferences),
-              existingRow.id,
-              tenantId,
-            ]);
-          } else {
-            await client.query(`
-              INSERT INTO customers (
-                tenant_id,
-                channel_customer_id,
-                channel,
-                name,
-                phone,
-                tags,
-                preferences
-              )
-              VALUES ($1, $2, 'import', $3, $4, $5, $6)
-            `, [
-              tenantId,
-              channelCustomerId,
-              row.name || identifier,
-              row.phone || null,
-              JSON.stringify(row.tags),
-              JSON.stringify(preferences),
-            ]);
-          }
-
-          imported += 1;
-        } catch (err) {
-          errors += 1;
-        }
+      if (!identifier || (!row.name && !row.phone && !row.email)) {
+        skipped += 1;
+        continue;
       }
 
-      return {
-        imported,
-        skipped,
-        errors,
-        total: rows.length,
-      };
-    });
+      try {
+        const channelCustomerId = `import:${identifier}`;
+        const preferences = {
+          email: row.email || '',
+          country: row.country || '',
+          imported_at: new Date().toISOString(),
+        };
 
-    res.status(201).json(result);
+        const existing = await req.db.query(`
+          SELECT id, tags, preferences
+          FROM customers
+          WHERE tenant_id = $1 AND channel = 'import' AND channel_customer_id = $2
+          LIMIT 1
+        `, [tenantId, channelCustomerId]);
+
+        if (existing.rows[0]) {
+          const existingRow = existing.rows[0];
+          const mergedTags = [...new Set([...(existingRow.tags || []), ...row.tags])];
+          const mergedPreferences = {
+            ...(existingRow.preferences || {}),
+            ...preferences,
+          };
+
+          await req.db.query(`
+            UPDATE customers
+            SET
+              name = $1,
+              phone = $2,
+              tags = $3,
+              preferences = $4
+            WHERE id = $5 AND tenant_id = $6
+          `, [
+            row.name || identifier,
+            row.phone || null,
+            JSON.stringify(mergedTags),
+            JSON.stringify(mergedPreferences),
+            existingRow.id,
+            tenantId,
+          ]);
+        } else {
+          await req.db.query(`
+            INSERT INTO customers (
+              tenant_id,
+              channel_customer_id,
+              channel,
+              name,
+              phone,
+              tags,
+              preferences
+            )
+            VALUES ($1, $2, 'import', $3, $4, $5, $6)
+          `, [
+            tenantId,
+            channelCustomerId,
+            row.name || identifier,
+            row.phone || null,
+            JSON.stringify(row.tags),
+            JSON.stringify(preferences),
+          ]);
+        }
+
+        imported += 1;
+      } catch (err) {
+        errors += 1;
+      }
+    }
+
+    res.status(201).json({ imported, skipped, errors, total: rows.length });
   } catch (err) {
     next(err);
   }
@@ -376,7 +368,7 @@ router.post('/recycle-bin/:itemId/restore', async (req, res, next) => {
     if (!item) return res.status(404).json({ error: 'Recycle bin item not found' });
 
     if (item.entityType === 'customer') {
-      const row = await query(`
+      const row = await req.db.query(`
         SELECT preferences
         FROM customers
         WHERE id = $1 AND tenant_id = $2
@@ -385,7 +377,7 @@ router.post('/recycle-bin/:itemId/restore', async (req, res, next) => {
 
       if (!row) return res.status(404).json({ error: 'Customer not found' });
 
-      await query(`
+      await req.db.query(`
         UPDATE customers
         SET preferences = $1
         WHERE id = $2 AND tenant_id = $3
@@ -397,7 +389,7 @@ router.post('/recycle-bin/:itemId/restore', async (req, res, next) => {
     }
 
     if (item.entityType === 'conversation') {
-      await query(`
+      await req.db.query(`
         UPDATE conversations
         SET status = $1, updated_at = NOW()
         WHERE id = $2 AND tenant_id = $3

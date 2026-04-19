@@ -1,7 +1,6 @@
 const crypto = require('crypto');
 const express = require('express');
 
-const { query } = require('../../db/pool');
 const { appendRecycleItem } = require('../../core/recycleBin');
 
 const router = express.Router();
@@ -96,7 +95,7 @@ router.get('/', async (req, res, next) => {
 
     params.push(Number(req.query.limit || 200));
 
-    const result = await query(`
+    const result = await req.db.query(`
       SELECT
         c.*,
         COALESCE(stats.orders, 0)::int AS orders,
@@ -132,7 +131,7 @@ router.get('/', async (req, res, next) => {
 router.get('/:id/timeline', async (req, res, next) => {
   try {
     const tenantId = req.user.tenant_id;
-    const customerResult = await query(`
+    const customerResult = await req.db.query(`
       SELECT
         c.*,
         COALESCE(stats.orders, 0)::int AS orders,
@@ -164,14 +163,14 @@ router.get('/:id/timeline', async (req, res, next) => {
     if (!customerRow) return res.status(404).json({ error: 'Customer not found' });
 
     const [conversationResult, messageResult, dealResult] = await Promise.all([
-      query(`
+      req.db.query(`
         SELECT c.*, u.name AS assigned_name
         FROM conversations c
         LEFT JOIN users u ON u.id = c.assigned_to
         WHERE c.tenant_id = $1 AND c.customer_id = $2
         ORDER BY c.created_at ASC
       `, [tenantId, req.params.id]),
-      query(`
+      req.db.query(`
         SELECT
           m.*,
           c.channel,
@@ -181,7 +180,7 @@ router.get('/:id/timeline', async (req, res, next) => {
         WHERE m.tenant_id = $1 AND c.customer_id = $2
         ORDER BY m.created_at ASC
       `, [tenantId, req.params.id]),
-      query(`
+      req.db.query(`
         SELECT *
         FROM deals
         WHERE tenant_id = $1 AND customer_id = $2
@@ -277,7 +276,7 @@ router.post('/', async (req, res, next) => {
       source: 'dashboard',
     };
 
-    const result = await query(`
+    const result = await req.db.query(`
       INSERT INTO customers (
         tenant_id,
         channel_customer_id,
@@ -308,7 +307,7 @@ router.post('/', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
   try {
     const tenantId = req.user.tenant_id;
-    const current = await query(`
+    const current = await req.db.query(`
       SELECT *
       FROM customers
       WHERE id = $1 AND tenant_id = $2
@@ -326,7 +325,7 @@ router.patch('/:id', async (req, res, next) => {
         : (current.preferences?.custom_fields || {}),
     };
 
-    const result = await query(`
+    const result = await req.db.query(`
       UPDATE customers
       SET
         name = $1,
@@ -355,7 +354,7 @@ router.patch('/:id', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
   try {
     const tenantId = req.user.tenant_id;
-    const current = await query(`
+    const current = await req.db.query(`
       SELECT *
       FROM customers
       WHERE id = $1 AND tenant_id = $2
@@ -371,7 +370,7 @@ router.delete('/:id', async (req, res, next) => {
       deleted_by: req.user.id,
     };
 
-    await query(`
+    await req.db.query(`
       UPDATE customers
       SET preferences = $1
       WHERE id = $2 AND tenant_id = $3

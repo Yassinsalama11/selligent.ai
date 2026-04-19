@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { query } = require('../../db/pool');
+const { query, queryAdmin } = require('../../db/pool');
 const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
@@ -22,7 +22,7 @@ router.post('/register', async (req, res, next) => {
       ? String(plan).toLowerCase()
       : 'starter';
 
-    const existing = await query('SELECT id FROM tenants WHERE email = $1', [email]);
+    const existing = await queryAdmin('SELECT id FROM tenants WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
       return res.status(409).json({ error: 'Email already registered' });
     }
@@ -30,7 +30,7 @@ router.post('/register', async (req, res, next) => {
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
     // Create tenant + owner in a transaction
-    const result = await query(`
+    const result = await queryAdmin(`
       WITH new_tenant AS (
         INSERT INTO tenants (name, email, plan) VALUES ($1, $2, $5) RETURNING id, plan
       )
@@ -64,7 +64,7 @@ router.post('/login', async (req, res, next) => {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    const result = await query(`
+    const result = await queryAdmin(`
       SELECT u.id, u.tenant_id, u.email, u.name, u.role, u.password_hash
       FROM users u
       JOIN tenants t ON t.id = u.tenant_id

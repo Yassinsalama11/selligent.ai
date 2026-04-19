@@ -72,6 +72,10 @@ app.use(cors({
   },
   credentials: true,
 }));
+// Raw body capture for webhook signature verification.
+// Must be registered before the global JSON parser so Meta webhook POSTs
+// retain the exact bytes required for HMAC verification.
+app.post('/webhooks/*', express.raw({ type: '*/*', limit: '10mb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // Request tracing (adds request_id, tenant_id, latency tracking)
@@ -165,7 +169,11 @@ const { getMessages: getConvMessages } = require('./db/queries/messages');
 const _webhookLog = [];
 app.use('/webhooks', (req, res, next) => {
   if (req.method === 'POST') {
-    _webhookLog.unshift({ path: req.path, body: req.body, ts: new Date().toISOString() });
+    let body = req.body;
+    if (Buffer.isBuffer(body)) {
+      body = `[raw ${body.length} bytes]`;
+    }
+    _webhookLog.unshift({ path: req.path, body, ts: new Date().toISOString() });
     if (_webhookLog.length > 10) _webhookLog.pop();
   }
   next();

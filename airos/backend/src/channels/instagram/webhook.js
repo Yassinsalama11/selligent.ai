@@ -7,6 +7,7 @@ const { saveMessage } = require('../../db/queries/messages');
 const { query } = require('../../db/pool');
 const { normalizeTenantSettings, buildCompanyContext, isBlockedSpammer } = require('../../core/tenantSettings');
 const { addToQueue } = require('../../workers/messageProcessor');
+const { verifyMetaSignature } = require('../verify');
 
 /* ── Fetch real customer name from Meta Graph API ───────────────────────────── */
 async function fetchIgName(userId, token) {
@@ -31,9 +32,29 @@ router.get('/instagram', (req, res) => {
 
 /* ── POST /webhooks/instagram — incoming DMs ────────────────────────────────── */
 router.post('/instagram', async (req, res) => {
+  const secret = process.env.META_APP_SECRET;
+  const sig = req.headers['x-hub-signature-256'];
+
+  if (!secret) {
+    console.warn('[Security] META_APP_SECRET is not configured; rejecting Meta webhook');
+  }
+
+  if (!verifyMetaSignature(secret, req.body, sig)) {
+    console.warn('[Instagram] Webhook rejected - invalid or missing signature');
+    return res.sendStatus(403);
+  }
+
   res.sendStatus(200);
+
+  let body;
   try {
-    const body = req.body;
+    body = JSON.parse(req.body.toString('utf8'));
+  } catch (err) {
+    console.error('[Instagram] Failed to parse webhook body:', err.message);
+    return;
+  }
+
+  try {
     console.log('[Instagram] RAW BODY:', JSON.stringify(body).slice(0, 500));
     // Meta sends object: 'instagram' OR 'page' depending on app setup
     if (body.object !== 'instagram' && body.object !== 'page') {

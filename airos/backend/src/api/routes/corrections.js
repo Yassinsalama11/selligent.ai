@@ -15,7 +15,7 @@
  *   Returns a single correction record.
  */
 const express = require('express');
-const { getPrismaForTenant } = require('@chatorai/db');
+const { withTenant } = require('@chatorai/db');
 
 const router = express.Router();
 
@@ -35,17 +35,18 @@ router.post('/', async (req, res, next) => {
       return res.status(400).json({ error: 'correctedReply is required for editType "edit"' });
     }
 
-    const prisma = await getPrismaForTenant(tenantId);
-    const correction = await prisma.replyCorrection.create({
-      data: {
-        tenantId,
-        messageId: messageId || null,
-        suggestionId: suggestionId || null,
-        editType,
-        originalReply,
-        correctedReply: correctedReply || null,
-        correctedBy: req.user.id,
-      },
+    const correction = await withTenant(tenantId, async (tx) => {
+      return tx.replyCorrection.create({
+        data: {
+          tenantId,
+          messageId: messageId || null,
+          suggestionId: suggestionId || null,
+          editType,
+          originalReply,
+          correctedReply: correctedReply || null,
+          correctedBy: req.user.id,
+        },
+      });
     });
 
     res.status(201).json(correction);
@@ -62,21 +63,23 @@ router.get('/', async (req, res, next) => {
     const offset = parseInt(req.query.offset) || 0;
     const editType = req.query.editType;
 
-    const prisma = await getPrismaForTenant(tenantId);
     const where = {
       tenantId,
       ...(editType ? { editType } : {}),
     };
 
-    const [corrections, total] = await Promise.all([
-      prisma.replyCorrection.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-        skip: offset,
-      }),
-      prisma.replyCorrection.count({ where }),
-    ]);
+    const { corrections, total } = await withTenant(tenantId, async (tx) => {
+      const [corrections, total] = await Promise.all([
+        tx.replyCorrection.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          take: limit,
+          skip: offset,
+        }),
+        tx.replyCorrection.count({ where }),
+      ]);
+      return { corrections, total };
+    });
 
     res.json({ corrections, pagination: { limit, offset, total } });
   } catch (err) {
@@ -87,9 +90,10 @@ router.get('/', async (req, res, next) => {
 // GET /v1/corrections/:id
 router.get('/:id', async (req, res, next) => {
   try {
-    const prisma = await getPrismaForTenant(req.user.tenant_id);
-    const correction = await prisma.replyCorrection.findFirst({
-      where: { id: req.params.id, tenantId: req.user.tenant_id },
+    const correction = await withTenant(req.user.tenant_id, async (tx) => {
+      return tx.replyCorrection.findFirst({
+        where: { id: req.params.id, tenantId: req.user.tenant_id },
+      });
     });
     if (!correction) return res.status(404).json({ error: 'Correction not found' });
     res.json(correction);

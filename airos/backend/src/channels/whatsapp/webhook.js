@@ -13,6 +13,7 @@ const {
   isBlockedSpammer,
 } = require('../../core/tenantSettings');
 const { addToQueue } = require('../../workers/messageProcessor');
+const { verifyMetaSignature } = require('../verify');
 
 /* ── GET /webhooks/whatsapp — Meta verification ────────────────────────────── */
 router.get('/whatsapp', (req, res) => {
@@ -26,10 +27,29 @@ router.get('/whatsapp', (req, res) => {
 
 /* ── POST /webhooks/whatsapp — incoming messages ────────────────────────────── */
 router.post('/whatsapp', async (req, res) => {
-  res.sendStatus(200); // Always ACK immediately
+  const secret = process.env.META_APP_SECRET;
+  const sig = req.headers['x-hub-signature-256'];
+
+  if (!secret) {
+    console.warn('[Security] META_APP_SECRET is not configured; rejecting Meta webhook');
+  }
+
+  if (!verifyMetaSignature(secret, req.body, sig)) {
+    console.warn('[WhatsApp] Webhook rejected - invalid or missing signature');
+    return res.sendStatus(403);
+  }
+
+  res.sendStatus(200); // ACK after verification passes
+
+  let body;
+  try {
+    body = JSON.parse(req.body.toString('utf8'));
+  } catch (err) {
+    console.error('[WhatsApp] Failed to parse webhook body:', err.message);
+    return;
+  }
 
   try {
-    const body = req.body;
     if (body.object !== 'whatsapp_business_account') return;
 
     for (const entry of body.entry || []) {

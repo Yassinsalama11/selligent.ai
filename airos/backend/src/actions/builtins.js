@@ -10,7 +10,7 @@
  */
 const { defineAction, registry } = require('@chatorai/action-sdk');
 const { z } = require('zod');
-const { getPrismaForTenant } = require('@chatorai/db');
+const { withTenant } = require('@chatorai/db');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -44,37 +44,37 @@ const orderCreateAction = defineAction({
   }),
   requiresApproval: false,
   handler: async ({ input, tenantId }) => {
-    const prisma = await getPrismaForTenant(tenantId);
+    return withTenant(tenantId, async (tx) => {
+      // Check if tenant has a commerce integration
+      const integration = await tx.integration.findFirst({
+        where: { tenantId, type: { in: ['shopify', 'woocommerce', 'salla', 'zid'] }, status: 'active' },
+      });
 
-    // Check if tenant has a commerce integration
-    const integration = await prisma.integration.findFirst({
-      where: { tenantId, type: { in: ['shopify', 'woocommerce', 'salla', 'zid'] }, status: 'active' },
+      if (integration) {
+        // Real integration stub — replace with provider-specific SDK in Phase 4
+        throw Object.assign(
+          new Error(`order.create: ${integration.type} integration not yet implemented`),
+          { code: 'NOT_IMPLEMENTED' },
+        );
+      }
+
+      // Fallback: record as a Deal in the local DB
+      const total = input.items.reduce((s, i) => s + i.price * i.quantity, 0);
+      const deal = await tx.deal.create({
+        data: {
+          tenantId,
+          customerId: input.customerId,
+          stage: 'closed_won',
+          intent: 'purchase',
+          estimatedValue: total,
+          currency: input.currency,
+          notes: input.notes || `Created via order.create action (channel: ${input.channel})`,
+          closedAt: new Date(),
+        },
+      });
+
+      return { orderId: deal.id, status: 'created', total };
     });
-
-    if (integration) {
-      // Real integration stub — replace with provider-specific SDK in Phase 4
-      throw Object.assign(
-        new Error(`order.create: ${integration.type} integration not yet implemented`),
-        { code: 'NOT_IMPLEMENTED' },
-      );
-    }
-
-    // Fallback: record as a Deal in the local DB
-    const total = input.items.reduce((s, i) => s + i.price * i.quantity, 0);
-    const deal = await prisma.deal.create({
-      data: {
-        tenantId,
-        customerId: input.customerId,
-        stage: 'closed_won',
-        intent: 'purchase',
-        estimatedValue: total,
-        currency: input.currency,
-        notes: input.notes || `Created via order.create action (channel: ${input.channel})`,
-        closedAt: new Date(),
-      },
-    });
-
-    return { orderId: deal.id, status: 'created', total };
   },
 });
 
@@ -152,29 +152,13 @@ const leadQualifyAction = defineAction({
   }),
   requiresApproval: false,
   handler: async ({ input, tenantId }) => {
-    const prisma = await getPrismaForTenant(tenantId);
-
-    const deal = await prisma.deal.upsert({
-      where: {
-        // Upsert on customer + conversation if available, else create new
-        id: 'non-existent-fallback-creates-new',
-      },
-      create: {
-        tenantId,
-        customerId: input.customerId,
-        conversationId: input.conversationId || null,
-        stage: 'qualified',
-        intent: input.intent,
-        leadScore: input.leadScore,
-        estimatedValue: input.estimatedValue || null,
-        currency: input.currency,
-        notes: input.notes || null,
-      },
-      update: {},
-    }).catch(async () => {
-      // Upsert may fail on non-existent ID — do a plain create
-      return prisma.deal.create({
-        data: {
+    return withTenant(tenantId, async (tx) => {
+      const deal = await tx.deal.upsert({
+        where: {
+          // Upsert on customer + conversation if available, else create new
+          id: 'non-existent-fallback-creates-new',
+        },
+        create: {
           tenantId,
           customerId: input.customerId,
           conversationId: input.conversationId || null,
@@ -185,10 +169,27 @@ const leadQualifyAction = defineAction({
           currency: input.currency,
           notes: input.notes || null,
         },
+        update: {},
+      }).catch(async () => {
+        // Upsert may fail on non-existent ID — do a plain create
+        // IMPORTANT: use tx (not prisma) — we are inside a withTenant callback
+        return tx.deal.create({
+          data: {
+            tenantId,
+            customerId: input.customerId,
+            conversationId: input.conversationId || null,
+            stage: 'qualified',
+            intent: input.intent,
+            leadScore: input.leadScore,
+            estimatedValue: input.estimatedValue || null,
+            currency: input.currency,
+            notes: input.notes || null,
+          },
+        });
       });
-    });
 
-    return { dealId: deal.id, stage: deal.stage, leadScore: deal.leadScore };
+      return { dealId: deal.id, stage: deal.stage, leadScore: deal.leadScore };
+    });
   },
 });
 
@@ -209,29 +210,29 @@ const ticketEscalateAction = defineAction({
   }),
   requiresApproval: false,
   handler: async ({ input, tenantId }) => {
-    const prisma = await getPrismaForTenant(tenantId);
+    return withTenant(tenantId, async (tx) => {
+      await tx.conversation.update({
+        where: { id: input.conversationId },
+        data: {
+          status: 'escalated',
+          ...(input.assignToUserId ? { assignedTo: input.assignToUserId } : {}),
+        },
+      });
 
-    await prisma.conversation.update({
-      where: { id: input.conversationId },
-      data: {
-        status: 'escalated',
-        ...(input.assignToUserId ? { assignedTo: input.assignToUserId } : {}),
-      },
+      // Audit note
+      await tx.auditLog.create({
+        data: {
+          tenantId,
+          actorType: 'system',
+          action: 'conversation.escalated',
+          entityType: 'conversation',
+          entityId: input.conversationId,
+          metadata: { reason: input.reason, priority: input.priority },
+        },
+      });
+
+      return { conversationId: input.conversationId, status: 'escalated', priority: input.priority };
     });
-
-    // Audit note
-    await prisma.auditLog.create({
-      data: {
-        tenantId,
-        actorType: 'system',
-        action: 'conversation.escalated',
-        entityType: 'conversation',
-        entityId: input.conversationId,
-        metadata: { reason: input.reason, priority: input.priority },
-      },
-    });
-
-    return { conversationId: input.conversationId, status: 'escalated', priority: input.priority };
   },
 });
 
@@ -257,33 +258,33 @@ const catalogLookupAction = defineAction({
   }),
   requiresApproval: false,
   handler: async ({ input, tenantId }) => {
-    const prisma = await getPrismaForTenant(tenantId);
+    return withTenant(tenantId, async (tx) => {
+      const where = {
+        tenantId,
+        isActive: true,
+        deletedAt: null,
+        name: { contains: input.query, mode: 'insensitive' },
+        ...(input.inStockOnly ? { stockStatus: 'in_stock' } : {}),
+      };
 
-    const where = {
-      tenantId,
-      isActive: true,
-      deletedAt: null,
-      name: { contains: input.query, mode: 'insensitive' },
-      ...(input.inStockOnly ? { stockStatus: 'in_stock' } : {}),
-    };
+      const [products, total] = await Promise.all([
+        tx.product.findMany({
+          where,
+          take: input.limit,
+          orderBy: { updatedAt: 'desc' },
+          select: { id: true, name: true, price: true, currency: true, stockStatus: true, description: true },
+        }),
+        tx.product.count({ where }),
+      ]);
 
-    const [products, total] = await Promise.all([
-      prisma.product.findMany({
-        where,
-        take: input.limit,
-        orderBy: { updatedAt: 'desc' },
-        select: { id: true, name: true, price: true, currency: true, stockStatus: true, description: true },
-      }),
-      prisma.product.count({ where }),
-    ]);
-
-    return {
-      products: products.map((p) => ({
-        ...p,
-        price: p.price ? Number(p.price) : null,
-      })),
-      total,
-    };
+      return {
+        products: products.map((p) => ({
+          ...p,
+          price: p.price ? Number(p.price) : null,
+        })),
+        total,
+      };
+    });
   },
 });
 
@@ -334,21 +335,22 @@ const customerUpdateAction = defineAction({
   }),
   requiresApproval: false,
   handler: async ({ input, tenantId }) => {
-    const prisma = await getPrismaForTenant(tenantId);
-    const { customerId, ...updates } = input;
+    return withTenant(tenantId, async (tx) => {
+      const { customerId, ...updates } = input;
 
-    const updateData = {};
-    if (updates.name    != null) updateData.name  = updates.name;
-    if (updates.email   != null) updateData.email = updates.email;
-    if (updates.phone   != null) updateData.phone = updates.phone;
-    if (updates.tags    != null) updateData.tags  = updates.tags;
+      const updateData = {};
+      if (updates.name    != null) updateData.name  = updates.name;
+      if (updates.email   != null) updateData.email = updates.email;
+      if (updates.phone   != null) updateData.phone = updates.phone;
+      if (updates.tags    != null) updateData.tags  = updates.tags;
 
-    await prisma.customer.update({
-      where: { id: customerId },
-      data: updateData,
+      await tx.customer.update({
+        where: { id: customerId },
+        data: updateData,
+      });
+
+      return { customerId, updated: updateData };
     });
-
-    return { customerId, updated: updateData };
   },
 });
 
@@ -367,38 +369,38 @@ const conversationTagAction = defineAction({
   }),
   requiresApproval: false,
   handler: async ({ input, tenantId }) => {
-    const prisma = await getPrismaForTenant(tenantId);
+    return withTenant(tenantId, async (tx) => {
+      const conv = await tx.conversation.findFirst({
+        where: { id: input.conversationId, tenantId },
+      });
+      if (!conv) throw new Error(`conversation.tag: conversation ${input.conversationId} not found`);
 
-    const conv = await prisma.conversation.findFirst({
-      where: { id: input.conversationId, tenantId },
+      // Tags are stored in customer.tags; we enrich the customer record
+      const customer = await tx.customer.findUnique({ where: { id: conv.customerId } });
+      const existingTags = Array.isArray(customer?.tags) ? customer.tags : [];
+      const newTags = input.mode === 'replace'
+        ? input.tags
+        : [...new Set([...existingTags, ...input.tags])];
+
+      await tx.customer.update({
+        where: { id: conv.customerId },
+        data: { tags: newTags },
+      });
+
+      // Audit
+      await tx.auditLog.create({
+        data: {
+          tenantId,
+          actorType: 'system',
+          action: 'conversation.tagged',
+          entityType: 'conversation',
+          entityId: input.conversationId,
+          metadata: { tags: input.tags, mode: input.mode },
+        },
+      });
+
+      return { conversationId: input.conversationId, tags: newTags };
     });
-    if (!conv) throw new Error(`conversation.tag: conversation ${input.conversationId} not found`);
-
-    // Tags are stored in customer.tags; we enrich the customer record
-    const customer = await prisma.customer.findUnique({ where: { id: conv.customerId } });
-    const existingTags = Array.isArray(customer?.tags) ? customer.tags : [];
-    const newTags = input.mode === 'replace'
-      ? input.tags
-      : [...new Set([...existingTags, ...input.tags])];
-
-    await prisma.customer.update({
-      where: { id: conv.customerId },
-      data: { tags: newTags },
-    });
-
-    // Audit
-    await prisma.auditLog.create({
-      data: {
-        tenantId,
-        actorType: 'system',
-        action: 'conversation.tagged',
-        entityType: 'conversation',
-        entityId: input.conversationId,
-        metadata: { tags: input.tags, mode: input.mode },
-      },
-    });
-
-    return { conversationId: input.conversationId, tags: newTags };
   },
 });
 
@@ -419,42 +421,42 @@ const humanHandoffAction = defineAction({
   }),
   requiresApproval: false,
   handler: async ({ input, tenantId }) => {
-    const prisma = await getPrismaForTenant(tenantId);
+    return withTenant(tenantId, async (tx) => {
+      let assignedTo = input.preferredAgentId || null;
 
-    let assignedTo = input.preferredAgentId || null;
-
-    // If no preferred agent, find an available agent (lowest-load heuristic)
-    if (!assignedTo) {
-      const agents = await prisma.user.findMany({
-        where: { tenantId, role: 'agent', deletedAt: null },
-        take: 10,
-        select: { id: true },
-      });
-      if (agents.length > 0) {
-        assignedTo = agents[0].id;
+      // If no preferred agent, find an available agent (lowest-load heuristic)
+      if (!assignedTo) {
+        const agents = await tx.user.findMany({
+          where: { tenantId, role: 'agent', deletedAt: null },
+          take: 10,
+          select: { id: true },
+        });
+        if (agents.length > 0) {
+          assignedTo = agents[0].id;
+        }
       }
-    }
 
-    await prisma.conversation.update({
-      where: { id: input.conversationId },
-      data: {
-        status: 'open',
-        assignedTo,
-      },
+      await tx.conversation.update({
+        where: { id: input.conversationId },
+        data: {
+          status: 'open',
+          assignedTo,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          tenantId,
+          actorType: 'system',
+          action: 'conversation.handed_off',
+          entityType: 'conversation',
+          entityId: input.conversationId,
+          metadata: { reason: input.reason, priority: input.priority, assignedTo },
+        },
+      });
+
+      return { conversationId: input.conversationId, status: 'handed_off', assignedTo };
     });
-
-    await prisma.auditLog.create({
-      data: {
-        tenantId,
-        actorType: 'system',
-        action: 'conversation.handed_off',
-        entityType: 'conversation',
-        entityId: input.conversationId,
-        metadata: { reason: input.reason, priority: input.priority, assignedTo },
-      },
-    });
-
-    return { conversationId: input.conversationId, status: 'handed_off', assignedTo };
   },
 });
 

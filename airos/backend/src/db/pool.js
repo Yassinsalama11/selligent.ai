@@ -1,7 +1,18 @@
 const { Pool } = require('pg');
 
 const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
-const pool = new Pool({ connectionString: DATABASE_URL || undefined });
+const pool = new Pool({
+  connectionString: DATABASE_URL || undefined,
+  connectionTimeoutMillis: 5000,
+});
+
+// Admin pool — for cross-tenant operations (auth login, registration).
+// Uses DATABASE_URL_ADMIN when set; falls back to DATABASE_URL for single-URL dev envs.
+const DATABASE_URL_ADMIN = String(process.env.DATABASE_URL_ADMIN || DATABASE_URL || '').trim();
+const adminPool = new Pool({
+  connectionString: DATABASE_URL_ADMIN || undefined,
+  connectionTimeoutMillis: 5000,
+});
 
 function databaseUnavailableError(message) {
   const err = new Error(message);
@@ -28,6 +39,11 @@ function mapDatabaseError(err) {
 
 pool.on('error', (err) => {
   console.error('Unexpected PostgreSQL error:', err);
+  process.exit(-1);
+});
+
+adminPool.on('error', (err) => {
+  console.error('Unexpected PostgreSQL error (admin pool):', err);
   process.exit(-1);
 });
 
@@ -61,4 +77,18 @@ async function withTransaction(fn) {
   }
 }
 
-module.exports = { pool, query, withTransaction };
+async function queryAdmin(text, params) {
+  ensureDatabaseConfigured();
+  const start = Date.now();
+  try {
+    const res = await adminPool.query(text, params);
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[DB:admin] ${Date.now() - start}ms — ${text.slice(0, 80)}`);
+    }
+    return res;
+  } catch (err) {
+    throw mapDatabaseError(err);
+  }
+}
+
+module.exports = { pool, query, withTransaction, queryAdmin };

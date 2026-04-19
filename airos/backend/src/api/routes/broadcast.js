@@ -1,7 +1,6 @@
 const crypto = require('crypto');
 const express = require('express');
 
-const { query } = require('../../db/pool');
 const { getTenantById, updateTenantSettings } = require('../../db/queries/tenants');
 const { normalizeTenantSettings } = require('../../core/tenantSettings');
 const { sendTemplate } = require('../../channels/whatsapp/sender');
@@ -64,18 +63,18 @@ function buildAnalytics(history = []) {
   });
 }
 
-async function loadTenantSettings(tenantId) {
-  const tenant = await getTenantById(tenantId);
+async function loadTenantSettings(tenantId, client) {
+  const tenant = await getTenantById(tenantId, client);
   return normalizeTenantSettings(tenant?.settings);
 }
 
-async function saveTenantSettings(tenantId, settings) {
-  const saved = await updateTenantSettings(tenantId, normalizeTenantSettings(settings));
+async function saveTenantSettings(tenantId, settings, client) {
+  const saved = await updateTenantSettings(tenantId, normalizeTenantSettings(settings), client);
   return normalizeTenantSettings(saved?.settings);
 }
 
-async function getWhatsAppConnection(tenantId) {
-  const connection = await query(`
+async function getWhatsAppConnection(tenantId, client) {
+  const connection = await client.query(`
     SELECT credentials
     FROM channel_connections
     WHERE tenant_id = $1 AND channel = 'whatsapp' AND status = 'active'
@@ -86,8 +85,8 @@ async function getWhatsAppConnection(tenantId) {
   return connection ? decryptCredentials(connection.credentials) : null;
 }
 
-async function listRecipientContacts(tenantId) {
-  const result = await query(`
+async function listRecipientContacts(tenantId, client) {
+  const result = await client.query(`
     SELECT id, name, phone, tags, preferences
     FROM customers
     WHERE tenant_id = $1 AND COALESCE(preferences->>'deleted_at', '') = ''
@@ -106,8 +105,8 @@ async function listRecipientContacts(tenantId) {
 
 router.get('/', async (req, res, next) => {
   try {
-    const settings = await loadTenantSettings(req.user.tenant_id);
-    const contacts = await listRecipientContacts(req.user.tenant_id);
+    const settings = await loadTenantSettings(req.user.tenant_id, req.db);
+    const contacts = await listRecipientContacts(req.user.tenant_id, req.db);
     const history = settings.broadcastHistory.map(sanitizeHistoryEntry);
     const analytics = buildAnalytics(history);
 
@@ -137,9 +136,9 @@ router.post('/top-up', async (req, res, next) => {
       return res.status(400).json({ error: 'Amount must be greater than 0' });
     }
 
-    const settings = await loadTenantSettings(req.user.tenant_id);
+    const settings = await loadTenantSettings(req.user.tenant_id, req.db);
     settings.broadcastBalance = Number((Number(settings.broadcastBalance || 0) + amount).toFixed(2));
-    const saved = await saveTenantSettings(req.user.tenant_id, settings);
+    const saved = await saveTenantSettings(req.user.tenant_id, settings, req.db);
 
     res.json({ balance: saved.broadcastBalance });
   } catch (err) {
@@ -156,13 +155,13 @@ router.post('/templates', async (req, res, next) => {
       return res.status(400).json({ error: 'Template name and body are required' });
     }
 
-    const settings = await loadTenantSettings(tenantId);
+    const settings = await loadTenantSettings(tenantId, req.db);
     settings.waTemplates = [
       ...settings.waTemplates.filter((template) => template.id !== nextTemplate.id),
       nextTemplate,
     ];
 
-    const saved = await saveTenantSettings(tenantId, settings);
+    const saved = await saveTenantSettings(tenantId, settings, req.db);
     res.status(201).json(saved.waTemplates.map(sanitizeTemplate));
   } catch (err) {
     next(err);
@@ -171,9 +170,9 @@ router.post('/templates', async (req, res, next) => {
 
 router.delete('/templates/:id', async (req, res, next) => {
   try {
-    const settings = await loadTenantSettings(req.user.tenant_id);
+    const settings = await loadTenantSettings(req.user.tenant_id, req.db);
     settings.waTemplates = settings.waTemplates.filter((template) => template.id !== req.params.id);
-    const saved = await saveTenantSettings(req.user.tenant_id, settings);
+    const saved = await saveTenantSettings(req.user.tenant_id, settings, req.db);
     res.json(saved.waTemplates.map(sanitizeTemplate));
   } catch (err) {
     next(err);
@@ -191,7 +190,7 @@ router.post('/send', async (req, res, next) => {
       scheduleAt,
     } = req.body || {};
 
-    const settings = await loadTenantSettings(tenantId);
+    const settings = await loadTenantSettings(tenantId, req.db);
     const template = settings.waTemplates.find((entry) => entry.id === templateId);
     if (!template) return res.status(404).json({ error: 'Template not found' });
     if (String(template.status || '').toLowerCase() !== 'approved') {
@@ -220,7 +219,7 @@ router.post('/send', async (req, res, next) => {
     });
 
     if (!isScheduled) {
-      const credentials = await getWhatsAppConnection(tenantId);
+      const credentials = await getWhatsAppConnection(tenantId, req.db);
       if (!credentials?.phone_number_id || !credentials?.access_token) {
         return res.status(400).json({ error: 'Connect WhatsApp before sending broadcasts' });
       }
@@ -271,7 +270,7 @@ router.post('/send', async (req, res, next) => {
       ...settings.broadcastHistory.map(sanitizeHistoryEntry),
     ].slice(0, 200);
 
-    const saved = await saveTenantSettings(tenantId, settings);
+    const saved = await saveTenantSettings(tenantId, settings, req.db);
     res.status(201).json({
       entry,
       balance: saved.broadcastBalance,

@@ -31,7 +31,7 @@ async function upsertProducts(tenantId, products) {
   return results;
 }
 
-async function getActiveProducts(tenantId, { limit = 100, source } = {}) {
+async function getActiveProducts(tenantId, { limit = 100, source } = {}, client) {
   const params = [tenantId];
   const filters = ['tenant_id = $1', 'is_active = TRUE'];
 
@@ -42,12 +42,16 @@ async function getActiveProducts(tenantId, { limit = 100, source } = {}) {
 
   params.push(limit);
 
-  const res = await query(`
+  const sql = `
     SELECT * FROM products
     WHERE ${filters.join(' AND ')}
     ORDER BY name
     LIMIT $${params.length}
-  `, params);
+  `;
+
+  const res = client
+    ? await client.query(sql, params)
+    : await query(sql, params);
   return res.rows;
 }
 

@@ -7,6 +7,7 @@ const { saveMessage } = require('../../db/queries/messages');
 const { query } = require('../../db/pool');
 const { normalizeTenantSettings, buildCompanyContext, isBlockedSpammer } = require('../../core/tenantSettings');
 const { addToQueue } = require('../../workers/messageProcessor');
+const { verifyMetaSignature } = require('../verify');
 
 /* ── Fetch real customer name from Meta Graph API ───────────────────────────── */
 async function fetchFbName(userId, token) {
@@ -31,9 +32,29 @@ router.get('/messenger', (req, res) => {
 
 /* ── POST /webhooks/messenger — incoming messages ───────────────────────────── */
 router.post('/messenger', async (req, res) => {
+  const secret = process.env.META_APP_SECRET;
+  const sig = req.headers['x-hub-signature-256'];
+
+  if (!secret) {
+    console.warn('[Security] META_APP_SECRET is not configured; rejecting Meta webhook');
+  }
+
+  if (!verifyMetaSignature(secret, req.body, sig)) {
+    console.warn('[Messenger] Webhook rejected - invalid or missing signature');
+    return res.sendStatus(403);
+  }
+
   res.sendStatus(200);
+
+  let body;
   try {
-    const body = req.body;
+    body = JSON.parse(req.body.toString('utf8'));
+  } catch (err) {
+    console.error('[Messenger] Failed to parse webhook body:', err.message);
+    return;
+  }
+
+  try {
     if (body.object !== 'page') return;
 
     for (const entry of body.entry || []) {
