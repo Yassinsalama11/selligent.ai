@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { query, queryAdmin } = require('../../db/pool');
+const { queryAdmin } = require('../../db/pool');
 const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
@@ -92,7 +92,7 @@ router.patch('/me', authMiddleware, async (req, res, next) => {
       return res.status(400).json({ error: 'Name and email are required' });
     }
 
-    const result = await query(`
+    const result = await queryAdmin(`
       UPDATE users
       SET email = $1, name = $2
       WHERE id = $3 AND tenant_id = $4
@@ -117,7 +117,7 @@ router.patch('/password', authMiddleware, async (req, res, next) => {
       return res.status(400).json({ error: 'New password must be at least 8 characters' });
     }
 
-    const userResult = await query(
+    const userResult = await queryAdmin(
       'SELECT id, password_hash FROM users WHERE id = $1 AND tenant_id = $2 LIMIT 1',
       [req.user.id, req.user.tenant_id]
     );
@@ -128,7 +128,7 @@ router.patch('/password', authMiddleware, async (req, res, next) => {
     if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
 
     const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
-    await query(
+    await queryAdmin(
       'UPDATE users SET password_hash = $1 WHERE id = $2 AND tenant_id = $3',
       [passwordHash, req.user.id, req.user.tenant_id]
     );
@@ -141,7 +141,7 @@ router.patch('/password', authMiddleware, async (req, res, next) => {
 
 router.get('/team', authMiddleware, async (req, res, next) => {
   try {
-    const result = await query(`
+    const result = await queryAdmin(`
       SELECT id, tenant_id, email, name, role, created_at
       FROM users
       WHERE tenant_id = $1
@@ -166,7 +166,7 @@ router.post('/invite', authMiddleware, async (req, res, next) => {
     const tempPassword = Math.random().toString(36).slice(-10);
     const passwordHash = await bcrypt.hash(tempPassword, SALT_ROUNDS);
 
-    const result = await query(`
+    const result = await queryAdmin(`
       INSERT INTO users (tenant_id, email, password_hash, name, role)
       VALUES ($1, $2, $3, $4, $5)
       RETURNING id, tenant_id, email, name, role
@@ -202,7 +202,7 @@ router.patch('/team/:id', authMiddleware, async (req, res, next) => {
     const sets = fields.map((field, index) => `${field} = $${index + 3}`).join(', ');
     const values = fields.map((field) => updates[field]);
 
-    const result = await query(`
+    const result = await queryAdmin(`
       UPDATE users
       SET ${sets}
       WHERE id = $1 AND tenant_id = $2
@@ -227,7 +227,7 @@ router.delete('/team/:id', authMiddleware, async (req, res, next) => {
       return res.status(400).json({ error: 'You cannot delete your own account' });
     }
 
-    const result = await query(`
+    const result = await queryAdmin(`
       DELETE FROM users
       WHERE id = $1 AND tenant_id = $2
       RETURNING id
