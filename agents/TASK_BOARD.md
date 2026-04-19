@@ -23,7 +23,7 @@
 
 | # | Task Name | Owner | Depends On | Priority | Notes |
 |---|---|---|---|---|---|
-| F-09-P5-A | Enforce RLS — Phase 5A: Route Handler Migration (dashboard, channels, admin, onboarding, ai) | Codex | F-09-P4B-B3 ✓ | Critical | dashboard.js + ai.js → req.db.query(). channels.js + admin.js + onboarding.js → queryAdmin(). Brief not yet written. |
+| ~~F-09-P5-A~~ | ~~Enforce RLS — Phase 5A: Route Handler Migration~~ | ~~Codex~~ | ~~F-09-P4B-B3 ✓~~ | ~~Critical~~ | Moved to REVIEW. |
 | F-09-P5-B | Enforce RLS — Phase 5B: Query Module Client Params (conversations, messages, deals, prompts, reports, audit) | Codex | F-09-P4B-B1 ✓ | Critical | Add optional client param + ternary fallback to 5 modules. audit.js → queryAdmin(). Same pattern as B1. Brief not yet written. |
 | F-09-P5-D | Enforce RLS — Phase 5D: Special Cases (recycleBin client threading, catalog RLS strategy decision) | Codex | F-09-P5-B | Critical | recycleBin.js client param + thread from settings.js/customers.js. catalog.js: queryAdmin or withCatalogTenant decision required. Brief not yet written. |
 | — | — | — | — | — | — |
@@ -42,7 +42,7 @@
 
 | # | Task Name | Owner | Branch | Started | Notes |
 |---|---|---|---|---|---|
-| — | — | — | — | — | — | No tasks in progress. |
+| — | — | — | — | — | — |
 
 ---
 
@@ -52,6 +52,7 @@
 | # | Task Name | Codex Branch | Gemini Status | Claude Status | Notes |
 |---|---|---|---|---|---|
 | F-09-P4B-B3 | Enforce RLS — Phase 4B Step B3: auth.js queryAdmin Migration | task/f09-phase-2-middleware | Pending | Pending | auth.js only. 7 query() → queryAdmin(). query removed from import. All tenant_id WHERE guards preserved. B3 commit: db27e7a. Baseline: 7dd2388. |
+| F-09-P5-A | Enforce RLS — Phase 5A: Route Handler Migration (dashboard, channels, admin, onboarding, ai) | task/f09-p5a | Pending | Pending | A1: 29c1038 (dashboard.js, 7 sites → req.db.query). A2: 9e13de0 (onboarding.js + channels.js, 5 sites → queryAdmin). A3: 07c5bca (pool.js adminWithTransaction added; ai.js 1 fire-and-forget → queryAdmin; admin.js 8 direct + withTransaction → adminWithTransaction). pool.js is Claude-owned architectural file — Codex edit flagged per OWNERSHIP_MAP Rule 3; Claude review required before merge. |
 
 ---
 
@@ -166,4 +167,4 @@
 ---
 
 *Board initialized from `/MISSING_TASKS_AND_EXECUTION_GAPS.md` Section 11 (Dependency-Ordered Master Task List).*
-*Last updated: F-09-P5-C DONE (DECISION-011). F-09-P4B-B3 in REVIEW. P5-A, P5-B, P5-D in READY (briefs pending). Per-phase branch policy now mandatory for all future tasks (DECISION-011).*
+*Last updated: F-09-P5-A implementation complete → REVIEW (task/f09-p5a, 3 commits: 29c1038/9e13de0/07c5bca). F-09-P4B-B3 still in REVIEW pending Gemini/Claude. P5-B, P5-D remain in READY. Per-phase branch policy mandatory (DECISION-011). pool.js edit in A3 requires Claude review per OWNERSHIP_MAP Rule 3.*
