@@ -1,6 +1,6 @@
 const https = require('https');
 const crypto = require('crypto');
-const { query } = require('../../db/pool');
+const { queryAdmin } = require('../../db/pool');
 
 const BASE = 'https://graph.facebook.com/v19.0';
 const CHANNEL_SCOPES = {
@@ -199,7 +199,7 @@ async function subscribeWhatsAppApp(wabaId, userToken) {
 }
 
 async function upsertChannelConnection(tenantId, channel, credentials) {
-  const updated = await query(`
+  const updated = await queryAdmin(`
     UPDATE channel_connections
     SET credentials = $3, status = 'active'
     WHERE tenant_id = $1 AND channel = $2
@@ -208,7 +208,7 @@ async function upsertChannelConnection(tenantId, channel, credentials) {
 
   if (updated.rowCount > 0) return updated.rows[0];
 
-  const inserted = await query(`
+  const inserted = await queryAdmin(`
     INSERT INTO channel_connections (tenant_id, channel, status, credentials)
     VALUES ($1, $2, 'active', $3)
     RETURNING id

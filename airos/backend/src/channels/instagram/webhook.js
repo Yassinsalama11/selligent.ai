@@ -4,7 +4,7 @@ const { emitToTenantConversations } = require('../livechat/socket');
 const { getTenantByPageId, getOrCreateCustomer } = require('../../core/tenantManager');
 const { getOrCreateConversation } = require('../../db/queries/conversations');
 const { saveMessage } = require('../../db/queries/messages');
-const { query } = require('../../db/pool');
+const { queryAdmin } = require('../../db/pool');
 const { normalizeTenantSettings, buildCompanyContext, isBlockedSpammer } = require('../../core/tenantSettings');
 const { addToQueue } = require('../../workers/messageProcessor');
 const { verifyMetaSignature } = require('../verify');
@@ -120,7 +120,7 @@ async function processInstagramMessage(msg, entryId) {
   const tenantMatch = pageId ? await getTenantByPageId(pageId, 'instagram') : null;
   const tenantId = tenantMatch?.tenant_id;
   const tenantRow = tenantId
-    ? await query('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantId]).then((r) => r.rows[0] || null)
+    ? await queryAdmin('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantId]).then((r) => r.rows[0] || null)
     : null;
   const settings = normalizeTenantSettings(tenantRow?.settings);
 

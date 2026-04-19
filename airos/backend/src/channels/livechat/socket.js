@@ -1,7 +1,7 @@
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const { getRedisClient } = require('../../db/redis');
-const { query } = require('../../db/pool');
+const { queryAdmin } = require('../../db/pool');
 const { logger } = require('../../core/logger');
 
 let io;
@@ -26,7 +26,7 @@ function conversationRoom(tenantId) {
 }
 
 async function validateTenant(tenantId) {
-  const result = await query(
+  const result = await queryAdmin(
     'SELECT id FROM tenants WHERE id = $1 AND status IN ($2, $3) LIMIT 1',
     [tenantId, 'active', 'trial']
   );

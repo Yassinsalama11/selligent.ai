@@ -5,7 +5,7 @@ const { emitToTenantConversations } = require('../livechat/socket');
 const { getTenantByWhatsAppPhoneId, getOrCreateCustomer } = require('../../core/tenantManager');
 const { getOrCreateConversation } = require('../../db/queries/conversations');
 const { saveMessage, getMessages } = require('../../db/queries/messages');
-const { query } = require('../../db/pool');
+const { queryAdmin } = require('../../db/pool');
 const {
   normalizeTenantSettings,
   buildCompanyContext,
@@ -75,7 +75,7 @@ async function processWhatsAppMessage(rawMsg, contacts, metadata) {
     : null;
   const tenantId = tenantMatch?.tenant_id;
   const tenantRow = tenantId
-    ? await query('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantId]).then((r) => r.rows[0] || null)
+    ? await queryAdmin('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantId]).then((r) => r.rows[0] || null)
     : null;
   const settings = normalizeTenantSettings(tenantRow?.settings);
 
