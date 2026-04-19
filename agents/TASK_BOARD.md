@@ -23,8 +23,10 @@
 
 | # | Task Name | Owner | Depends On | Priority | Notes |
 |---|---|---|---|---|---|
-| — | — | — | — | — | — |
-| — | — | — | — | — | — |
+| F-09-P5-C | Enforce RLS — Phase 5C: Worker & Webhook Migration (query → queryAdmin) | Codex | F-09-P4B-B3 ✓, Pre-Activation Audit ✓ | Critical | 14 files, 39 sites, 3 sub-scopes (C1: webhooks/socket 5 files; C2: core workers 4 files; C3: bg processors 5 files). Brief written. Sub-scopes must be committed and Gemini-validated independently. See brief above. |
+| F-09-P5-A | Enforce RLS — Phase 5A: Route Handler Migration (dashboard, channels, admin, onboarding, ai) | Codex | F-09-P4B-B3 ✓ | Critical | dashboard.js + ai.js → req.db.query(). channels.js + admin.js + onboarding.js → queryAdmin(). Brief not yet written. |
+| F-09-P5-B | Enforce RLS — Phase 5B: Query Module Client Params (conversations, messages, deals, prompts, reports, audit) | Codex | F-09-P4B-B1 ✓ | Critical | Add optional client param + ternary fallback to 5 modules. audit.js → queryAdmin(). Same pattern as B1. Brief not yet written. |
+| F-09-P5-D | Enforce RLS — Phase 5D: Special Cases (recycleBin client threading, catalog RLS strategy decision) | Codex | F-09-P5-B | Critical | recycleBin.js client param + thread from settings.js/customers.js. catalog.js: queryAdmin or withCatalogTenant decision required. Brief not yet written. |
 | — | — | — | — | — | — |
 | F-02 | Real PR Test Gate CI Pipeline | Codex | None | Critical | Create `.github/workflows/ci.yml` with backend-test, frontend-build, typecheck, eval-gate, redteam-gate jobs. |
 | F-11 | PII Encryption at Rest for Messages | Codex | F-01 ✓ | Critical | F-01 now DONE. Wire `encrypt()`/`decrypt()` from `vendor/db/src/encryption.js` into `saveMessage()` and `getMessages()`. |
@@ -164,4 +166,4 @@
 ---
 
 *Board initialized from `/MISSING_TASKS_AND_EXECUTION_GAPS.md` Section 11 (Dependency-Ordered Master Task List).*
-*Last updated: F-09-P4B-B3 REVIEW. auth.js commit db27e7a (isolated). Baseline 7dd2388. Awaiting Gemini + Claude.*
+*Last updated: F-09 Pre-Activation Audit complete. F-09-P5-C brief written and promoted to READY. P5-A, P5-B, P5-D added to READY (briefs pending). F-09-P4B-B3 in REVIEW.*
