@@ -1,6 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
-const { query } = require('../../db/pool');
+const { queryAdmin } = require('../../db/pool');
 const { getOAuthUrl, handleOAuthCallback } = require('../../channels/instagram/oauth');
 const { decryptCredentials } = require('../../core/tenantManager');
 const { authMiddleware } = require('../middleware/auth');
@@ -109,7 +109,7 @@ router.use((req, res, next) => {
 // GET /api/channels — list connected channels
 router.get('/', async (req, res, next) => {
   try {
-    const result = await query(
+    const result = await queryAdmin(
       'SELECT id, channel, status, created_at, credentials FROM channel_connections WHERE tenant_id = $1',
       [req.user.tenant_id]
     );
@@ -135,14 +135,14 @@ router.post('/', async (req, res, next) => {
     }
 
     const encryptedCreds = encrypt(JSON.stringify(normalizedCredentials));
-    const updated = await query(`
+    const updated = await queryAdmin(`
       UPDATE channel_connections
       SET credentials = $3, status = 'active'
       WHERE tenant_id = $1 AND channel = $2
       RETURNING id, channel, status, created_at, credentials
     `, [req.user.tenant_id, channel, JSON.stringify({ encrypted: encryptedCreds })]);
 
-    const result = updated.rowCount > 0 ? updated : await query(`
+    const result = updated.rowCount > 0 ? updated : await queryAdmin(`
       INSERT INTO channel_connections (tenant_id, channel, status, credentials)
       VALUES ($1, $2, 'active', $3)
       RETURNING id, channel, status, created_at, credentials
@@ -161,7 +161,7 @@ router.post('/', async (req, res, next) => {
 // DELETE /api/channels/:id
 router.delete('/:id', async (req, res, next) => {
   try {
-    await query(
+    await queryAdmin(
       'DELETE FROM channel_connections WHERE id = $1 AND tenant_id = $2',
       [req.params.id, req.user.tenant_id]
     );

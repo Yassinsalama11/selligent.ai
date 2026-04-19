@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 
 const { authMiddleware } = require('./middleware/auth');
 const { tenantMiddleware } = require('./middleware/tenant');
-const { query } = require('../db/pool');
+const { queryAdmin } = require('../db/pool');
 const {
   createIngestionJob,
   listIngestionJobs,
@@ -79,7 +79,7 @@ async function updateTenantOnboarding(tenantId, nextSettings, plan = null) {
   const planSql = plan ? ', plan = $3' : '';
   if (plan) params.push(normalizePlan(plan));
 
-  const result = await query(`
+  const result = await queryAdmin(`
     UPDATE tenants
     SET settings = $1${planSql}
     WHERE id = $2
