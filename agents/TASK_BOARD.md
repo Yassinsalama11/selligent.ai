@@ -52,6 +52,7 @@
 |---|---|---|---|---|---|
 | F-09-P5-B-B1 | task/f09-p5-b-b1 | Pending | Pending | B1 only complete: `conversations.js` + `messages.js` now take optional `client` as last param and use `queryAdmin()` fallback instead of `query()`. `saveMessage` uses the same client/queryAdmin path for both queries. Exports unchanged. No forbidden files touched. |
 | F-09-P5-B-B2 | task/f09-p5-b-b2 | Pending | Pending | B2 only complete: `prompts.js` + `reports.js` now take optional `client` as last param and use `queryAdmin()` fallback instead of `query()`. Exports unchanged. No caller changes. No forbidden files touched. |
+| F-09-P5-B-B3 | task/f09-p5-b-b3 | Pending | Pending | B3 only complete: `deals.js` now gives `getOrCreateDeal`, `createDeal`, `updateDeal`, and `listDeals` optional `client` last params with `queryAdmin()` fallback; `closeDeal` now uses `adminWithTransaction` with its inner `client.query()` calls unchanged. `audit.js` now uses unconditional `queryAdmin()`. Exports unchanged. No caller changes. No forbidden files touched. |
 | F-09-P4B-B3 | Enforce RLS — Phase 4B Step B3: auth.js queryAdmin Migration | task/f09-phase-2-middleware | Pending | Pending | auth.js only. 7 query() → queryAdmin(). query removed from import. All tenant_id WHERE guards preserved. B3 commit: db27e7a. Baseline: 7dd2388. |
 
 ---

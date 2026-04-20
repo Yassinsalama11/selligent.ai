@@ -1,7 +1,11 @@
-const { query, withTransaction } = require('../pool');
+const { queryAdmin, adminWithTransaction } = require('../pool');
 
-async function getOrCreateDeal(tenantId, conversationId, customerId) {
-  const existing = await query(`
+async function getOrCreateDeal(tenantId, conversationId, customerId, client) {
+  const existing = client ? await client.query(`
+    SELECT * FROM deals
+    WHERE tenant_id = $1 AND conversation_id = $2 AND stage NOT IN ('won','lost')
+    LIMIT 1
+  `, [tenantId, conversationId]) : await queryAdmin(`
     SELECT * FROM deals
     WHERE tenant_id = $1 AND conversation_id = $2 AND stage NOT IN ('won','lost')
     LIMIT 1
@@ -9,7 +13,10 @@ async function getOrCreateDeal(tenantId, conversationId, customerId) {
 
   if (existing.rows.length > 0) return existing.rows[0];
 
-  const res = await query(`
+  const res = client ? await client.query(`
+    INSERT INTO deals (tenant_id, conversation_id, customer_id)
+    VALUES ($1, $2, $3) RETURNING *
+  `, [tenantId, conversationId, customerId]) : await queryAdmin(`
     INSERT INTO deals (tenant_id, conversation_id, customer_id)
     VALUES ($1, $2, $3) RETURNING *
   `, [tenantId, conversationId, customerId]);
@@ -27,10 +34,13 @@ async function createDeal(tenantId, {
   probability = 0,
   currency = 'USD',
   notes = '',
-} = {}) {
+} = {}, client) {
   if (!customer_id) throw new Error('customer_id is required');
 
-  const customer = await query(
+  const customer = client ? await client.query(
+    'SELECT id FROM customers WHERE id = $1 AND tenant_id = $2 LIMIT 1',
+    [customer_id, tenantId]
+  ) : await queryAdmin(
     'SELECT id FROM customers WHERE id = $1 AND tenant_id = $2 LIMIT 1',
     [customer_id, tenantId]
   );
@@ -41,14 +51,35 @@ async function createDeal(tenantId, {
   }
 
   if (conversation_id) {
-    const conversation = await query(
+    const conversation = client ? await client.query(
+      'SELECT id FROM conversations WHERE id = $1 AND tenant_id = $2 AND customer_id = $3 LIMIT 1',
+      [conversation_id, tenantId, customer_id]
+    ) : await queryAdmin(
       'SELECT id FROM conversations WHERE id = $1 AND tenant_id = $2 AND customer_id = $3 LIMIT 1',
       [conversation_id, tenantId, customer_id]
     );
     if (!conversation.rows[0]) conversation_id = null;
   }
 
-  const res = await query(`
+  const res = client ? await client.query(`
+    INSERT INTO deals (
+      tenant_id, conversation_id, customer_id, stage, intent,
+      lead_score, estimated_value, probability, currency, notes
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    RETURNING *
+  `, [
+    tenantId,
+    conversation_id,
+    customer_id,
+    stage,
+    intent,
+    lead_score,
+    estimated_value,
+    probability,
+    currency,
+    notes,
+  ]) : await queryAdmin(`
     INSERT INTO deals (
       tenant_id, conversation_id, customer_id, stage, intent,
       lead_score, estimated_value, probability, currency, notes
@@ -71,7 +102,7 @@ async function createDeal(tenantId, {
   return res.rows[0];
 }
 
-async function updateDeal(tenantId, dealId, updates) {
+async function updateDeal(tenantId, dealId, updates, client) {
   const allowed = ['stage', 'intent', 'lead_score', 'estimated_value', 'probability', 'currency', 'notes'];
   const fields = Object.keys(updates).filter(k => allowed.includes(k));
   if (!fields.length) throw new Error('No valid fields to update');
@@ -79,7 +110,11 @@ async function updateDeal(tenantId, dealId, updates) {
   const sets = fields.map((f, i) => `${f} = $${i + 3}`).join(', ');
   const values = fields.map(f => updates[f]);
 
-  const res = await query(`
+  const res = client ? await client.query(`
+    UPDATE deals SET ${sets}, updated_at = NOW()
+    WHERE id = $1 AND tenant_id = $2
+    RETURNING *
+  `, [dealId, tenantId, ...values]) : await queryAdmin(`
     UPDATE deals SET ${sets}, updated_at = NOW()
     WHERE id = $1 AND tenant_id = $2
     RETURNING *
@@ -91,7 +126,7 @@ async function updateDeal(tenantId, dealId, updates) {
 async function closeDeal(tenantId, dealId, stage) {
   if (!['won', 'lost'].includes(stage)) throw new Error('stage must be won or lost');
 
-  return withTransaction(async (client) => {
+  return adminWithTransaction(async (client) => {
     const res = await client.query(`
       UPDATE deals SET stage = $1, closed_at = NOW(), updated_at = NOW()
       WHERE id = $2 AND tenant_id = $3 RETURNING *
@@ -119,13 +154,19 @@ async function closeDeal(tenantId, dealId, stage) {
   });
 }
 
-async function listDeals(tenantId, { stage, limit = 100 } = {}) {
+async function listDeals(tenantId, { stage, limit = 100 } = {}, client) {
   const params = [tenantId];
   let stageFilter = '';
   if (stage) { params.push(stage); stageFilter = `AND d.stage = $${params.length}`; }
   params.push(limit);
 
-  const res = await query(`
+  const res = client ? await client.query(`
+    SELECT d.*, cu.name AS customer_name, cu.channel
+    FROM deals d JOIN customers cu ON cu.id = d.customer_id
+    WHERE d.tenant_id = $1 ${stageFilter}
+    ORDER BY d.updated_at DESC
+    LIMIT $${params.length}
+  `, params) : await queryAdmin(`
     SELECT d.*, cu.name AS customer_name, cu.channel
     FROM deals d JOIN customers cu ON cu.id = d.customer_id
     WHERE d.tenant_id = $1 ${stageFilter}

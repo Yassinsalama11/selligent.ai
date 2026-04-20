@@ -1,4 +1,4 @@
-const { query } = require('../pool');
+const { queryAdmin } = require('../pool');
 
 async function logAuditEvent({
   tenantId,
@@ -9,7 +9,7 @@ async function logAuditEvent({
   entityId,
   metadata = {},
 }) {
-  const result = await query(
+  const result = await queryAdmin(
     `INSERT INTO audit_log
       (tenant_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
