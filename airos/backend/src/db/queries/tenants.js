@@ -1,9 +1,9 @@
-const { query } = require('../pool');
+const { queryAdmin } = require('../pool');
 
 async function getTenantById(tenantId, client) {
   const res = client
     ? await client.query('SELECT * FROM tenants WHERE id = $1', [tenantId])
-    : await query('SELECT * FROM tenants WHERE id = $1', [tenantId]);
+    : await queryAdmin('SELECT * FROM tenants WHERE id = $1', [tenantId]);
   return res.rows[0] || null;
 }
 
@@ -13,7 +13,7 @@ async function updateTenantSettings(tenantId, settings, client) {
         'UPDATE tenants SET settings = $1 WHERE id = $2 RETURNING *',
         [JSON.stringify(settings), tenantId]
       )
-    : await query(
+    : await queryAdmin(
         'UPDATE tenants SET settings = $1 WHERE id = $2 RETURNING *',
         [JSON.stringify(settings), tenantId]
       );
@@ -26,7 +26,7 @@ async function updateKnowledgeBase(tenantId, knowledgeBase, client) {
         'UPDATE tenants SET knowledge_base = $1 WHERE id = $2 RETURNING *',
         [JSON.stringify(knowledgeBase), tenantId]
       )
-    : await query(
+    : await queryAdmin(
         'UPDATE tenants SET knowledge_base = $1 WHERE id = $2 RETURNING *',
         [JSON.stringify(knowledgeBase), tenantId]
       );
