@@ -6,7 +6,7 @@ const {
   getActiveProducts,
   deleteCatalogProduct,
 } = require('../../db/queries/products');
-const { query } = require('../../db/pool');
+const { queryAdmin } = require('../../db/pool');
 
 const VALID_CATALOG_SOURCES = new Set(['woocommerce', 'shopify']);
 
@@ -20,7 +20,7 @@ function normalizeCatalogSource(value) {
 
 function resolveCatalogDeps(deps = {}) {
   return {
-    queryFn: deps.query || query,
+    queryFn: deps.query || queryAdmin,
     upsertProductsFn: deps.upsertProducts || upsertProducts,
     getActiveProductsFn: deps.getActiveProducts || getActiveProducts,
     deleteCatalogProductFn: deps.deleteCatalogProduct || deleteCatalogProduct,

@@ -1,9 +1,9 @@
-const { query, withTransaction } = require('../pool');
+const { query, queryAdmin, adminWithTransaction } = require('../pool');
 
 async function upsertProducts(tenantId, products) {
   const results = [];
   for (const p of products) {
-    const res = await query(`
+    const res = await queryAdmin(`
       INSERT INTO products (
         tenant_id, external_id, source, name, description, price, sale_price,
         currency, sku, stock_status, stock_quantity, images, variants,
@@ -56,7 +56,7 @@ async function getActiveProducts(tenantId, { limit = 100, source } = {}, client)
 }
 
 async function getProductCatalogSummary(tenantId) {
-  const res = await query(`
+  const res = await queryAdmin(`
     SELECT id, name, price, sale_price, currency, stock_status, categories
     FROM products WHERE tenant_id = $1 AND is_active = TRUE
     ORDER BY name LIMIT 50
@@ -70,7 +70,7 @@ async function deleteCatalogProduct(
   source,
   { actorType = 'system', actorId = null, metadata = {} } = {}
 ) {
-  return withTransaction(async (client) => {
+  return adminWithTransaction(async (client) => {
     const deleted = await client.query(
       `DELETE FROM products
        WHERE tenant_id = $1 AND id = $2 AND source = $3
