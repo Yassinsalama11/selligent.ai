@@ -50,6 +50,7 @@
 
 | # | Task Name | Codex Branch | Gemini Status | Claude Status | Notes |
 |---|---|---|---|---|---|
+| F-09-P5-D-D2 | task/f09-p5-d-d2 | Pending | Pending | D2 only complete: all 4 `recycleBin.js` functions now accept optional `client` as last param and thread it through `getTenantById`/`updateTenantSettings`; `settings.js` passes `req.db` at 3 recycle-bin call sites and `customers.js` passes `req.db` at 1 `appendRecycleItem` call site. No logic changes. |
 | F-09-P5-D-D1 | task/f09-p5-d-d1 | Pending | Pending | D1 only complete: `tenants.js` import now uses `queryAdmin` only, and the 3 ternary fallback sides now use `queryAdmin()` while all `client.query(...)` branches, SQL, params, and function signatures remain unchanged. No caller or worker file changes. |
 | F-09-P5-B-B1 | task/f09-p5-b-b1 | Pending | Pending | B1 only complete: `conversations.js` + `messages.js` now take optional `client` as last param and use `queryAdmin()` fallback instead of `query()`. `saveMessage` uses the same client/queryAdmin path for both queries. Exports unchanged. No forbidden files touched. |
 | F-09-P5-B-B2 | task/f09-p5-b-b2 | Pending | Pending | B2 only complete: `prompts.js` + `reports.js` now take optional `client` as last param and use `queryAdmin()` fallback instead of `query()`. Exports unchanged. No caller changes. No forbidden files touched. |

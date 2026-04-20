@@ -19,13 +19,13 @@ function buildRecycleItem(input = {}) {
   };
 }
 
-async function getRecycleBin(tenantId) {
-  const tenant = await getTenantById(tenantId);
+async function getRecycleBin(tenantId, client) {
+  const tenant = await getTenantById(tenantId, client);
   return normalizeTenantSettings(tenant?.settings).recycled;
 }
 
-async function appendRecycleItem(tenantId, item) {
-  const tenant = await getTenantById(tenantId);
+async function appendRecycleItem(tenantId, item, client) {
+  const tenant = await getTenantById(tenantId, client);
   const settings = normalizeTenantSettings(tenant?.settings);
   const nextItem = buildRecycleItem(item);
 
@@ -34,20 +34,20 @@ async function appendRecycleItem(tenantId, item) {
     ...settings.recycled.filter((entry) => entry.id !== nextItem.id),
   ].slice(0, MAX_RECYCLE_ITEMS);
 
-  const saved = await updateTenantSettings(tenantId, settings);
+  const saved = await updateTenantSettings(tenantId, settings, client);
   return {
     item: nextItem,
     recycled: normalizeTenantSettings(saved?.settings).recycled,
   };
 }
 
-async function removeRecycleItem(tenantId, itemId) {
-  const tenant = await getTenantById(tenantId);
+async function removeRecycleItem(tenantId, itemId, client) {
+  const tenant = await getTenantById(tenantId, client);
   const settings = normalizeTenantSettings(tenant?.settings);
   const existing = settings.recycled.find((entry) => entry.id === itemId) || null;
 
   settings.recycled = settings.recycled.filter((entry) => entry.id !== itemId);
-  const saved = await updateTenantSettings(tenantId, settings);
+  const saved = await updateTenantSettings(tenantId, settings, client);
 
   return {
     item: existing,
@@ -55,11 +55,11 @@ async function removeRecycleItem(tenantId, itemId) {
   };
 }
 
-async function clearRecycleBin(tenantId) {
-  const tenant = await getTenantById(tenantId);
+async function clearRecycleBin(tenantId, client) {
+  const tenant = await getTenantById(tenantId, client);
   const settings = normalizeTenantSettings(tenant?.settings);
   settings.recycled = [];
-  const saved = await updateTenantSettings(tenantId, settings);
+  const saved = await updateTenantSettings(tenantId, settings, client);
   return normalizeTenantSettings(saved?.settings).recycled;
 }
 

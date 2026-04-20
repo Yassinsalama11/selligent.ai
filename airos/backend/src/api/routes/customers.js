@@ -387,7 +387,7 @@ router.delete('/:id', async (req, res, next) => {
         phone: current.phone || '',
         email: current.preferences?.email || '',
       },
-    });
+    }, req.db);
 
     res.json({
       ok: true,

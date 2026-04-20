@@ -354,7 +354,7 @@ router.post('/import/contacts', async (req, res, next) => {
 
 router.get('/recycle-bin', async (req, res, next) => {
   try {
-    const recycled = await getRecycleBin(req.user.tenant_id);
+    const recycled = await getRecycleBin(req.user.tenant_id, req.db);
     res.json(recycled);
   } catch (err) {
     next(err);
@@ -418,7 +418,7 @@ router.post('/recycle-bin/:itemId/restore', async (req, res, next) => {
 
 router.delete('/recycle-bin/:itemId', async (req, res, next) => {
   try {
-    const result = await removeRecycleItem(req.user.tenant_id, req.params.itemId);
+    const result = await removeRecycleItem(req.user.tenant_id, req.params.itemId, req.db);
     if (!result.item) return res.status(404).json({ error: 'Recycle bin item not found' });
 
     res.json({
@@ -433,7 +433,7 @@ router.delete('/recycle-bin/:itemId', async (req, res, next) => {
 
 router.post('/recycle-bin/empty', async (req, res, next) => {
   try {
-    const recycled = await clearRecycleBin(req.user.tenant_id);
+    const recycled = await clearRecycleBin(req.user.tenant_id, req.db);
     res.json({ ok: true, recycled });
   } catch (err) {
     next(err);
