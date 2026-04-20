@@ -32,7 +32,7 @@ router.post('/register', async (req, res, next) => {
     // Create tenant + owner in a transaction
     const result = await queryAdmin(`
       WITH new_tenant AS (
-        INSERT INTO tenants (name, email, plan) VALUES ($1, $2, $5) RETURNING id, plan
+        INSERT INTO tenants (name, email, plan, status) VALUES ($1, $2, $5, 'active') RETURNING id, plan
       )
       INSERT INTO users (tenant_id, email, password_hash, name, role)
       SELECT id, $2, $3, $4, 'owner' FROM new_tenant
