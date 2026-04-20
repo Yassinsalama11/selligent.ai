@@ -1,18 +1,25 @@
-const { query } = require('../pool');
+const { queryAdmin } = require('../pool');
 
-async function saveMessage(tenantId, conversationId, { direction, type = 'text', content, media_url, sent_by, metadata = {} }) {
-  const res = await query(`
+async function saveMessage(tenantId, conversationId, { direction, type = 'text', content, media_url, sent_by, metadata = {} }, client) {
+  const res = client
+    ? await client.query(`
+    INSERT INTO messages (tenant_id, conversation_id, direction, type, content, media_url, sent_by, metadata)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
+  `, [tenantId, conversationId, direction, type, content, media_url, sent_by, JSON.stringify(metadata)])
+    : await queryAdmin(`
     INSERT INTO messages (tenant_id, conversation_id, direction, type, content, media_url, sent_by, metadata)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
   `, [tenantId, conversationId, direction, type, content, media_url, sent_by, JSON.stringify(metadata)]);
 
   // Bump conversation updated_at
-  await query('UPDATE conversations SET updated_at = NOW() WHERE id = $1', [conversationId]);
+  client
+    ? await client.query('UPDATE conversations SET updated_at = NOW() WHERE id = $1', [conversationId])
+    : await queryAdmin('UPDATE conversations SET updated_at = NOW() WHERE id = $1', [conversationId]);
 
   return res.rows[0];
 }
 
-async function getMessages(tenantId, conversationId, { limit = 50, before } = {}) {
+async function getMessages(tenantId, conversationId, { limit = 50, before } = {}, client) {
   const params = [conversationId, tenantId];
   let whereBefore = '';
 
@@ -23,7 +30,13 @@ async function getMessages(tenantId, conversationId, { limit = 50, before } = {}
 
   params.push(limit);
 
-  const res = await query(`
+  const res = client
+    ? await client.query(`
+    SELECT * FROM messages
+    WHERE conversation_id = $1 AND tenant_id = $2 ${whereBefore}
+    ORDER BY created_at DESC LIMIT $${params.length}
+  `, params)
+    : await queryAdmin(`
     SELECT * FROM messages
     WHERE conversation_id = $1 AND tenant_id = $2 ${whereBefore}
     ORDER BY created_at DESC LIMIT $${params.length}

@@ -24,7 +24,6 @@
 | # | Task Name | Owner | Depends On | Priority | Notes |
 |---|---|---|---|---|---|
 | ~~F-09-P5-A~~ | ~~Enforce RLS — Phase 5A: Route Handler Migration~~ | ~~Codex~~ | ~~F-09-P4B-B3 ✓~~ | ~~Critical~~ | DONE. See DECISION-012. |
-| F-09-P5-B | Enforce RLS — Phase 5B: Query Module Client Params (conversations, messages, deals, prompts, reports, audit) | Codex | F-09-P4B-B1 ✓ | Critical | Add optional client param + ternary fallback to 5 modules. audit.js → queryAdmin(). Same pattern as B1. Brief not yet written. |
 | F-09-P5-D | Enforce RLS — Phase 5D: Special Cases (recycleBin client threading, catalog RLS strategy decision) | Codex | F-09-P5-B | Critical | recycleBin.js client param + thread from settings.js/customers.js. catalog.js: queryAdmin or withCatalogTenant decision required. Brief not yet written. |
 | — | — | — | — | — | — |
 | F-02 | Real PR Test Gate CI Pipeline | Codex | None | Critical | Create `.github/workflows/ci.yml` with backend-test, frontend-build, typecheck, eval-gate, redteam-gate jobs. |
@@ -51,6 +50,7 @@
 
 | # | Task Name | Codex Branch | Gemini Status | Claude Status | Notes |
 |---|---|---|---|---|---|
+| F-09-P5-B-B1 | task/f09-p5-b-b1 | Pending | Pending | B1 only complete: `conversations.js` + `messages.js` now take optional `client` as last param and use `queryAdmin()` fallback instead of `query()`. `saveMessage` uses the same client/queryAdmin path for both queries. Exports unchanged. No forbidden files touched. |
 | F-09-P4B-B3 | Enforce RLS — Phase 4B Step B3: auth.js queryAdmin Migration | task/f09-phase-2-middleware | Pending | Pending | auth.js only. 7 query() → queryAdmin(). query removed from import. All tenant_id WHERE guards preserved. B3 commit: db27e7a. Baseline: 7dd2388. |
 
 ---
