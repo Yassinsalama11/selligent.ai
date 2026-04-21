@@ -44,7 +44,7 @@
 
 | # | Task Name | Owner | Branch | Started | Notes |
 |---|---|---|---|---|---|
-| F-07-P3 | Admin Account Hardening — TOTP MFA | Codex | task/f07-p3-admin-totp | 2026-04-21 | Add encrypted TOTP setup/confirm and login challenge verification. |
+| — | — | — | — | — | — |
 
 ---
 
@@ -146,9 +146,10 @@
 
 | # | Task Name | Completed By | Notes |
 |---|---|---|---|
+| F-07-P3 | Admin Account Hardening — Phase 3 TOTP MFA | Codex | APPROVED by Gemini. Commit d95c4af, merge a5bec3c. Admin TOTP setup/confirm/verify flow added; secrets encrypted at rest; enrolled admins receive 5-minute `admin_totp_challenge` tokens before full session issuance. Branch: task/f07-p3-admin-totp. |
 | F-07-P2 | Admin Account Hardening — Phase 2 Login Lockout | Codex | APPROVED by Gemini. Commit b01087a, merge 52b5862. Admin login now enforces 5 failed attempts / 15 min lockout using Redis primary storage with DB fallback, generic 401 no-enumeration responses, hashed email+IP lockout keys, and success-path counter clearing. Branch: task/f07-p2-admin-lockout. |
 | M-02 | Proactive Outbound Campaign Engine | Codex | APPROVED by Gemini. Commit a4728ec, merge eb72c7a. Tenant-scoped `campaigns` + `campaign_recipients` schema with RLS; audience preview/resolution by tags, channel presence, conversation status, assignment, and segment; explicit rate-safe WhatsApp batch send; outbound messages persist through `saveMessage()` and F-11 encryption; owner/admin mutation and send RBAC. Branch: task/m02-outbound-campaigns. |
-| F-07-P1 | Admin Account Hardening — Phase 1 | Codex | APPROVED by Gemini. Commit 164cded. Dedicated `ADMIN_JWT_SECRET` required in production; admin JWT and cookie TTL reduced to 1h; admin cookie `sameSite: strict`; admin login bcrypt-only with plaintext fallback removed. Later F-07 phases continue as F-07-P3+. |
+| F-07-P1 | Admin Account Hardening — Phase 1 | Codex | APPROVED by Gemini. Commit 164cded. Dedicated `ADMIN_JWT_SECRET` required in production; admin JWT and cookie TTL reduced to 1h; admin cookie `sameSite: strict`; admin login bcrypt-only with plaintext fallback removed. Later F-07 phases continue as F-07-P4+. |
 | F-11 | PII Encryption at Rest for Messages | Codex | APPROVED by Gemini. Commit 94e0d04. `messages.content` encrypted on write and decrypted on read; imports/handoff/customer timeline paths decrypt before response; tenant-scoped hashed `messages.search_tokens` preserves inbox message-content search for encrypted rows with deterministic legacy plaintext fallback. T-02 and A-03 dependencies satisfied on F-11 side. |
 | C-13 | Human Handoff Protocol | Codex | APPROVED (DECISION-019). Commit 0f05bbe, merge 8fc9c70. conversation_handoffs table (RLS), full lifecycle REST API, tenant-scoped socket events, RBAC enforcement (no self-approval, targeted resolution), fire-and-forget AI summary (haiku), HandoffPanel UI, amber inbox badge. Branch: task/c13-human-handoff. |
 | C-09 | Routing Rules Engine | Codex | APPROVED (DECISION-018). Commit 4cfa882, merge 30650c2. routing_rules table + migration 20260421_routing_rules.sql; JSON DSL conditions; first-match-wins evaluation; tenant-safe assignee validation; messageRouter + ticket escalation integration. Branch: task/c09-routing-engine. M-02/M-03 unblocked on C-09 side. |
@@ -182,4 +183,4 @@
 ---
 
 *Board initialized from `/MISSING_TASKS_AND_EXECUTION_GAPS.md` Section 11 (Dependency-Ordered Master Task List).*
-*Last updated: F-07-P2 DONE (DECISION-023, 2026-04-21). M-02 DONE (DECISION-022). F-11 DONE (DECISION-020). F-07-P1 DONE (DECISION-021).*
+*Last updated: F-07-P3 DONE (DECISION-024, 2026-04-21). F-07-P2 DONE (DECISION-023). M-02 DONE (DECISION-022). F-11 DONE (DECISION-020).*

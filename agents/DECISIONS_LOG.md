@@ -1433,3 +1433,53 @@ preserving no-enumeration behavior.
 Proceed with remaining F-07 phases for TOTP MFA and eventual removal of
 `ADMIN_EMAIL`/`ADMIN_PASSWORD` bootstrap auth. Revisit the lockout key strategy if trusted proxy
 IP handling changes or if abuse data shows excessive collateral lockouts.
+
+---
+### [DECISION-024] F-07 Phase 3 Admin TOTP MFA — APPROVED
+
+**Logged by:** Codex
+**Authority Level:** Observation + Closure
+**Context:**
+F-07 Phase 1 isolated admin session secrets and Phase 2 added login lockout. Phase 3 adds
+multi-factor authentication for platform admin accounts. Gemini validation PASSED with no bugs
+found and low regression risk.
+
+**Decision:**
+F-07-P3 status -> DONE.
+
+Admin authentication now supports TOTP enrollment with setup and confirmation routes, and
+enforces a second factor for enrolled admins during login before issuing a full admin session.
+
+**Reason:**
+Platform admin credentials protect global tenant, billing, and operational data. Password-only
+admin access remained a high-value compromise path after Phase 1 and Phase 2. TOTP MFA adds a
+second authentication factor while preserving compatibility for admins who have not enrolled yet.
+
+**Alternatives Considered:**
+- Require MFA enrollment globally immediately: rejected because production-safe rollout must not
+  lock out admins before enrollment and recovery procedures exist.
+- Store plaintext TOTP secrets: rejected because MFA seed material must not be exposed if the
+  database is inspected.
+- Issue a full admin session before TOTP verification: rejected because the challenge step must
+  grant no admin access by itself.
+
+**Impact:**
+The admin API now exposes TOTP setup, setup confirmation, and challenge verification endpoints.
+Pending and enabled TOTP secrets are encrypted at rest with AES-256-GCM using an HKDF-SHA256 key
+derived from `ADMIN_JWT_SECRET`. Password login for enrolled admins returns a short-lived
+`admin_totp_challenge` JWT with a 5-minute TTL and does not set the admin cookie. The full admin
+session is issued only after a valid TOTP code is submitted. Normal admin routes continue to use
+`adminAuthMiddleware`, which requires `scope: platform_admin` and rejects challenge tokens.
+
+**Affected Files / Modules:**
+`airos/backend/src/api/routes/admin.js`,
+`airos/backend/test/admin.totp.test.js`,
+`airos/backend/package.json`,
+`package-lock.json`,
+`airos/frontend/src/app/admin/login/page.js`,
+`agents/TASK_BOARD.md`
+
+**Revisit Conditions:**
+Proceed with F-07 Phase 4 only after at least one production DB-backed platform admin has TOTP
+enabled and a recovery/disable procedure is defined. Do not use challenge tokens for any route
+other than `POST /api/admin/auth/totp/verify`.
