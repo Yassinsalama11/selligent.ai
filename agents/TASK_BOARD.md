@@ -24,10 +24,14 @@
 | # | Task Name | Owner | Depends On | Priority | Notes |
 |---|---|---|---|---|---|
 | ~~F-09-P5-A~~ | ~~Enforce RLS — Phase 5A: Route Handler Migration~~ | ~~Codex~~ | ~~F-09-P4B-B3 ✓~~ | ~~Critical~~ | DONE. See DECISION-012. |
-| F-09-P5-D | Enforce RLS — Phase 5D: Special Cases (recycleBin client threading, catalog RLS strategy decision) | Codex | F-09-P5-B | Critical | recycleBin.js client param + thread from settings.js/customers.js. catalog.js: queryAdmin or withCatalogTenant decision required. Brief not yet written. |
+| ~~T-04~~ | ~~Socket.IO Isolation Test and CORS Hardening~~ | ~~Codex~~ | ~~F-09 ✓~~ | ~~High~~ | DONE. See DECISION-014. |
+| ~~F-10~~ | ~~Eliminate localStorage Conversation State from Frontend~~ | ~~Codex~~ | ~~F-09 ✓~~ | ~~Critical~~ | DONE. See DECISION-015. |
+| ~~C-07~~ | ~~Build Tickets Page with Real Backend~~ | ~~Codex~~ | ~~F-01 ✓, C-06 ✓~~ | ~~High~~ | DONE. See DECISION-016. |
+| C-08 | Inbox Filtering, Search, and Assignment UI | Codex | F-09 ✓, C-06 ✓ | High | Filter by channel/status/tag/agent. Full-text search. Bulk actions. Snooze. Brief required. |
+| C-09 | Routing Rules Engine | Codex | F-01 ✓, C-06 ✓ | High | `RoutingRule` model. JSON DSL conditions. Rule evaluation in message processor. Brief required. |
 | — | — | — | — | — | — |
 | F-02 | Real PR Test Gate CI Pipeline | Codex | None | Critical | Create `.github/workflows/ci.yml` with backend-test, frontend-build, typecheck, eval-gate, redteam-gate jobs. |
-| F-11 | PII Encryption at Rest for Messages | Codex | F-01 ✓ | Critical | F-01 now DONE. Wire `encrypt()`/`decrypt()` from `vendor/db/src/encryption.js` into `saveMessage()` and `getMessages()`. |
+| F-11 | PII Encryption at Rest for Messages | Codex | F-01 ✓ | Critical | Wire `encrypt()`/`decrypt()` from `vendor/db/src/encryption.js` into `saveMessage()` and `getMessages()`. |
 | F-04 | Rate Limiting on All Public Endpoints | Codex | None | Critical | Install `express-rate-limit` with Redis store. Auth endpoints: 5 req/min/IP. AI route: per-tenant cap. Webhook: 1000/min/IP. |
 | F-05 | Token Budget Enforcement in AI Route | Codex | None | Critical | Wire `checkAndDeductBudget()` from `vendor/ai-core/src/cost/` into `POST /v1/ai/reply` before SSE headers. Auto-tier Opus→Sonnet→Haiku at 80%/95% budget. |
 | F-06 | Idempotency Keys on All Webhook Processing | Codex | None | High | Create `webhook_idempotency` table. Check before processing. Unique constraint on `(channel, external_message_id)`. |
@@ -50,13 +54,7 @@
 
 | # | Task Name | Codex Branch | Gemini Status | Claude Status | Notes |
 |---|---|---|---|---|---|
-| F-09-P5-D-D3 | task/f09-p5-d-d3 | Pending | Pending | D3 only complete: `catalog.js` default DI `queryFn` now falls back to `queryAdmin` while injected deps remain unchanged; `products.js` now uses `queryAdmin()` in `upsertProducts` and `getProductCatalogSummary`, and `adminWithTransaction` in `deleteCatalogProduct` with inner `client.query()` calls unchanged. `getActiveProducts` preserved unchanged. |
-| F-09-P5-D-D2 | task/f09-p5-d-d2 | Pending | Pending | D2 only complete: all 4 `recycleBin.js` functions now accept optional `client` as last param and thread it through `getTenantById`/`updateTenantSettings`; `settings.js` passes `req.db` at 3 recycle-bin call sites and `customers.js` passes `req.db` at 1 `appendRecycleItem` call site. No logic changes. |
-| F-09-P5-D-D1 | task/f09-p5-d-d1 | Pending | Pending | D1 only complete: `tenants.js` import now uses `queryAdmin` only, and the 3 ternary fallback sides now use `queryAdmin()` while all `client.query(...)` branches, SQL, params, and function signatures remain unchanged. No caller or worker file changes. |
-| F-09-P5-B-B1 | task/f09-p5-b-b1 | Pending | Pending | B1 only complete: `conversations.js` + `messages.js` now take optional `client` as last param and use `queryAdmin()` fallback instead of `query()`. `saveMessage` uses the same client/queryAdmin path for both queries. Exports unchanged. No forbidden files touched. |
-| F-09-P5-B-B2 | task/f09-p5-b-b2 | Pending | Pending | B2 only complete: `prompts.js` + `reports.js` now take optional `client` as last param and use `queryAdmin()` fallback instead of `query()`. Exports unchanged. No caller changes. No forbidden files touched. |
-| F-09-P5-B-B3 | task/f09-p5-b-b3 | Pending | Pending | B3 only complete: `deals.js` now gives `getOrCreateDeal`, `createDeal`, `updateDeal`, and `listDeals` optional `client` last params with `queryAdmin()` fallback; `closeDeal` now uses `adminWithTransaction` with its inner `client.query()` calls unchanged. `audit.js` now uses unconditional `queryAdmin()`. Exports unchanged. No caller changes. No forbidden files touched. |
-| F-09-P4B-B3 | Enforce RLS — Phase 4B Step B3: auth.js queryAdmin Migration | task/f09-phase-2-middleware | Pending | Pending | auth.js only. 7 query() → queryAdmin(). query removed from import. All tenant_id WHERE guards preserved. B3 commit: db27e7a. Baseline: 7dd2388. |
+| — | — | — | — | — | — |
 
 ---
 
@@ -83,11 +81,7 @@
 
 | # | Task Name | Priority | Depends On | Notes |
 |---|---|---|---|---|
-| F-09 | Enforce Postgres RLS Policies in Production | Critical | F-01 ✓ | Phases 1–4A DONE. Phase 4B (query modules + callers, auth.js) — brief written in `tasktocopy.md` Steps 6–11, execution strategy below. Phase 5 pending. Full RLS enforcement not active until Phase 5 completes. |
-| F-09-P4B | Enforce RLS — Phase 4 Sub-scope B: Query Module Client Param + Route Callers + auth.js | Critical | F-09-P4A ✓ | Step B1: add `client` param to `tenants.js` + `products.js` (query modules). Step B2: propagate `req.db` through `broadcast.js`, `products.js`, `settings.js`. Step B3: `auth.js` 7 post-auth `query()` → `queryAdmin()`. Execute in strict sequence. Execution strategy in DECISION-008. |
-| F-10 | Eliminate localStorage Conversation State from Frontend | Critical | F-09 (RLS confirmed active) | Remove `loadPersistedStore()` and all `localStorage('airos_conv_store')` usage from conversations page. |
-| F-11 | PII Encryption at Rest for Messages | Critical | F-01 ✓ | Promoted to READY above. |
-| F-12 | Migrate Production Runtime from Legacy Express to Fastify | Critical | F-01, F-09, F-03 | Architecture-level task. Remove vendor/ copies. Wire packages/ correctly. Claude must write detailed brief. |
+| F-12 | Migrate Production Runtime from Legacy Express to Fastify | Critical | F-01 ✓, F-09 ✓, F-03 ✓ | Architecture-level task. Remove vendor/ copies. Wire packages/ correctly. Claude must write detailed brief. |
 | F-13 | Automated Backup Verification | High | None (can start independently) | Deploy `apps/scheduler/` to Railway. Verify S3 receives nightly backup. Update restore-test to pull from S3. |
 
 ### Core Product Layer
@@ -99,23 +93,18 @@
 | C-03 | Dialect Detection — FastText ML Classifier | High | None | Source fastText Arabic dialect model. <5ms in-process. 90% accuracy on 500-sample test set. |
 | C-04 | Multilingual Prompt Registry with Dialect Variants | High | C-03 | 6 locale variants per prompt. Fallback chain. Wire to `streamReply()`. |
 | C-05 | Complete Signup → Onboarding → Go-Live Flow | High | F-01, C-01 | Full 5-step wizard. Post-signup crawl trigger. Business profile review. Channel connect. Go live. |
-| C-06 | RBAC at Tenant Level | High | F-09 | Add `role` to User model. Permission matrix for 5 roles. `requirePermission()` middleware. |
-| C-07 | Build Tickets Page with Real Backend | High | F-01, C-06 | `Ticket` model. CRUD API. Wire page. Escalate action integration. |
-| C-08 | Inbox Filtering, Search, and Assignment UI | High | F-09, C-06 | Filter by channel/status/tag/agent. Full-text search. Bulk actions. Snooze. |
-| C-09 | Routing Rules Engine | High | F-01, C-06 | `RoutingRule` model. JSON DSL conditions. Rule evaluation in message processor. |
 | C-10 | Canned Replies System | Medium | F-01 | `CannedReply` model. CRUD API. `/` picker in chat window. Multilingual variants. |
 | C-11 | Build Golden Eval Set (200 Conversations) | Critical | None | Audit `packages/eval/src/suites/golden.js`. Add dialect samples. Wire to CI eval-gate. |
 | C-12 | Jailbreak and Prompt Injection Detection | Critical | None | Runtime classifier in `streamReply()`. Flagged message queue. Fallback response. |
-| C-13 | Human Handoff Protocol | High | C-06, C-08 | Socket.IO `agent:handoff_requested` event. Agent accept/decline. AI summary on handoff. |
+| C-13 | Human Handoff Protocol | High | C-06 ✓, C-08 | Socket.IO `agent:handoff_requested` event. Agent accept/decline. AI summary on handoff. |
 
 ### Trust and Reliability Layer
 
 | # | Task Name | Priority | Depends On | Notes |
 |---|---|---|---|---|
-| T-01 | Cross-Region Data Residency Routing in Production | High | F-01, F-09 | Provision GCC + EU Postgres. Set `DATABASE_URL_GCC`, `DATABASE_URL_EU`. Verify routing. |
+| T-01 | Cross-Region Data Residency Routing in Production | High | F-01, F-09 ✓ | Provision GCC + EU Postgres. Set `DATABASE_URL_GCC`, `DATABASE_URL_EU`. Verify routing. |
 | T-02 | DSR Endpoint Completeness Verification | High | F-11 | Audit all PII tables. Cascade delete. Completion report. Test with real PII. |
 | T-03 | Audit Log Export for Compliance | Medium | F-01 | `GET /api/audit-log` with CSV/JSON export. Viewer in settings. Append-only. |
-| T-04 | Socket.IO Isolation Test and CORS Hardening | High | F-09 | Tenant A socket cannot receive Tenant B events. Remove `.pages.dev` wildcard CORS. |
 | T-05 | Structured Error Handling and Response Contracts | Medium | None | `APIError` class. Global error handler middleware. Zod validation on all routes. |
 | T-06 | Implement Stripe Metered Billing | High | F-05 | `BillingEvent` table. Stripe Billing meters. Free tier caps. Billing portal UI. |
 
@@ -145,7 +134,7 @@
 |---|---|---|---|---|
 | E-01 | Voice Agent: LiveKit + Deepgram + Whisper Arabic | High | F-12, C-04 | Architecture-level. Claude must write detailed brief. Do not start before core product is stable. |
 | E-02 | Mobile Agent App (React Native + Expo) | Medium | F-12 | Expo + RN. WatermelonDB offline. Push notifications. Voice-note transcription. |
-| E-03 | RBAC Enterprise: Casbin + Custom Roles | Medium | C-06 | Extend basic RBAC with Casbin. Custom role definitions per tenant. |
+| E-03 | RBAC Enterprise: Casbin + Custom Roles | Medium | C-06 ✓ | Extend basic RBAC with Casbin. Custom role definitions per tenant. |
 | E-04 | SSO / SAML / SCIM | Medium | E-03 | `@node-saml/passport-saml`. SCIM v2. Enterprise IT integration. |
 | E-05 | Public API + Generated SDKs | Medium | F-12, T-05 | OpenAPI spec. SDK generation for TS and Python. Developer portal. |
 | E-06 | White-Label and Multi-Brand | Low | F-12, M-01 | `Brand` entity. Domain routing. Widget + email theming. |
@@ -158,18 +147,33 @@
 
 | # | Task Name | Completed By | Notes |
 |---|---|---|---|
-| F-09-P5-A | Enforce RLS — Phase 5A: Route Handler Migration (dashboard, channels, admin, onboarding, ai) | Codex | CONDITIONALLY APPROVED (DECISION-012). 5 files, 21 direct query() sites + 1 withTransaction. A1: 29c1038 (dashboard.js, 7 sites → req.db.query, pool import removed). A2: 9e13de0 (onboarding.js 1 site + channels.js 4 sites → queryAdmin). A3: 07c5bca (pool.js: adminWithTransaction added; ai.js: 1 fire-and-forget → queryAdmin, unawaited/.catch preserved; admin.js: 8 direct + withTransaction → adminWithTransaction). pool.js edit APPROVED — surgical addition using already-declared adminPool; structurally parallel to withTransaction. Forbidden files in Gemini's diff (index.js, tenant.js, queries/*) are prior-phase carryover from 7dd2388 — not P5-A changes. Process violation: 5th cumulative branch diff instance. Per-phase branch policy correctly followed (fresh branch task/f09-p5a). See DECISION-012. |
-| F-09-P5-C | Enforce RLS — Phase 5C: Worker & Webhook Migration (query → queryAdmin) | Codex | CONDITIONALLY APPROVED (DECISION-011). 14 files, 39 sites. C1: b4e0e9c (5 channel files). C2: d25da91 (4 core pipeline files). C3: cd2e703 (5 bg processor + AI files). messageProcessor.js inline require preserved inside function body. tenantManager.js cross-tenant queries preserved without tenant_id filter. triggerEngine.js L332 + reportScheduler.js L285+L292 deferred indirect calls unchanged. Forbidden files in Gemini's diff are prior-phase carryover in baseline commit 7dd2388 — not P5-C changes. Process violation: 4th cumulative branch diff instance. Per-phase branch policy now mandatory. See DECISION-011. |
-| F-09-P4B-B2 | Enforce RLS — Phase 4B Step B2: Route Caller Propagation | Codex | CONDITIONALLY APPROVED. All 9 broadcast.js call sites, products.js GET /, settings.js (2 sites) pass `req.db`. catalog.js + recycleBin.js untouched. auth.js workspace presence is B3 carryover — not counted as B2. Query-module files are B1 carryover. Process violation logged (cumulative diff hygiene). See DECISION-010. |
-| F-09-P4B-B1 | Enforce RLS — Phase 4B Step B1: Query Module Client Parameter | Codex | APPROVED. Optional `client` param added to `getTenantById`, `updateTenantSettings`, `updateKnowledgeBase` in `tenants.js` and `getActiveProducts` in `products.js`. Ternary fallback pattern applied in all 4 functions. `upsertProducts`, `getProductCatalogSummary`, `deleteCatalogProduct` untouched. Pre-flight audit confirmed all 10 external callers pass ≤2 args — fallback path is the only active code path. Zero behavior change. See DECISION-009. |
-| F-09-P4A | Enforce RLS — Phase 4 Sub-scope A: Prisma Routes (corrections, eval, privacy, builtins) | Codex | APPROVED. All 4 files migrated from `getPrismaForTenant` → `withTenant`. Zero `getPrismaForTenant` references remain. All Prisma operations execute inside `withTenant(tenantId, async (tx) => {...})` callbacks. `privacy.js` background processors use 3 separate `withTenant` calls each for immediate commit visibility. `lead.qualify` `.catch` closure confirmed using `tx.deal.create` not `prisma`. No forbidden files touched. Sub-scope B (query modules + callers) pending. See DECISION-008. |
-| F-09-P3 | Enforce RLS — Phase 3: Route Raw SQL Migration | Codex | APPROVED. `auth.js` login + register → `queryAdmin()`. `customers.js`, `settings.js`, `broadcast.js`, `products.js` → `req.db.query()`. `withTransaction` wrapper in import route replaced with direct `req.db`. Pool imports removed from 4 files. 7 post-auth auth.js routes remain as `query()` — known gap, documented for Phase 4. All acceptance criteria met. Zero behavior change. |
-| F-09-P2 | Enforce RLS — Phase 2: Admin Pool + Middleware | Codex | APPROVED. `pool.js` exports `adminPool` + `queryAdmin()` with `DATABASE_URL_ADMIN` fallback. `tenantMiddleware` acquires request-scoped pg client, executes `BEGIN` + `set_config('app.tenant_id', $1, true)`, exposes `req.db`. UUID validation gate, `released` double-release guard, `res.on('finish'/'close')` lifecycle. `.env.example` updated. All 12 acceptance criteria met. Zero behavior change — no routes use `req.db` yet. Raw workspace diff blocked by pre-existing unrelated changes; scoped 3-file diff clean. See DECISION-007. |
-| F-09-P1 | Enforce RLS — Phase 1: SQL + Migration | Codex | APPROVED. `rls.sql` extended with 7 F-01 tables. Migration `20260418000002_apply_rls` applies all 31 `ENABLE/FORCE ROW LEVEL SECURITY` + idempotent policies. `setup_app_user.sql` created. `prisma migrate deploy` idempotent. `pg_policies` = 31 rows. All 31 tables `rowsecurity=true` + `forcerls=true`. Zero application behavior change (superuser bypasses policies). Phases 2–5 pending. |
-| F-01 | Prisma Migration Discipline — Replace Raw SQL Init | Codex | CONDITIONALLY APPROVED. Baseline migration (`init_baseline`) matches `schema.sql`. Delta migration adds all 11 missing tables and additive columns on existing tables. Fresh deploy, idempotency, `migration.verify.js`, `prisma generate` all pass. `railway.toml` wired with `releaseCommand`. Railway one-time `migrate resolve` command documented in handoff. Pre-existing global `npm test` failure (P-01) unrelated to F-01 code. See DECISION-006. |
-| F-03 | WhatsApp and All Channel Webhook Signature Verification | Codex | CONDITIONALLY APPROVED. `verify.js` with timing-safe HMAC-SHA256, `express.raw()` pre-middleware, fail-closed on missing secret. All 11 acceptance criteria met. Gemini confirmed all 6 security-critical test paths pass. Branch policy violation: Codex worked on `main` instead of `task/f03-webhook-sig-verify`. Pre-existing `npm test` failure in `airos/backend/` predates F-03; unrelated to implementation. See DECISION-004. |
+| T-04 | Socket.IO Isolation Test and CORS Hardening | Codex | APPROVED (DECISION-014). Merge 845c2ea. Tenant isolation enforced on Socket.IO rooms; `.pages.dev` wildcard CORS removed. Security fix re-validated by Gemini. Branch: task/t04-socket-isolation. |
+| F-10 | Eliminate localStorage Conversation State from Frontend | Codex | APPROVED (DECISION-015). Merge e9e6f30. `loadPersistedStore()` and all `localStorage('airos_conv_store')` usage removed from conversations page. Branch: task/f10-frontend-cleanup. |
+| C-07 | Build Tickets Page with Real Backend | Codex | APPROVED (DECISION-016). Merge aae683c. `Ticket` model, CRUD API (`tickets.js` route + query module), migration `20260421_tickets.sql`, full UI (TicketList, TicketDetailPanel, TicketEditorModal, tickets page). Branch: task/c07-tickets-page. |
+| F-09 | Enforce Postgres RLS Policies in Production — Full Stack | Codex | DONE. All phases complete (P1–P5E). RLS active in production. DATABASE_URL = app_user, DATABASE_URL_ADMIN = postgres (superuser). Runtime split check passed: main=app_user, admin=postgres. ST1–ST7 all passed. No rollback required. |
+| F-09-P5-E | Enforce RLS — Phase 5E: DATABASE_URL Switch + Runtime Activation | Codex | APPROVED. DATABASE_URL switched to restricted app_user. DATABASE_URL_ADMIN retained as superuser. Runtime split check passed. ST1–ST7 all passed. No rollback required. RLS enforced in production. |
+| F-09-P5-D | Enforce RLS — Phase 5D: Special Cases (recycleBin threading + catalog strategy) | Codex | APPROVED. D1+D2+D3 complete. tenants.js queryAdmin-only; recycleBin.js client threading; catalog.js + products.js queryAdmin/adminWithTransaction for non-tenant-scoped operations. |
+| F-09-P5-D-D3 | Enforce RLS — Phase 5D Step D3: catalog.js + products.js | Codex | APPROVED. catalog.js default DI queryFn → queryAdmin fallback. products.js: upsertProducts + getProductCatalogSummary → queryAdmin; deleteCatalogProduct → adminWithTransaction. getActiveProducts unchanged. |
+| F-09-P5-D-D2 | Enforce RLS — Phase 5D Step D2: recycleBin client threading | Codex | APPROVED. 4 recycleBin.js functions accept optional client, thread through getTenantById/updateTenantSettings. settings.js 3 call sites + customers.js 1 call site pass req.db. No logic changes. |
+| F-09-P5-D-D1 | Enforce RLS — Phase 5D Step D1: tenants.js queryAdmin migration | Codex | APPROVED. tenants.js import → queryAdmin only. 3 ternary fallback sides → queryAdmin(). client.query() branches, SQL, params, function signatures unchanged. No caller or worker file changes. |
+| F-09-P5-B | Enforce RLS — Phase 5B: Query Module queryAdmin Fallback (conversations, messages, prompts, reports, deals, audit) | Codex | APPROVED. B1+B2+B3 complete. 6 query modules updated with optional client param and queryAdmin() fallback. audit.js unconditional. |
+| F-09-P5-B-B3 | Enforce RLS — Phase 5B Step B3: deals.js + audit.js | Codex | APPROVED. deals.js: getOrCreateDeal, createDeal, updateDeal, listDeals — optional client + queryAdmin fallback; closeDeal → adminWithTransaction. audit.js → unconditional queryAdmin(). Exports unchanged. |
+| F-09-P5-B-B2 | Enforce RLS — Phase 5B Step B2: prompts.js + reports.js | Codex | APPROVED. Optional client as last param + queryAdmin() fallback in both files. Exports unchanged. No caller changes. |
+| F-09-P5-B-B1 | Enforce RLS — Phase 5B Step B1: conversations.js + messages.js | Codex | APPROVED. Optional client as last param + queryAdmin() fallback. saveMessage uses same client/queryAdmin path for both queries. Exports unchanged. |
+| F-09-P4B-B3 | Enforce RLS — Phase 4B Step B3: auth.js queryAdmin Migration | Codex | APPROVED. auth.js only. 7 query() → queryAdmin(). query removed from import. All tenant_id WHERE guards preserved. Commit db27e7a. |
+| C-06 | Tenant RBAC API Layer | Codex | APPROVED (DECISION-013). Commit 7c986d4. owner/admin mutation protection active. agent read access preserved. /api/admin unaffected (adminAuthMiddleware). |
+| F-09-P5-A | Enforce RLS — Phase 5A: Route Handler Migration (dashboard, channels, admin, onboarding, ai) | Codex | CONDITIONALLY APPROVED (DECISION-012). 5 files, 21 direct query() sites + 1 withTransaction. A1: 29c1038 (dashboard.js, 7 sites → req.db.query, pool import removed). A2: 9e13de0 (onboarding.js 1 site + channels.js 4 sites → queryAdmin). A3: 07c5bca (pool.js: adminWithTransaction added; ai.js: 1 fire-and-forget → queryAdmin, unawaited/.catch preserved; admin.js: 8 direct + withTransaction → adminWithTransaction). See DECISION-012. |
+| F-09-P5-C | Enforce RLS — Phase 5C: Worker & Webhook Migration (query → queryAdmin) | Codex | CONDITIONALLY APPROVED (DECISION-011). 14 files, 39 sites. C1: b4e0e9c (5 channel files). C2: d25da91 (4 core pipeline files). C3: cd2e703 (5 bg processor + AI files). See DECISION-011. |
+| F-09-P4B-B2 | Enforce RLS — Phase 4B Step B2: Route Caller Propagation | Codex | CONDITIONALLY APPROVED. All 9 broadcast.js call sites, products.js GET /, settings.js (2 sites) pass `req.db`. catalog.js + recycleBin.js untouched. See DECISION-010. |
+| F-09-P4B-B1 | Enforce RLS — Phase 4B Step B1: Query Module Client Parameter | Codex | APPROVED. Optional `client` param added to `getTenantById`, `updateTenantSettings`, `updateKnowledgeBase` in `tenants.js` and `getActiveProducts` in `products.js`. Ternary fallback pattern applied in all 4 functions. See DECISION-009. |
+| F-09-P4A | Enforce RLS — Phase 4 Sub-scope A: Prisma Routes (corrections, eval, privacy, builtins) | Codex | APPROVED. All 4 files migrated from `getPrismaForTenant` → `withTenant`. Zero `getPrismaForTenant` references remain. See DECISION-008. |
+| F-09-P3 | Enforce RLS — Phase 3: Route Raw SQL Migration | Codex | APPROVED. `auth.js` login + register → `queryAdmin()`. `customers.js`, `settings.js`, `broadcast.js`, `products.js` → `req.db.query()`. `withTransaction` wrapper in import route replaced with direct `req.db`. Pool imports removed from 4 files. |
+| F-09-P2 | Enforce RLS — Phase 2: Admin Pool + Middleware | Codex | APPROVED. `pool.js` exports `adminPool` + `queryAdmin()` with `DATABASE_URL_ADMIN` fallback. `tenantMiddleware` acquires request-scoped pg client, executes `BEGIN` + `set_config('app.tenant_id', $1, true)`, exposes `req.db`. See DECISION-007. |
+| F-09-P1 | Enforce RLS — Phase 1: SQL + Migration | Codex | APPROVED. `rls.sql` extended with 7 F-01 tables. Migration `20260418000002_apply_rls` applies all 31 `ENABLE/FORCE ROW LEVEL SECURITY` + idempotent policies. `setup_app_user.sql` created. `pg_policies` = 31 rows. |
+| F-01 | Prisma Migration Discipline — Replace Raw SQL Init | Codex | CONDITIONALLY APPROVED. Baseline migration (`init_baseline`) matches `schema.sql`. Delta migration adds all 11 missing tables and additive columns on existing tables. Fresh deploy, idempotency, `migration.verify.js`, `prisma generate` all pass. `railway.toml` wired with `releaseCommand`. See DECISION-006. |
+| F-03 | WhatsApp and All Channel Webhook Signature Verification | Codex | CONDITIONALLY APPROVED. `verify.js` with timing-safe HMAC-SHA256, `express.raw()` pre-middleware, fail-closed on missing secret. All 11 acceptance criteria met. Gemini confirmed all 6 security-critical test paths pass. See DECISION-004. |
 
 ---
 
 *Board initialized from `/MISSING_TASKS_AND_EXECUTION_GAPS.md` Section 11 (Dependency-Ordered Master Task List).*
-*Last updated: F-09-P5-A DONE (DECISION-012). F-09-P4B-B3 in REVIEW. P5-B, P5-D in READY (briefs pending). Per-phase branch policy mandatory (DECISION-011). pool.js adminWithTransaction APPROVED as part of P5-A scope. F-09-P5-E remains BLOCKED until P5-B + P5-D are DONE.*
+*Last updated: T-04, F-10, C-07 DONE (DECISIONS-014/015/016, 2026-04-21). F-09 DONE — RLS active in production. C-06 DONE (DECISION-013). C-08, C-09 in READY. C-13 unblocked on C-06 ✓ pending C-08 completion.*

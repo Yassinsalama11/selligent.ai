@@ -940,4 +940,153 @@ unintentionally altered). Such a finding would be a P5-A bug requiring a targete
 the same branch.
 
 ---
+---
+### [DECISION-013] C-06 Tenant RBAC API Layer — APPROVED
+
+**Logged by:** Claude
+**Authority Level:** Decision + Security Sign-off
+**Context:**
+C-06 (RBAC at Tenant Level) was implemented by Codex and validated by Gemini.
+Gemini result: PASSED. No bugs found. Regression risk: low.
+Commit SHA: 7c986d4ef00ebe25a85fb2377995ec049ef72def
+
+**Decision:**
+APPROVED. C-06 status → DONE.
+
+Security sign-off items confirmed:
+1. **owner/admin mutation protection is active** — role-escalation and destructive mutations are
+   guarded by `requirePermission()` middleware; callers without `owner` or `admin` role receive 403.
+2. **agent read access preserved** — read-only routes remain accessible to the `agent` role;
+   permission matrix is additive and does not degrade existing agent functionality.
+3. **`/api/admin` unaffected** — the admin route remains behind `adminAuthMiddleware` (separate
+   credentials path); C-06 RBAC middleware was not introduced to admin routes and does not
+   interfere with the public admin login flow.
+4. **`tenant_id` isolation not weakened** — `requirePermission()` operates on `req.user` which
+   is scoped to the authenticated tenant; no cross-tenant permission bypass is possible.
+5. **No new secrets or credentials introduced** — role values are application-level enum strings,
+   not cryptographic material.
+
+**Reason:**
+All acceptance criteria met. Gemini found no open P1 or P2 bugs. Regression risk is low per
+Gemini's assessment. The three security properties listed above are confirmed active, which
+satisfies Claude's mandatory security review requirement for auth/authorization changes
+(CLAUDE.md: "Any change to authentication middleware" + "Any change to admin access controls").
+
+**Alternatives Considered:**
+- Conditional approval pending additional hardening: no open issues were identified that would
+  warrant conditions. Full approval is appropriate.
+- Rejection: no grounds — Gemini pass + clean security review.
+
+**Impact:**
+- C-06: DONE.
+- C-07 (Tickets Page), C-08 (Inbox Filtering), C-09 (Routing Rules Engine), C-13 (Human Handoff)
+  list C-06 as a dependency. They are now unblocked on the C-06 side (still depend on other
+  Foundation Layer completions where noted).
+- `/api/admin` public endpoint continues to use `adminAuthMiddleware` exclusively — no change.
+
+**Affected Files / Modules:**
+As committed in 7c986d4 — RBAC middleware and permission matrix. Auth routes unmodified.
+Admin routes unmodified.
+
+**Revisit Conditions:**
+If the permission matrix is extended (new roles, new permission categories), a new decision entry
+is required. Any change that touches `requirePermission()` or the role enum constitutes an
+auth/authorization change and requires Claude security review under CLAUDE.md policy.
+
+---
+### [DECISION-014] T-04 Socket.IO Tenant Isolation and CORS Hardening — APPROVED
+
+**Logged by:** Claude
+**Authority Level:** Decision + Security Sign-off
+**Context:**
+T-04 (Socket.IO Isolation Test and CORS Hardening) was implemented by Codex on branch
+`task/t04-socket-isolation` (commit dc7e2c2). Gemini validation: PASSED.
+Security issues identified during initial review were fixed by Codex and re-validated by Gemini.
+Merged to main as 845c2ea.
+
+**Decision:**
+APPROVED. T-04 status → DONE.
+
+Security sign-off items confirmed:
+1. **Socket.IO tenant isolation enforced** — rooms are scoped per `tenant_id`. Tenant A cannot
+   receive Tenant B events. Cross-tenant socket leakage is eliminated.
+2. **`.pages.dev` wildcard CORS removed** — replaced with explicit allowlist. Only authorized
+   origins receive CORS headers.
+3. **Security fix re-validated** — initial findings were fixed; Gemini confirmed no open issues.
+4. **Test coverage added** — `test/livechat.socket.test.js` covers the isolation path.
+
+**Affected Files / Modules:**
+`airos/backend/src/channels/copilot/socket.js`,
+`airos/backend/src/channels/livechat/socket.js`,
+`airos/backend/src/index.js`,
+`airos/backend/test/livechat.socket.test.js` (new)
+
+**Revisit Conditions:**
+New Socket.IO namespaces or channels must be audited for tenant isolation before deployment.
+Any CORS origin change requires Claude security review.
+
+---
+### [DECISION-015] F-10 Frontend localStorage Conversation State Removal — APPROVED
+
+**Logged by:** Claude
+**Authority Level:** Decision
+**Context:**
+F-10 (Eliminate localStorage Conversation State from Frontend) was implemented by Codex on
+branch `task/f10-frontend-cleanup` (commit de7aed3). Gemini validation: PASSED. No bugs found.
+Merged to main as e9e6f30.
+
+**Decision:**
+APPROVED. F-10 status → DONE.
+
+`loadPersistedStore()` and all `localStorage('airos_conv_store')` usage removed from the
+conversations page. With RLS active (F-09 DONE), a localStorage cache that persisted
+conversation state could surface stale or cross-session data bypassing RLS-enforced access
+controls. Removal ensures the client always reflects the server's authoritative RLS-filtered state.
+
+**Affected Files / Modules:**
+`airos/frontend/src/app/dashboard/conversations/page.js`
+
+**Revisit Conditions:**
+If client-side caching is reintroduced (React Query, SWR, etc.), it must be session-scoped and
+cleared on logout. Any persistent cache strategy requires Claude review.
+
+---
+### [DECISION-016] C-07 Tickets Backend and UI — APPROVED
+
+**Logged by:** Claude
+**Authority Level:** Decision + Security Sign-off
+**Context:**
+C-07 (Build Tickets Page with Real Backend) was implemented by Codex on branch
+`task/c07-tickets-page` (commits 7c986d4 C-06 RBAC + 0bd75e7 C-07 tickets). Gemini: PASSED.
+No bugs found. Merged to main as aae683c.
+
+**Decision:**
+APPROVED. C-07 status → DONE.
+
+Security sign-off items confirmed:
+1. **Tenant isolation on all ticket routes** — all CRUD endpoints in `tickets.js` are behind
+   `authMiddleware` + `tenantMiddleware`. Queries scoped to `req.user.tenant_id`. No
+   cross-tenant ticket access is possible.
+2. **RBAC guards applied** — ticket mutation routes use `requirePermission()` from C-06.
+   Agents read-only; owner/admin write.
+3. **Migration is additive** — `20260421_tickets.sql` creates new `tickets` table with
+   `tenant_id FK` and RLS policy. No existing table is modified.
+4. **No secrets introduced.**
+
+**Affected Files / Modules:**
+`airos/backend/src/api/routes/tickets.js` (new),
+`airos/backend/src/db/queries/tickets.js` (new),
+`airos/backend/src/db/migrations/20260421_tickets.sql` (new),
+`airos/backend/src/actions/builtins.js`,
+`airos/backend/src/index.js`,
+`airos/frontend/src/app/dashboard/tickets/page.js`,
+`airos/frontend/src/components/tickets/TicketList.js` (new),
+`airos/frontend/src/components/tickets/TicketDetailPanel.js` (new),
+`airos/frontend/src/components/tickets/TicketEditorModal.js` (new)
+
+**Revisit Conditions:**
+C-13 (Human Handoff) depends on C-07. Any escalation writing to `tickets` must respect the
+RLS policy and RBAC guards established here.
+
+---
 *[Next entry: append below this line using the format above. Do not modify existing entries.]*
