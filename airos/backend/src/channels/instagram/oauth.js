@@ -294,11 +294,18 @@ function graphGet(path, params = {}, accessToken = '') {
 
 function graphPost(path, body = {}, accessToken = '') {
   const url = new URL(`${BASE}${path}`);
+  const encodedBody = new URLSearchParams();
+  Object.entries(body).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      encodedBody.set(key, String(value));
+    }
+  });
+
   return request(url, {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: encodedBody.toString(),
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
     },
   });
