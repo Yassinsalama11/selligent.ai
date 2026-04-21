@@ -1,4 +1,5 @@
 const express = require('express');
+const { requireRole } = require('../middleware/rbac');
 
 const {
   createIngestionJob,
@@ -7,8 +8,10 @@ const {
 } = require('../../ingest/ingestionJob');
 
 const router = express.Router();
+const requireReadRole = requireRole('owner', 'admin', 'agent');
+const requireOwnerRole = requireRole('owner', 'admin');
 
-router.get('/jobs', async (req, res, next) => {
+router.get('/jobs', requireReadRole, async (req, res, next) => {
   try {
     const jobs = await listIngestionJobs(req.user.tenant_id, req.query);
     res.json(jobs);
@@ -17,7 +20,7 @@ router.get('/jobs', async (req, res, next) => {
   }
 });
 
-router.post('/website', async (req, res, next) => {
+router.post('/website', requireOwnerRole, async (req, res, next) => {
   try {
     const sourceUrl = String(req.body?.url || '').trim();
     if (!sourceUrl) return res.status(400).json({ error: 'url is required' });

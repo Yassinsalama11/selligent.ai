@@ -3,9 +3,12 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { queryAdmin } = require('../../db/pool');
 const { authMiddleware } = require('../middleware/auth');
+const { requireRole } = require('../middleware/rbac');
 
 const router = express.Router();
 const SALT_ROUNDS = 12;
+const requireTeamReadRole = requireRole('owner', 'admin', 'agent');
+const requireOwnerRole = requireRole('owner', 'admin');
 
 // POST /api/auth/register — create tenant + owner account
 router.post('/register', async (req, res, next) => {
@@ -139,7 +142,7 @@ router.patch('/password', authMiddleware, async (req, res, next) => {
   }
 });
 
-router.get('/team', authMiddleware, async (req, res, next) => {
+router.get('/team', authMiddleware, requireTeamReadRole, async (req, res, next) => {
   try {
     const result = await queryAdmin(`
       SELECT id, tenant_id, email, name, role, created_at
@@ -154,7 +157,7 @@ router.get('/team', authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post('/invite', authMiddleware, async (req, res, next) => {
+router.post('/invite', authMiddleware, requireOwnerRole, async (req, res, next) => {
   try {
     const { email, name, role = 'agent' } = req.body;
     const { tenant_id, role: callerRole } = req.user;
@@ -179,7 +182,7 @@ router.post('/invite', authMiddleware, async (req, res, next) => {
   }
 });
 
-router.patch('/team/:id', authMiddleware, async (req, res, next) => {
+router.patch('/team/:id', authMiddleware, requireOwnerRole, async (req, res, next) => {
   try {
     const { tenant_id, role: callerRole, id: callerId } = req.user;
     if (!['owner', 'admin'].includes(callerRole)) {
@@ -216,7 +219,7 @@ router.patch('/team/:id', authMiddleware, async (req, res, next) => {
   }
 });
 
-router.delete('/team/:id', authMiddleware, async (req, res, next) => {
+router.delete('/team/:id', authMiddleware, requireOwnerRole, async (req, res, next) => {
   try {
     const { tenant_id, role: callerRole, id: callerId } = req.user;
     if (!['owner', 'admin'].includes(callerRole)) {

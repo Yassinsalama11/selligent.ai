@@ -1,6 +1,6 @@
 -- AIROS Database Schema
 -- Multi-tenant SaaS — PostgreSQL
--- Last updated: 2026-04-14
+-- Last updated: 2026-04-21
 
 -- Enable UUID generation
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -95,6 +95,32 @@ CREATE TABLE deals (
   closed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE SEQUENCE IF NOT EXISTS ticket_number_seq START 1;
+
+CREATE TABLE tickets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticket_number INTEGER NOT NULL DEFAULT nextval('ticket_number_seq'),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  conversation_id UUID REFERENCES conversations(id),
+  customer_id UUID REFERENCES customers(id),
+  customer_name TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  category VARCHAR(100) DEFAULT 'General',
+  channel VARCHAR(50) NOT NULL DEFAULT 'manual',
+  status VARCHAR(50) DEFAULT 'open',        -- open | in_progress | waiting | resolved | closed | escalated
+  priority VARCHAR(50) DEFAULT 'medium',     -- low | medium | high | urgent
+  assignee_id UUID REFERENCES users(id),
+  source VARCHAR(50) DEFAULT 'manual',       -- manual | action | imported
+  escalation_reason TEXT,
+  escalated_at TIMESTAMPTZ,
+  closed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ,
+  UNIQUE(tenant_id, conversation_id)
 );
 
 CREATE TABLE ai_suggestions (
@@ -313,6 +339,10 @@ CREATE INDEX idx_conversations_updated ON conversations(updated_at DESC);
 CREATE INDEX idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX idx_deals_tenant_stage ON deals(tenant_id, stage);
 CREATE INDEX idx_deals_tenant_created ON deals(tenant_id, created_at DESC);
+CREATE INDEX idx_tickets_tenant_status ON tickets(tenant_id, status);
+CREATE INDEX idx_tickets_tenant_priority ON tickets(tenant_id, priority);
+CREATE INDEX idx_tickets_tenant_assignee ON tickets(tenant_id, assignee_id);
+CREATE INDEX idx_tickets_tenant_created ON tickets(tenant_id, created_at DESC);
 CREATE INDEX idx_customers_tenant ON customers(tenant_id);
 CREATE INDEX idx_products_tenant ON products(tenant_id);
 CREATE INDEX idx_products_source ON products(tenant_id, source);

@@ -1,9 +1,11 @@
 const express = require('express');
+const { requireRole } = require('../middleware/rbac');
 
 const router = express.Router();
+const requireReadRole = requireRole('owner', 'admin', 'agent');
 
 // GET /api/dashboard — summary stats for today
-router.get('/', async (req, res, next) => {
+router.get('/', requireReadRole, async (req, res, next) => {
   try {
     const { tenant_id } = req.user;
     const today = new Date().toISOString().slice(0, 10);
