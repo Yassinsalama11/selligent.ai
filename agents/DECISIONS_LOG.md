@@ -1233,3 +1233,101 @@ Security sign-off items confirmed:
 
 ---
 *[Next entry: append below this line using the format above. Do not modify existing entries.]*
+
+---
+### [DECISION-020] F-11 PII Encryption at Rest for Messages — APPROVED
+
+**Logged by:** Codex
+**Authority Level:** Observation + Closure
+**Context:**
+F-11 was implemented on branch `task/f11-pii-encryption` (commit 94e0d04). Gemini validation
+PASSED with no blockers and no regressions. Claude was unavailable for closure, and the user
+authorized direct finalization.
+
+**Decision:**
+F-11 status → DONE.
+
+Message content is encrypted at rest on write and decrypted before returning through existing
+API/read paths. The implementation preserves existing response shapes and handles legacy
+plaintext rows safely.
+
+**Reason:**
+The task closes a foundation-layer PII exposure risk while preserving compatibility for the
+existing messaging and inbox stack. A validation-discovered C-08 regression was addressed before
+merge by adding a search-safe companion field.
+
+**Alternatives Considered:**
+- Remove encryption from `messages.content`: rejected because it would fail F-11's primary
+  security objective.
+- Search encrypted `content` with SQL `LIKE`: rejected because encrypted rows are not
+  meaningfully searchable and behavior would silently degrade.
+- Store plaintext `search_text`: rejected in favor of tenant-scoped hashed search tokens to avoid
+  reintroducing plaintext message bodies for search.
+
+**Impact:**
+`messages.content` remains encrypted at rest for new writes. Inbox message-content search uses
+tenant-scoped hashed `messages.search_tokens` for encrypted rows. Existing plaintext rows retain
+a deterministic legacy fallback path until migrated/backfilled.
+
+**Affected Files / Modules:**
+`airos/backend/src/db/queries/messages.js`,
+`airos/backend/src/db/queries/conversations.js`,
+`airos/backend/src/db/schema.sql`,
+`airos/backend/src/db/migrations/20260421_message_search_tokens.sql`,
+`airos/backend/src/api/routes/customers.js`,
+`airos/backend/src/api/routes/handoffs.js`,
+`airos/backend/src/migrations/intercom.js`,
+`airos/backend/src/migrations/zendesk.js`,
+`airos/backend/test/messages.encryption.test.js`,
+`airos/backend/test/conversations.search-tokens.test.js`
+
+**Revisit Conditions:**
+If substring search quality becomes a product requirement, replace token-hash search with a
+dedicated encrypted-search/indexing design. Any backfill of `search_tokens` for legacy rows must
+be tenant-scoped and must not decrypt data outside controlled backend execution.
+
+---
+### [DECISION-021] F-07 Admin Account Hardening Phase 1 — APPROVED
+
+**Logged by:** Codex
+**Authority Level:** Observation + Closure
+**Context:**
+F-07 Phase 1 was implemented on branch `task/f07-admin-hardening` (commit 164cded). Gemini
+validation PASSED with no blockers and no regressions. Claude was unavailable for closure, and
+the user authorized direct finalization. F-07 remains a multi-phase task; this entry covers
+Phase 1 only.
+
+**Decision:**
+F-07 Phase 1 status → DONE. Remaining F-07 phases stay open as F-07-P2+.
+
+Production admin authentication now requires a dedicated `ADMIN_JWT_SECRET`, admin sessions are
+limited to 1 hour, admin cookies use `sameSite: 'strict'`, and admin password verification is
+bcrypt-only with the plaintext fallback removed.
+
+**Reason:**
+The previous admin flow allowed `ADMIN_JWT_SECRET` to fall back to tenant `JWT_SECRET`, creating
+a token-forgery path if tenant JWT material was compromised. Seven-day admin sessions increased
+blast radius for stolen tokens, `sameSite: 'lax'` was weaker than needed for the admin panel, and
+the plaintext password branch was an unnecessary latent authentication bypass risk.
+
+**Alternatives Considered:**
+- Keep the `JWT_SECRET` fallback in production: rejected because admin and tenant token trust
+  domains must be isolated.
+- Keep configurable `ADMIN_JWT_EXPIRES_IN`: rejected because Phase 1 requires a hard 1-hour
+  maximum.
+- Preserve plaintext comparison for env bootstrap compatibility: rejected because bootstrap is
+  not removed in Phase 1, but successful login must still require a bcrypt-backed admin row.
+
+**Impact:**
+Existing long-lived admin sessions are invalidated on deploy and admins must re-login. Production
+will fail startup if `ADMIN_JWT_SECRET` is unset. Development/test may still fall back to
+`JWT_SECRET` with a loud warning, matching the implementation brief.
+
+**Affected Files / Modules:**
+`airos/backend/src/api/routes/admin.js`,
+`airos/backend/src/api/middleware/adminAuth.js`
+
+**Revisit Conditions:**
+Proceed with F-07-P2+ for failed-login lockout, TOTP MFA, and eventual removal of
+`ADMIN_EMAIL`/`ADMIN_PASSWORD` bootstrap auth. Do not loosen admin secret isolation in any
+environment that resembles production.

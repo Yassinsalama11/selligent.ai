@@ -32,11 +32,10 @@
 | ~~C-13~~ | ~~Human Handoff Protocol~~ | ~~Codex~~ | ~~C-06 ✓, C-08 ✓~~ | ~~High~~ | DONE. See DECISION-019. |
 | — | — | — | — | — | — |
 | F-02 | Real PR Test Gate CI Pipeline | Codex | None | Critical | Create `.github/workflows/ci.yml` with backend-test, frontend-build, typecheck, eval-gate, redteam-gate jobs. |
-| F-11 | PII Encryption at Rest for Messages | Codex | F-01 ✓ | Critical | Wire `encrypt()`/`decrypt()` from `vendor/db/src/encryption.js` into `saveMessage()` and `getMessages()`. |
 | F-04 | Rate Limiting on All Public Endpoints | Codex | None | Critical | Install `express-rate-limit` with Redis store. Auth endpoints: 5 req/min/IP. AI route: per-tenant cap. Webhook: 1000/min/IP. |
 | F-05 | Token Budget Enforcement in AI Route | Codex | None | Critical | Wire `checkAndDeductBudget()` from `vendor/ai-core/src/cost/` into `POST /v1/ai/reply` before SSE headers. Auto-tier Opus→Sonnet→Haiku at 80%/95% budget. |
 | F-06 | Idempotency Keys on All Webhook Processing | Codex | None | High | Create `webhook_idempotency` table. Check before processing. Unique constraint on `(channel, external_message_id)`. |
-| F-07 | Admin Account Hardening | Codex | None | Critical | Remove `ADMIN_EMAIL`/`ADMIN_PASSWORD` env auth. TOTP MFA. 1h JWT. Failed-login lockout. 4-phase rollout. **Brief ready: `agents/briefs/F-07_admin_hardening.md`** |
+| F-07-P2+ | Admin Account Hardening — Remaining Phases | Codex | F-07-P1 ✓ | Critical | Phase 1 DONE. Remaining: failed-login lockout, TOTP MFA, and eventual `ADMIN_EMAIL`/`ADMIN_PASSWORD` bootstrap removal. Brief: `agents/briefs/F-07_admin_hardening.md`. |
 | F-08 | BullMQ Dead Letter Queue and Retry Strategy | Codex | None | High | Configure all queues: `attempts: 3, backoff: exponential`. Create DLQ with Sentry logging. |
 
 ---
@@ -97,7 +96,7 @@
 | C-10 | Canned Replies System | Medium | F-01 | `CannedReply` model. CRUD API. `/` picker in chat window. Multilingual variants. |
 | C-11 | Build Golden Eval Set (200 Conversations) | Critical | None | Audit `packages/eval/src/suites/golden.js`. Add dialect samples. Wire to CI eval-gate. |
 | C-12 | Jailbreak and Prompt Injection Detection | Critical | None | Runtime classifier in `streamReply()`. Flagged message queue. Fallback response. |
-| ~~C-13~~ | ~~Human Handoff Protocol~~ | ~~High~~ | ~~C-06 ✓, C-08~~ | Promoted to READY. See READY section. |
+| ~~C-13~~ | ~~Human Handoff Protocol~~ | ~~High~~ | ~~C-06 ✓, C-08 ✓~~ | DONE. See DECISION-019. |
 
 ### Trust and Reliability Layer
 
@@ -148,8 +147,10 @@
 
 | # | Task Name | Completed By | Notes |
 |---|---|---|---|
+| F-07-P1 | Admin Account Hardening — Phase 1 | Codex | APPROVED by Gemini. Commit 164cded. Dedicated `ADMIN_JWT_SECRET` required in production; admin JWT and cookie TTL reduced to 1h; admin cookie `sameSite: strict`; admin login bcrypt-only with plaintext fallback removed. Remaining F-07 phases stay READY as F-07-P2+. |
+| F-11 | PII Encryption at Rest for Messages | Codex | APPROVED by Gemini. Commit 94e0d04. `messages.content` encrypted on write and decrypted on read; imports/handoff/customer timeline paths decrypt before response; tenant-scoped hashed `messages.search_tokens` preserves inbox message-content search for encrypted rows with deterministic legacy plaintext fallback. T-02 and A-03 dependencies satisfied on F-11 side. |
 | C-13 | Human Handoff Protocol | Codex | APPROVED (DECISION-019). Commit 0f05bbe, merge 8fc9c70. conversation_handoffs table (RLS), full lifecycle REST API, tenant-scoped socket events, RBAC enforcement (no self-approval, targeted resolution), fire-and-forget AI summary (haiku), HandoffPanel UI, amber inbox badge. Branch: task/c13-human-handoff. |
-| C-09 | Routing Rules Engine | Codex | APPROVED (DECISION-018). Commit 4cfa882, merge 30650c2. routing_rules table + migration 20260421_routing_rules.sql; JSON DSL conditions; first-match-wins evaluation; tenant-safe assignee validation; messageRouter + ticket escalation integration. Branch: task/c09-routing-engine. |
+| C-09 | Routing Rules Engine | Codex | APPROVED (DECISION-018). Commit 4cfa882, merge 30650c2. routing_rules table + migration 20260421_routing_rules.sql; JSON DSL conditions; first-match-wins evaluation; tenant-safe assignee validation; messageRouter + ticket escalation integration. Branch: task/c09-routing-engine. M-02/M-03 unblocked on C-09 side. |
 | C-08 | Inbox Filtering, Search, and Assignment UI | Codex | APPROVED (DECISION-017). Commit 848aa36, merge 6e2c158. Server-side filtering by channel/status/tag/agent; tenant-safe full-text search; assignment flow with agent scope enforcement; bulk actions and snooze. Branch: task/c08-inbox-filtering. C-13 dependency satisfied. |
 | T-04 | Socket.IO Isolation Test and CORS Hardening | Codex | APPROVED (DECISION-014). Merge 845c2ea. Tenant isolation enforced on Socket.IO rooms; `.pages.dev` wildcard CORS removed. Security fix re-validated by Gemini. Branch: task/t04-socket-isolation. |
 | F-10 | Eliminate localStorage Conversation State from Frontend | Codex | APPROVED (DECISION-015). Merge e9e6f30. `loadPersistedStore()` and all `localStorage('airos_conv_store')` usage removed from conversations page. Branch: task/f10-frontend-cleanup. |

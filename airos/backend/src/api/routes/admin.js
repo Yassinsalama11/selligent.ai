@@ -10,6 +10,11 @@ const { logAuditEvent } = require('../../db/queries/audit');
 
 const router = express.Router();
 const SALT_ROUNDS = 12;
+const ADMIN_SESSION_TTL_MS = 60 * 60 * 1000;
+const ADMIN_SECRET = process.env.ADMIN_JWT_SECRET
+  || (process.env.NODE_ENV === 'production'
+    ? (() => { throw new Error('[SECURITY] ADMIN_JWT_SECRET env var is required in production'); })()
+    : (console.warn('[SECURITY] ADMIN_JWT_SECRET not set - falling back to JWT_SECRET. Do not use in production.'), process.env.JWT_SECRET));
 const PLAN_VALUES = {
   starter: 49,
   growth: 149,
@@ -37,8 +42,8 @@ function signAdminToken(admin) {
       source: admin.source || 'db',
       scope: 'platform_admin',
     },
-    process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET,
-    { expiresIn: process.env.ADMIN_JWT_EXPIRES_IN || '7d' },
+    ADMIN_SECRET,
+    { expiresIn: '1h' },
   );
 }
 
@@ -51,8 +56,8 @@ function setAdminCookie(res, token) {
   res.cookie('chatorai_admin_session', token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    sameSite: 'strict',
+    maxAge: ADMIN_SESSION_TTL_MS,
     path: '/',
   });
 }
@@ -61,7 +66,7 @@ function clearAdminCookie(res) {
   res.clearCookie('chatorai_admin_session', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: 'strict',
     path: '/',
   });
 }
@@ -271,9 +276,11 @@ router.post('/auth/login', async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid admin credentials' });
     }
 
-    const valid = admin.password_hash
-      ? await bcrypt.compare(password, admin.password_hash)
-      : String(process.env.ADMIN_PASSWORD || '') === password;
+    if (!admin.password_hash) {
+      return res.status(401).json({ error: 'Invalid admin credentials' });
+    }
+
+    const valid = await bcrypt.compare(password, admin.password_hash);
 
     if (!valid) {
       return res.status(401).json({ error: 'Invalid admin credentials' });
