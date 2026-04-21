@@ -3,6 +3,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const Stripe = require('stripe');
+const { authenticator } = require('otplib');
 
 const { queryAdmin, adminWithTransaction } = require('../../db/pool');
 const { adminAuthMiddleware } = require('../middleware/adminAuth');
@@ -20,10 +21,13 @@ const { logAuditEvent } = require('../../db/queries/audit');
 const router = express.Router();
 const SALT_ROUNDS = 12;
 const ADMIN_SESSION_TTL_MS = 60 * 60 * 1000;
+const TOTP_CHALLENGE_TTL = '5m';
+const TOTP_ISSUER = 'ChatOrAI Admin';
 const ADMIN_SECRET = process.env.ADMIN_JWT_SECRET
   || (process.env.NODE_ENV === 'production'
     ? (() => { throw new Error('[SECURITY] ADMIN_JWT_SECRET env var is required in production'); })()
     : (console.warn('[SECURITY] ADMIN_JWT_SECRET not set - falling back to JWT_SECRET. Do not use in production.'), process.env.JWT_SECRET));
+authenticator.options = { window: 1 };
 const PLAN_VALUES = {
   starter: 49,
   growth: 149,
@@ -56,9 +60,72 @@ function signAdminToken(admin) {
   );
 }
 
+function signTotpChallengeToken(admin) {
+  return jwt.sign(
+    {
+      id: admin.id,
+      email: admin.email,
+      name: admin.name,
+      role: admin.role,
+      scope: 'admin_totp_challenge',
+    },
+    ADMIN_SECRET,
+    { expiresIn: TOTP_CHALLENGE_TTL },
+  );
+}
+
 function sanitizeAdmin(admin) {
   const { password_hash, ...safe } = admin || {};
   return safe;
+}
+
+function getTotpEncryptionKey() {
+  return Buffer.from(crypto.hkdfSync(
+    'sha256',
+    Buffer.from(ADMIN_SECRET),
+    Buffer.alloc(0),
+    Buffer.from('airos-admin-totp-encryption'),
+    32,
+  ));
+}
+
+function encryptTotpSecret(secret) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', getTotpEncryptionKey(), iv);
+  const ciphertext = Buffer.concat([
+    cipher.update(String(secret), 'utf8'),
+    cipher.final(),
+  ]);
+  const authTag = cipher.getAuthTag();
+  return [iv, authTag, ciphertext].map((part) => part.toString('base64url')).join(':');
+}
+
+function decryptTotpSecret(encrypted) {
+  const [ivRaw, authTagRaw, ciphertextRaw] = String(encrypted || '').split(':');
+  if (!ivRaw || !authTagRaw || !ciphertextRaw) {
+    throw new Error('Invalid encrypted TOTP secret');
+  }
+
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    getTotpEncryptionKey(),
+    Buffer.from(ivRaw, 'base64url'),
+  );
+  decipher.setAuthTag(Buffer.from(authTagRaw, 'base64url'));
+  return Buffer.concat([
+    decipher.update(Buffer.from(ciphertextRaw, 'base64url')),
+    decipher.final(),
+  ]).toString('utf8');
+}
+
+function verifyTotpCode(secret, code) {
+  const normalizedCode = String(code || '').replace(/\s+/g, '');
+  if (!/^\d{6}$/.test(normalizedCode)) return false;
+  return authenticator.check(normalizedCode, secret);
+}
+
+function buildTotpSecurityKey(userId) {
+  return hashIdentifier(`admin_totp:${userId}`);
 }
 
 function setAdminCookie(res, token) {
@@ -115,6 +182,25 @@ async function logAdminLoginFailure(req, email, admin, action = 'admin.login.fai
   }).catch(() => {});
 }
 
+async function issueAdminSession(req, res, admin) {
+  const safeAdmin = sanitizeAdmin(admin);
+  const token = signAdminToken(safeAdmin);
+  setAdminCookie(res, token);
+  await logAuditEvent({
+    tenantId: null,
+    actorType: 'platform_admin',
+    actorId: safeAdmin.id,
+    action: 'admin.login',
+    entityType: 'admin_session',
+    entityId: safeAdmin.id,
+    metadata: {
+      request_id: req.requestId,
+      email: safeAdmin.email,
+    },
+  }).catch(() => {});
+  return res.json({ admin: safeAdmin });
+}
+
 async function getPlatformAdminByEmail(email) {
   const result = await queryAdmin(`
     SELECT id, email, name, role, password_hash, created_at
@@ -125,6 +211,18 @@ async function getPlatformAdminByEmail(email) {
     ORDER BY created_at ASC
     LIMIT 1
   `, [String(email || '').trim().toLowerCase()]);
+  return result.rows[0] || null;
+}
+
+async function getPlatformAdminById(id) {
+  const result = await queryAdmin(`
+    SELECT id, email, name, role, password_hash, created_at
+    FROM users
+    WHERE id = $1
+      AND tenant_id IS NULL
+      AND role IN ('platform_admin', 'super_admin')
+    LIMIT 1
+  `, [id]);
   return result.rows[0] || null;
 }
 
@@ -162,6 +260,53 @@ async function ensureConfiguredAdmin(email, password) {
   `, [configured.email, passwordHash, configured.name]);
 
   return created.rows[0];
+}
+
+async function getAdminSecurity(userId) {
+  const result = await queryAdmin(`
+    SELECT user_id, totp_secret_enc, totp_enabled, totp_enrolled_at, updated_at
+    FROM platform_admin_security
+    WHERE user_id = $1
+    ORDER BY totp_enabled DESC, (totp_secret_enc IS NOT NULL) DESC, updated_at DESC
+    LIMIT 1
+  `, [userId]);
+  return result.rows[0] || null;
+}
+
+async function upsertTotpSecret(userId, encryptedSecret) {
+  const result = await queryAdmin(`
+    INSERT INTO platform_admin_security (
+      lockout_key,
+      user_id,
+      failed_login_count,
+      locked_until,
+      totp_secret_enc,
+      totp_enabled,
+      totp_enrolled_at
+    )
+    VALUES ($1, $2, 0, NULL, $3, FALSE, NULL)
+    ON CONFLICT (lockout_key) DO UPDATE
+    SET user_id = EXCLUDED.user_id,
+        totp_secret_enc = EXCLUDED.totp_secret_enc,
+        totp_enabled = FALSE,
+        totp_enrolled_at = NULL,
+        updated_at = NOW()
+    RETURNING user_id, totp_secret_enc, totp_enabled, totp_enrolled_at
+  `, [buildTotpSecurityKey(userId), userId, encryptedSecret]);
+  return result.rows[0] || null;
+}
+
+async function enableTotp(userId) {
+  const result = await queryAdmin(`
+    UPDATE platform_admin_security
+    SET totp_enabled = TRUE,
+        totp_enrolled_at = NOW(),
+        updated_at = NOW()
+    WHERE user_id = $1
+      AND totp_secret_enc IS NOT NULL
+    RETURNING user_id, totp_enabled, totp_enrolled_at
+  `, [userId]);
+  return result.rows[0] || null;
 }
 
 function buildClientPayload(row) {
@@ -325,26 +470,139 @@ router.post('/auth/login', async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid admin credentials' });
     }
 
-    const safeAdmin = sanitizeAdmin(admin);
-    await clearLockout(lockoutIdentifier, safeAdmin.id);
-    const token = signAdminToken(safeAdmin);
-    setAdminCookie(res, token);
+    await clearLockout(lockoutIdentifier, admin.id);
+    const security = await getAdminSecurity(admin.id);
+    if (security?.totp_enabled === true) {
+      return res.json({
+        totp_required: true,
+        challenge_token: signTotpChallengeToken(sanitizeAdmin(admin)),
+      });
+    }
+
+    return issueAdminSession(req, res, admin);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/auth/totp/setup', adminAuthMiddleware, async (req, res, next) => {
+  try {
+    if (req.admin.source === 'env' || String(req.admin.id || '').startsWith('env-admin:')) {
+      return res.status(409).json({ error: 'Database admin account required for MFA setup' });
+    }
+
+    const admin = await getPlatformAdminById(req.admin.id);
+    if (!admin) return res.status(404).json({ error: 'Admin not found' });
+
+    const currentSecurity = await getAdminSecurity(admin.id);
+    if (currentSecurity?.totp_enabled === true) {
+      return res.status(409).json({ error: 'TOTP MFA is already enabled' });
+    }
+
+    const secret = authenticator.generateSecret();
+    const encryptedSecret = encryptTotpSecret(secret);
+    await upsertTotpSecret(admin.id, encryptedSecret);
+
+    return res.json({
+      otpauth_uri: authenticator.keyuri(admin.email, TOTP_ISSUER, secret),
+      secret,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/auth/totp/setup/confirm', adminAuthMiddleware, async (req, res, next) => {
+  try {
+    if (req.admin.source === 'env' || String(req.admin.id || '').startsWith('env-admin:')) {
+      return res.status(409).json({ error: 'Database admin account required for MFA setup' });
+    }
+
+    const security = await getAdminSecurity(req.admin.id);
+    if (!security?.totp_secret_enc) {
+      return res.status(400).json({ error: 'TOTP setup has not been started' });
+    }
+
+    const secret = decryptTotpSecret(security.totp_secret_enc);
+    if (!verifyTotpCode(secret, req.body?.code)) {
+      await logAuditEvent({
+        tenantId: null,
+        actorType: 'platform_admin',
+        actorId: req.admin.id,
+        action: 'admin.totp.failed',
+        entityType: 'admin_mfa',
+        entityId: req.admin.id,
+        metadata: {
+          request_id: req.requestId,
+          ip: getRequestIp(req),
+        },
+      }).catch(() => {});
+      return res.status(401).json({ error: 'Invalid verification code' });
+    }
+
+    const enabled = await enableTotp(req.admin.id);
+    if (!enabled) return res.status(400).json({ error: 'TOTP setup has not been started' });
+
     await logAuditEvent({
       tenantId: null,
       actorType: 'platform_admin',
-      actorId: safeAdmin.id,
-      action: 'admin.login',
-      entityType: 'admin_session',
-      entityId: safeAdmin.id,
+      actorId: req.admin.id,
+      action: 'admin.totp.enrolled',
+      entityType: 'admin_mfa',
+      entityId: req.admin.id,
       metadata: {
         request_id: req.requestId,
-        email: safeAdmin.email,
       },
     }).catch(() => {});
 
-    return res.json({
-      admin: safeAdmin,
-    });
+    return res.json({ ok: true });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/auth/totp/verify', async (req, res, next) => {
+  try {
+    const { challenge_token: challengeToken, code } = req.body || {};
+    if (!challengeToken || !code) {
+      return res.status(400).json({ error: 'Challenge token and code are required' });
+    }
+
+    let challenge;
+    try {
+      challenge = jwt.verify(challengeToken, ADMIN_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'Invalid or expired verification challenge' });
+    }
+
+    if (challenge.scope !== 'admin_totp_challenge') {
+      return res.status(401).json({ error: 'Invalid or expired verification challenge' });
+    }
+
+    const admin = await getPlatformAdminById(challenge.id);
+    if (!admin) return res.status(401).json({ error: 'Invalid or expired verification challenge' });
+
+    const security = await getAdminSecurity(admin.id);
+    if (security?.totp_enabled !== true || !security?.totp_secret_enc) {
+      return res.status(401).json({ error: 'Invalid or expired verification challenge' });
+    }
+
+    const lockoutIdentifier = buildLockoutIdentifier(admin.email, getRequestIp(req));
+    const lockout = await checkLockout(lockoutIdentifier);
+    if (lockout.locked) {
+      await logAdminLoginFailure(req, admin.email, admin, 'admin.login.locked');
+      return res.status(401).json({ error: 'Invalid verification code' });
+    }
+
+    const secret = decryptTotpSecret(security.totp_secret_enc);
+    if (!verifyTotpCode(secret, code)) {
+      const failure = await recordFailedLogin(lockoutIdentifier, admin.id);
+      await logAdminLoginFailure(req, admin.email, admin, failure.locked ? 'admin.login.locked' : 'admin.totp.failed');
+      return res.status(401).json({ error: 'Invalid verification code' });
+    }
+
+    await clearLockout(lockoutIdentifier, admin.id);
+    return issueAdminSession(req, res, admin);
   } catch (err) {
     return next(err);
   }
@@ -705,3 +963,10 @@ router.get('/system/health', adminAuthMiddleware, async (req, res) => {
 });
 
 module.exports = router;
+module.exports._test = {
+  buildTotpSecurityKey,
+  decryptTotpSecret,
+  encryptTotpSecret,
+  signTotpChallengeToken,
+  verifyTotpCode,
+};

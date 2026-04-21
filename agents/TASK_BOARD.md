@@ -35,7 +35,6 @@
 | F-04 | Rate Limiting on All Public Endpoints | Codex | None | Critical | Install `express-rate-limit` with Redis store. Auth endpoints: 5 req/min/IP. AI route: per-tenant cap. Webhook: 1000/min/IP. |
 | F-05 | Token Budget Enforcement in AI Route | Codex | None | Critical | Wire `checkAndDeductBudget()` from `vendor/ai-core/src/cost/` into `POST /v1/ai/reply` before SSE headers. Auto-tier Opus→Sonnet→Haiku at 80%/95% budget. |
 | F-06 | Idempotency Keys on All Webhook Processing | Codex | None | High | Create `webhook_idempotency` table. Check before processing. Unique constraint on `(channel, external_message_id)`. |
-| F-07-P3+ | Admin Account Hardening — Remaining Phases | Codex | F-07-P2 ✓ | Critical | Phases 1-2 DONE. Remaining: TOTP MFA and eventual `ADMIN_EMAIL`/`ADMIN_PASSWORD` bootstrap removal. Brief: `agents/briefs/F-07_admin_hardening.md`. |
 | F-08 | BullMQ Dead Letter Queue and Retry Strategy | Codex | None | High | Configure all queues: `attempts: 3, backoff: exponential`. Create DLQ with Sentry logging. |
 
 ---
@@ -45,7 +44,7 @@
 
 | # | Task Name | Owner | Branch | Started | Notes |
 |---|---|---|---|---|---|
-| — | — | — | — | — | — |
+| F-07-P3 | Admin Account Hardening — TOTP MFA | Codex | task/f07-p3-admin-totp | 2026-04-21 | Add encrypted TOTP setup/confirm and login challenge verification. |
 
 ---
 
@@ -81,6 +80,7 @@
 
 | # | Task Name | Priority | Depends On | Notes |
 |---|---|---|---|---|
+| F-07-P4+ | Admin Account Hardening — Remaining Phases | Critical | F-07-P3 ✓ | Remaining after Phase 3 validation: eventual `ADMIN_EMAIL`/`ADMIN_PASSWORD` bootstrap removal. Brief: `agents/briefs/F-07_admin_hardening.md`. |
 | F-12 | Migrate Production Runtime from Legacy Express to Fastify | Critical | F-01 ✓, F-09 ✓, F-03 ✓ | Architecture-level task. Remove vendor/ copies. Wire packages/ correctly. Claude must write detailed brief. |
 | F-13 | Automated Backup Verification | High | None (can start independently) | Deploy `apps/scheduler/` to Railway. Verify S3 receives nightly backup. Update restore-test to pull from S3. |
 
