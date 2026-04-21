@@ -4,12 +4,15 @@ const { queryAdmin } = require('../../db/pool');
 const { getOAuthUrl, handleOAuthCallback } = require('../../channels/instagram/oauth');
 const { decryptCredentials } = require('../../core/tenantManager');
 const { authMiddleware } = require('../middleware/auth');
+const { requireRole } = require('../middleware/rbac');
 
 const router = express.Router();
 
 const ALGO = 'aes-256-gcm';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://chatorai.com';
 const DEFAULT_RETURN_TO = '/dashboard/settings';
+const requireReadRole = requireRole('owner', 'admin', 'agent');
+const requireOwnerRole = requireRole('owner', 'admin');
 
 function maskToken(value) {
   if (typeof value !== 'string' || value.length < 8) return '';
@@ -107,7 +110,7 @@ router.use((req, res, next) => {
 });
 
 // GET /api/channels — list connected channels
-router.get('/', async (req, res, next) => {
+router.get('/', requireReadRole, async (req, res, next) => {
   try {
     const result = await queryAdmin(
       'SELECT id, channel, status, created_at, credentials FROM channel_connections WHERE tenant_id = $1',
@@ -124,7 +127,7 @@ router.get('/', async (req, res, next) => {
 });
 
 // POST /api/channels — connect a channel
-router.post('/', async (req, res, next) => {
+router.post('/', requireOwnerRole, async (req, res, next) => {
   try {
     const { channel, credentials } = req.body;
     if (!channel || !credentials) return res.status(400).json({ error: 'channel and credentials required' });
@@ -159,7 +162,7 @@ router.post('/', async (req, res, next) => {
 });
 
 // DELETE /api/channels/:id
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requireOwnerRole, async (req, res, next) => {
   try {
     await queryAdmin(
       'DELETE FROM channel_connections WHERE id = $1 AND tenant_id = $2',
@@ -170,7 +173,7 @@ router.delete('/:id', async (req, res, next) => {
 });
 
 // GET /api/channels/meta/connect?channel=instagram|messenger|whatsapp
-router.get('/meta/connect', (req, res, next) => {
+router.get('/meta/connect', requireOwnerRole, (req, res, next) => {
   const channel = req.query.channel || 'instagram';
   const returnTo = sanitizeReturnTo(req.query.return_to);
 
@@ -187,7 +190,7 @@ router.get('/meta/connect', (req, res, next) => {
 });
 
 // GET /api/channels/meta/oauth-url?channel=instagram|messenger|whatsapp
-router.get('/meta/oauth-url', (req, res, next) => {
+router.get('/meta/oauth-url', requireOwnerRole, (req, res, next) => {
   try {
     const channel = req.query.channel || 'instagram';
     const returnTo = sanitizeReturnTo(req.query.return_to);

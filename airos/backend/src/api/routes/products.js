@@ -1,16 +1,19 @@
 const express = require('express');
 const { getActiveProducts, upsertProducts } = require('../../db/queries/products');
+const { requireRole } = require('../middleware/rbac');
 
 const router = express.Router();
+const requireReadRole = requireRole('owner', 'admin', 'agent');
+const requireOwnerRole = requireRole('owner', 'admin');
 
-router.get('/', async (req, res, next) => {
+router.get('/', requireReadRole, async (req, res, next) => {
   try {
     const products = await getActiveProducts(req.user.tenant_id, {}, req.db);
     res.json(products);
   } catch (err) { next(err); }
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', requireOwnerRole, async (req, res, next) => {
   try {
     const { name, price, description, currency, sku, stock_status } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
@@ -24,7 +27,7 @@ router.post('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.patch('/:id', async (req, res, next) => {
+router.patch('/:id', requireOwnerRole, async (req, res, next) => {
   try {
     const allowed = ['name', 'price', 'sale_price', 'description', 'stock_status', 'stock_quantity', 'is_active'];
     const fields = Object.keys(req.body).filter(k => allowed.includes(k));

@@ -1,4 +1,5 @@
 const express = require('express');
+const { requireRole } = require('../middleware/rbac');
 
 const { updateTenantSettings } = require('../../db/queries/tenants');
 const { normalizeTenantSettings, isPlainObject } = require('../../core/tenantSettings');
@@ -7,6 +8,8 @@ const { buildDefaultTemplateBody, sendEmail } = require('../../core/emailService
 const { runScheduledReportsForTenant } = require('../../core/reportScheduler');
 
 const router = express.Router();
+const requireReadRole = requireRole('owner', 'admin', 'agent');
+const requireOwnerRole = requireRole('owner', 'admin');
 
 const PLAN_LIMITS = {
   starter: {
@@ -94,7 +97,7 @@ function withoutKeys(value = {}, keys = []) {
   return next;
 }
 
-router.get('/', async (req, res, next) => {
+router.get('/', requireOwnerRole, async (req, res, next) => {
   try {
     res.json(normalizeTenantSettings(req.tenant?.settings));
   } catch (err) {
@@ -102,7 +105,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.put('/', async (req, res, next) => {
+router.put('/', requireOwnerRole, async (req, res, next) => {
   try {
     const payload = req.body?.settings ?? req.body;
 
@@ -122,7 +125,7 @@ router.put('/', async (req, res, next) => {
   }
 });
 
-router.get('/usage', async (req, res, next) => {
+router.get('/usage', requireReadRole, async (req, res, next) => {
   try {
     const tenantId = req.user.tenant_id;
     const limits = getPlanLimits(req.tenant?.plan);
@@ -187,7 +190,7 @@ router.get('/usage', async (req, res, next) => {
   }
 });
 
-router.get('/monitor', async (req, res, next) => {
+router.get('/monitor', requireReadRole, async (req, res, next) => {
   try {
     const tenantId = req.user.tenant_id;
     const result = await req.db.query(`
@@ -255,7 +258,7 @@ router.get('/monitor', async (req, res, next) => {
   }
 });
 
-router.post('/import/contacts', async (req, res, next) => {
+router.post('/import/contacts', requireOwnerRole, async (req, res, next) => {
   try {
     const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
     if (rows.length === 0) {
@@ -352,7 +355,7 @@ router.post('/import/contacts', async (req, res, next) => {
   }
 });
 
-router.get('/recycle-bin', async (req, res, next) => {
+router.get('/recycle-bin', requireOwnerRole, async (req, res, next) => {
   try {
     const recycled = await getRecycleBin(req.user.tenant_id, req.db);
     res.json(recycled);
@@ -361,7 +364,7 @@ router.get('/recycle-bin', async (req, res, next) => {
   }
 });
 
-router.post('/recycle-bin/:itemId/restore', async (req, res, next) => {
+router.post('/recycle-bin/:itemId/restore', requireOwnerRole, async (req, res, next) => {
   try {
     const settings = normalizeTenantSettings(req.tenant?.settings);
     const item = settings.recycled.find((entry) => entry.id === req.params.itemId);
@@ -416,7 +419,7 @@ router.post('/recycle-bin/:itemId/restore', async (req, res, next) => {
   }
 });
 
-router.delete('/recycle-bin/:itemId', async (req, res, next) => {
+router.delete('/recycle-bin/:itemId', requireOwnerRole, async (req, res, next) => {
   try {
     const result = await removeRecycleItem(req.user.tenant_id, req.params.itemId, req.db);
     if (!result.item) return res.status(404).json({ error: 'Recycle bin item not found' });
@@ -431,7 +434,7 @@ router.delete('/recycle-bin/:itemId', async (req, res, next) => {
   }
 });
 
-router.post('/recycle-bin/empty', async (req, res, next) => {
+router.post('/recycle-bin/empty', requireOwnerRole, async (req, res, next) => {
   try {
     const recycled = await clearRecycleBin(req.user.tenant_id, req.db);
     res.json({ ok: true, recycled });
@@ -440,7 +443,7 @@ router.post('/recycle-bin/empty', async (req, res, next) => {
   }
 });
 
-router.post('/email-templates/send-test', async (req, res, next) => {
+router.post('/email-templates/send-test', requireOwnerRole, async (req, res, next) => {
   try {
     const settings = normalizeTenantSettings(req.tenant?.settings);
     const templateId = String(req.body?.templateId || '');
@@ -479,7 +482,7 @@ router.post('/email-templates/send-test', async (req, res, next) => {
   }
 });
 
-router.post('/scheduled-reports/run', async (req, res, next) => {
+router.post('/scheduled-reports/run', requireOwnerRole, async (req, res, next) => {
   try {
     const results = await runScheduledReportsForTenant(
       req.user.tenant_id,

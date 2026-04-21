@@ -1,4 +1,5 @@
 const express = require('express');
+const { requireRole } = require('../middleware/rbac');
 
 const {
   createMigrationJob,
@@ -10,6 +11,8 @@ const { runZendeskImport } = require('../../migrations/zendesk');
 const { logger } = require('../../core/logger');
 
 const router = express.Router();
+const requireReadRole = requireRole('owner', 'admin', 'agent');
+const requireOwnerRole = requireRole('owner', 'admin');
 
 function redactMetadata(provider, body = {}) {
   if (provider === 'intercom') {
@@ -30,7 +33,7 @@ function redactMetadata(provider, body = {}) {
   };
 }
 
-router.get('/', async (req, res, next) => {
+router.get('/', requireReadRole, async (req, res, next) => {
   try {
     const jobs = await listMigrationJobs(req.user.tenant_id);
     res.json(jobs);
@@ -39,7 +42,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.post('/:provider/start', async (req, res, next) => {
+router.post('/:provider/start', requireOwnerRole, async (req, res, next) => {
   try {
     const provider = String(req.params.provider || '').trim().toLowerCase();
     if (!['intercom', 'zendesk'].includes(provider)) {

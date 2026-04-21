@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const express = require('express');
+const { requireRole } = require('../middleware/rbac');
 
 const { getTenantById, updateTenantSettings } = require('../../db/queries/tenants');
 const { normalizeTenantSettings } = require('../../core/tenantSettings');
@@ -7,6 +8,8 @@ const { sendTemplate } = require('../../channels/whatsapp/sender');
 const { decryptCredentials } = require('../../core/tenantManager');
 
 const router = express.Router();
+const requireReadRole = requireRole('owner', 'admin', 'agent');
+const requireOwnerRole = requireRole('owner', 'admin');
 
 const RATES = { EG: 0.025, AE: 0.036, SA: 0.041, OTHER: 0.035 };
 
@@ -103,7 +106,7 @@ async function listRecipientContacts(tenantId, client) {
   }));
 }
 
-router.get('/', async (req, res, next) => {
+router.get('/', requireReadRole, async (req, res, next) => {
   try {
     const settings = await loadTenantSettings(req.user.tenant_id, req.db);
     const contacts = await listRecipientContacts(req.user.tenant_id, req.db);
@@ -129,7 +132,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.post('/top-up', async (req, res, next) => {
+router.post('/top-up', requireOwnerRole, async (req, res, next) => {
   try {
     const amount = Number(req.body?.amount || 0);
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -146,7 +149,7 @@ router.post('/top-up', async (req, res, next) => {
   }
 });
 
-router.post('/templates', async (req, res, next) => {
+router.post('/templates', requireOwnerRole, async (req, res, next) => {
   try {
     const tenantId = req.user.tenant_id;
     const nextTemplate = sanitizeTemplate(req.body || {});
@@ -168,7 +171,7 @@ router.post('/templates', async (req, res, next) => {
   }
 });
 
-router.delete('/templates/:id', async (req, res, next) => {
+router.delete('/templates/:id', requireOwnerRole, async (req, res, next) => {
   try {
     const settings = await loadTenantSettings(req.user.tenant_id, req.db);
     settings.waTemplates = settings.waTemplates.filter((template) => template.id !== req.params.id);
@@ -179,7 +182,7 @@ router.delete('/templates/:id', async (req, res, next) => {
   }
 });
 
-router.post('/send', async (req, res, next) => {
+router.post('/send', requireOwnerRole, async (req, res, next) => {
   try {
     const tenantId = req.user.tenant_id;
     const {

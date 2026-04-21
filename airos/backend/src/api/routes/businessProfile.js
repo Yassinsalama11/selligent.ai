@@ -1,4 +1,5 @@
 const express = require('express');
+const { requireRole } = require('../middleware/rbac');
 
 const {
   analyzeBusinessProfile,
@@ -7,8 +8,10 @@ const {
 } = require('../../ai/businessAnalyzer');
 
 const router = express.Router();
+const requireReadRole = requireRole('owner', 'admin', 'agent');
+const requireOwnerRole = requireRole('owner', 'admin');
 
-router.get('/', async (req, res, next) => {
+router.get('/', requireReadRole, async (req, res, next) => {
   try {
     const profile = await getTenantProfile(req.user.tenant_id);
     res.json(profile || { tenant_id: req.user.tenant_id, profile: {}, status: 'empty' });
@@ -17,7 +20,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.post('/regenerate', async (req, res, next) => {
+router.post('/regenerate', requireOwnerRole, async (req, res, next) => {
   try {
     const profile = await analyzeBusinessProfile(req.user.tenant_id);
     res.json(profile);
@@ -26,7 +29,7 @@ router.post('/regenerate', async (req, res, next) => {
   }
 });
 
-router.put('/', async (req, res, next) => {
+router.put('/', requireOwnerRole, async (req, res, next) => {
   try {
     const profile = await saveTenantProfile(
       req.user.tenant_id,

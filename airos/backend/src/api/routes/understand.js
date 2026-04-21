@@ -20,11 +20,14 @@
 const express = require('express');
 const { understand, settings } = require('@chatorai/ai-core');
 const { getPrisma } = require('@chatorai/db');
+const { requireRole } = require('../middleware/rbac');
 
 const router = express.Router();
+const requireReadRole = requireRole('owner', 'admin', 'agent');
+const requireOwnerRole = requireRole('owner', 'admin');
 
 // POST /api/understand/profile
-router.post('/profile', async (req, res, next) => {
+router.post('/profile', requireOwnerRole, async (req, res, next) => {
   try {
     const tenantId = req.user.tenant_id;
     const { ingestionJobId, force } = req.body || {};
@@ -39,7 +42,7 @@ router.post('/profile', async (req, res, next) => {
 });
 
 // GET /api/understand/profile
-router.get('/profile', async (req, res, next) => {
+router.get('/profile', requireReadRole, async (req, res, next) => {
   try {
     const prisma = getPrisma();
     const profile = await prisma.tenantProfile.findUnique({
@@ -53,7 +56,7 @@ router.get('/profile', async (req, res, next) => {
 });
 
 // POST /api/understand/settings
-router.post('/settings', async (req, res, next) => {
+router.post('/settings', requireOwnerRole, async (req, res, next) => {
   try {
     const tenantId = req.user.tenant_id;
     const { force } = req.body || {};
@@ -68,7 +71,7 @@ router.post('/settings', async (req, res, next) => {
 });
 
 // GET /api/understand/settings
-router.get('/settings', async (req, res, next) => {
+router.get('/settings', requireReadRole, async (req, res, next) => {
   try {
     const prisma = getPrisma();
     const tenant = await prisma.tenant.findUnique({
