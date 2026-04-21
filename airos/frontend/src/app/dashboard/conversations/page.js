@@ -56,6 +56,17 @@ function storeReducer(state, action) {
       }
       return { ...state, convs };
     }
+    case 'REPLACE_CONVS': {
+      const convs = {};
+      for (const c of action.convs) {
+        convs[c.id] = { ...c, messages: state.convs[c.id]?.messages || [] };
+      }
+      return {
+        ...state,
+        activeId: state.activeId && convs[state.activeId] ? state.activeId : null,
+        convs,
+      };
+    }
     case 'LOAD_MESSAGES': {
       const existing = state.convs[action.convId]?.messages || [];
       const serverIds = new Set(action.messages.map(m => m.id));
@@ -210,36 +221,44 @@ async function runFrontendAI(conv, inboundMessage, recentMessages = []) {
   } catch { return null; }
 }
 
-/* -- Demo Data ------------------------------------------------------------ */
-const CONVS = [
-  { id:'1', name:'Ahmed Mohamed', ch:'whatsapp',  last:'عايز أطلب اتنين',      ago:'2m',  score:91, intent:'ready_to_buy',   unread:2 },
-  { id:'2', name:'Sara Khalil',   ch:'instagram', last:'Is this in red?',        ago:'8m',  score:62, intent:'interested',      unread:0 },
-  { id:'3', name:'Omar Hassan',   ch:'messenger', last:'السعر عالي شوية',        ago:'15m', score:38, intent:'price_objection', unread:1 },
-];
-
-const MSGS = {
-  '1': [
-    { id:'a', dir:'in',  text:'السلام عليكم', at:'10:00', by:'customer' },
-    { id:'b', dir:'out', text:'أهلاً بيك! كيف أقدر أساعدك؟', at:'10:01', by:'agent' },
-  ],
-};
-
 const DEFAULT_CANNED = [
   { id:'c1', title:'Welcome',        shortcut:'/hi',     text:'أهلاً وسهلاً! كيف أقدر أساعدك اليوم؟ 😊' },
   { id:'c2', title:'Shipping Info',  shortcut:'/ship',   text:'بنوصل لكل مناطق مصر والسعودية والإمارات. وقت التوصيل من ٢ إلى ٥ أيام عمل 📦' },
 ];
 
-const AGENTS = ['Ahmed Mohamed','Sara Khalil','Omar Hassan','Unassigned'];
 const TAGS   = ['VIP','Follow Up','Discount','Urgent','Refund','New Lead'];
+
+function normalizeConversation(row = {}) {
+  const updatedAt = row.updated_at || row.updatedAt || row.created_at;
+  return {
+    ...row,
+    id: row.id,
+    customerName: row.customer_name || row.customerName || 'Unknown customer',
+    customerPhone: row.customer_phone || row.customerPhone || '',
+    customerEmail: row.customer_email || row.customerEmail || '',
+    channel: row.channel || 'livechat',
+    status: row.status || 'open',
+    assigned_to: row.assigned_to || null,
+    assigneeName: row.assignee_name || row.assigneeName || 'Unassigned',
+    priority: row.priority || null,
+    lastMessage: row.last_message || row.lastMessage || '',
+    updatedAt: parseTs(updatedAt),
+  };
+}
 
 /* -- Page ----------------------------------------------------------------─-- */
 export default function ConversationsPage() {
-  const [convs, setConvs]           = useState(CONVS);
-  const [active, setActive]         = useState(CONVS[0]);
-  const [msgs, setMsgs]             = useState(MSGS['1'] || []);
+  const [active, setActive]         = useState(null);
+  const [msgs, setMsgs]             = useState([]);
   const [reply, setReply]           = useState('');
-  const [filter, setFilter]         = useState('all');
+  const [filters, setFilters]       = useState({
+    status: 'all',
+    channel: 'all',
+    assigned_to: 'all',
+    priority: 'all',
+  });
   const [search, setSearch]         = useState('');
+  const [agents, setAgents]         = useState([]);
   const [showPanel, setShow]        = useState(true);
   const [layoutPrefs, setLayoutPrefs] = useState({
     density:'comfortable',
@@ -254,6 +273,10 @@ export default function ConversationsPage() {
   const [store, dispatch] = useReducer(storeReducer, STORE_INIT);
   const storeRef = useRef(store);
   useEffect(() => { storeRef.current = store; }, [store]);
+  const filtersRef = useRef(filters);
+  const searchRef = useRef(search);
+  useEffect(() => { filtersRef.current = filters; }, [filters]);
+  useEffect(() => { searchRef.current = search; }, [search]);
 
   const liveConvs  = Object.values(store.convs).sort((a, b) => (b.updatedAt||0) - (a.updatedAt||0));
   const activeLive = store.activeId ? store.convs[store.activeId] : null;
@@ -274,6 +297,20 @@ export default function ConversationsPage() {
       } catch {}
     }
     loadLayoutPrefs();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAgents() {
+      try {
+        const team = await secureApi.get('/api/auth/team');
+        if (!cancelled && Array.isArray(team)) {
+          setAgents(team.filter(user => ['owner', 'admin', 'agent'].includes(user.role)));
+        }
+      } catch {}
+    }
+    loadAgents();
     return () => { cancelled = true; };
   }, []);
 
@@ -307,29 +344,43 @@ export default function ConversationsPage() {
   }, [liveMsgs.length, store.activeId]);
 
   const socketRef = useRef(null);
-  useEffect(() => {
-    function fetchConvs() {
-      fetch(`${API_BASE}/api/live/conversations`)
-        .then(r => r.json())
-        .then(data => {
-          if (!Array.isArray(data)) return;
-          dispatch({ type: 'LOAD_CONVS', convs: data });
-        }).catch(() => {});
+  const fetchConversations = useCallback(async () => {
+    const params = new URLSearchParams();
+    const currentFilters = filtersRef.current;
+    for (const [key, value] of Object.entries(currentFilters)) {
+      if (value && value !== 'all') params.set(key, value);
     }
-    fetchConvs();
-    const pollTimer = setInterval(fetchConvs, 10000);
+    if (searchRef.current.trim()) params.set('search', searchRef.current.trim());
+    params.set('limit', '100');
+
+    const path = `/api/conversations?${params.toString()}`;
+    const data = await secureApi.get(path);
+    if (!Array.isArray(data)) return;
+    dispatch({ type: 'REPLACE_CONVS', convs: data.map(normalizeConversation) });
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchConversations().catch(() => {});
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [filters, search, fetchConversations]);
+
+  useEffect(() => {
+    fetchConversations().catch(() => {});
+    const pollTimer = setInterval(() => fetchConversations().catch(() => {}), 10000);
 
     const token = typeof window !== 'undefined' ? localStorage.getItem('airos_token') : null;
     const socket = connectSocket(token);
     socketRef.current = socket;
 
     socket.on('message:new', ({ conversation, message }) => {
-      dispatch({ type: 'INBOUND_MESSAGE', conv: conversation, message });
+      dispatch({ type: 'INBOUND_MESSAGE', conv: normalizeConversation(conversation), message });
       playNotif();
     });
 
     socket.on('whatsapp:message', ({ conversation, message }) => {
-      dispatch({ type: 'INBOUND_MESSAGE', conv: conversation, message });
+      dispatch({ type: 'INBOUND_MESSAGE', conv: normalizeConversation(conversation), message });
       playNotif();
       if (!message.content) return;
       const convId = conversation.id;
@@ -359,17 +410,15 @@ export default function ConversationsPage() {
       socket.disconnect();
       clearInterval(pollTimer);
     };
-  }, []);
+  }, [fetchConversations]);
 
   const openLiveConv = useCallback(async (conv) => {
     dispatch({ type: 'SET_ACTIVE', convId: conv.id });
     setSuggestion(null);
     setLiveReply('');
     try {
-      const r = await fetch(`${API_BASE}/api/live/conversations/${encodeURIComponent(conv.id)}/messages`);
-      const data = await r.json();
+      const data = await secureApi.get(`/api/conversations/${encodeURIComponent(conv.id)}/messages`);
       if (Array.isArray(data)) dispatch({ type: 'LOAD_MESSAGES', convId: conv.id, messages: data });
-      fetch(`${API_BASE}/api/live/conversations/${encodeURIComponent(conv.id)}/read`, { method: 'POST' }).catch(() => {});
     } catch {}
   }, []);
 
@@ -415,7 +464,7 @@ export default function ConversationsPage() {
 
   function selectConv(c) {
     setActive(c);
-    setMsgs(MSGS[c.id] || []);
+    setMsgs([]);
     setShowCannedPicker(false);
   }
 
@@ -435,14 +484,36 @@ export default function ConversationsPage() {
     toast.success(`${type === 'image' ? '🖼 Image' : '📄 File'} sent (simulated)`);
   }
 
-  const filtered = convs.filter(c => {
-    if (filter !== 'all' && c.ch !== filter) return false;
-    if (search && !c.name.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  });
+  const filtered = [];
 
   const activeTags   = tags[active?.id] || [];
-  const currentAgent = assignedTo[active?.id] || 'Unassigned';
+  const currentAgent = activeLive?.assigneeName || assignedTo[active?.id] || 'Unassigned';
+
+  async function assignActiveConversation(agent) {
+    const conv = activeLive;
+    if (!conv) return;
+    const previous = storeRef.current.convs[conv.id];
+    const nextAssignee = agent?.id || null;
+    const nextName = agent?.name || agent?.email || 'Unassigned';
+
+    dispatch({
+      type: 'UPDATE_CONV',
+      convId: conv.id,
+      fields: { assigned_to: nextAssignee, assigneeName: nextName, assignee_name: nextName },
+    });
+    setAssignModal(false);
+
+    try {
+      const updated = await secureApi.patch(`/api/conversations/${encodeURIComponent(conv.id)}/assign`, {
+        user_id: nextAssignee,
+      });
+      dispatch({ type: 'UPDATE_CONV', convId: conv.id, fields: normalizeConversation(updated) });
+      toast.success(nextAssignee ? `Assigned to ${nextName}` : 'Conversation unassigned');
+    } catch (err) {
+      if (previous) dispatch({ type: 'UPDATE_CONV', convId: conv.id, fields: previous });
+      toast.error(err.message || 'Assignment failed');
+    }
+  }
 
   const filteredCanned = cannedReplies.filter(c =>
     !cannedSearch || c.title.toLowerCase().includes(cannedSearch.toLowerCase()) || c.shortcut.toLowerCase().includes(cannedSearch.toLowerCase())
@@ -454,7 +525,8 @@ export default function ConversationsPage() {
         <ConversationList 
           ref={searchInputRef}
           search={search} setSearch={setSearch}
-          filter={filter} setFilter={setFilter}
+          filters={filters} setFilters={setFilters}
+          agents={agents}
           liveConvs={liveConvs} filtered={filtered}
           activeId={active?.id} activeLiveId={activeLive?.id}
           openLiveConv={openLiveConv} selectConv={selectConv}
@@ -541,8 +613,17 @@ export default function ConversationsPage() {
 
       <Modal open={assignModal} onClose={() => setAssignModal(false)} title="Assign Agent">
         <div className="flex flex-col gap-2">
-          {AGENTS.map(a => (
-            <button key={a} className="btn btn-ghost justify-start" onClick={() => { setAssignedTo(prev => ({ ...prev, [active?.id]: a })); setAssignModal(false); }}>{a}</button>
+          <button className="btn btn-ghost justify-start" onClick={() => activeLive ? assignActiveConversation(null) : setAssignModal(false)}>
+            Unassigned
+          </button>
+          {agents.map(agent => (
+            <button
+              key={agent.id}
+              className="btn btn-ghost justify-start"
+              onClick={() => activeLive ? assignActiveConversation(agent) : setAssignModal(false)}
+            >
+              {agent.name || agent.email}
+            </button>
           ))}
         </div>
       </Modal>
