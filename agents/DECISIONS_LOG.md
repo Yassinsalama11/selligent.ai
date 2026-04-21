@@ -1178,4 +1178,58 @@ before deployment. If rule evaluation is moved to a worker process, the tenant i
 context must be explicitly re-established in that worker.
 
 ---
+### [DECISION-019] C-13 Human Handoff Protocol — APPROVED
+
+**Logged by:** Claude
+**Authority Level:** Decision + Security Sign-off
+**Context:**
+C-13 (Human Handoff Protocol) was implemented by Codex on branch `task/c13-human-handoff`
+(commit 0f05bbe, 8 files, 560 insertions). Gemini validation: PASSED. No bugs found.
+Regression risk: low. Security assessment: strong. Merged to main as 8fc9c70.
+Merge conflict in `schema.sql` resolved: `routing_rules` (C-09) and `conversation_handoffs`
+(C-13) both retained in correct order.
+
+**Decision:**
+APPROVED. C-13 status → DONE.
+
+Security sign-off items confirmed:
+1. **Schema + RLS** — `conversation_handoffs` table has `ENABLE ROW LEVEL SECURITY`,
+   `FORCE ROW LEVEL SECURITY`, and a `tenant_isolation` policy using
+   `current_setting('app.tenant_id', true)::uuid`. Tenant boundary enforced at DB layer.
+2. **REST routes behind auth + tenant middleware** — all 5 handoff routes are mounted under
+   `app.use('/api', authMiddleware, tenantMiddleware)` in `index.js`. `req.db` is available
+   and RLS-scoped for all reads/writes.
+3. **RBAC enforcement** — requester cannot accept/decline their own request (prevents
+   self-approval). Targeted handoffs (specific `requested_to`) restrict resolution to the
+   target agent or owner/admin only. Cancel is restricted to the requester or elevated roles.
+4. **Duplicate prevention** — `createHandoff` returns 409 if a pending handoff already
+   exists for the conversation. Double-resolution blocked at query level via
+   `AND status = 'pending'` guard in `resolveHandoff`.
+5. **Socket events tenant-scoped** — all events emitted to `tenant:${tenantId}:conversations`
+   room via `emitToTenantConversations()`. Cross-tenant event leakage structurally impossible.
+6. **AI summary is non-blocking** — `attachAiSummary()` is fire-and-forget with silent
+   `.catch()`. AI key errors never surface to the HTTP response. No tenant data is
+   stored in AI provider logs beyond what message content already allows (consistent with
+   existing `streamReply()` pattern).
+7. **No secrets introduced.** `ANTHROPIC_API_KEY` use consistent with existing AI routes.
+
+**Affected Files / Modules:**
+`airos/backend/src/db/migrations/20260421_handoffs.sql` (new),
+`airos/backend/src/db/queries/handoffs.js` (new — createHandoff, getPendingHandoff,
+  getHandoff, resolveHandoff, updateHandoffSummary),
+`airos/backend/src/api/routes/handoffs.js` (new — 5 REST endpoints),
+`airos/backend/src/index.js` (mount at /api/conversations/:id/handoff),
+`airos/backend/src/db/schema.sql` (conversation_handoffs table + 2 indexes),
+`airos/frontend/src/components/conversations/HandoffPanel.js` (new),
+`airos/frontend/src/app/dashboard/conversations/page.js` (state, socket handlers, UI),
+`airos/frontend/src/components/conversations/ConversationList.js` (amber pulse badge)
+
+**Revisit Conditions:**
+- If AI summary latency becomes a UX concern, consider returning the handoff record
+  immediately and pushing the summary via socket event when ready.
+- If `requested_to` validation needs to check agent availability (online/offline), that
+  logic should be added to the create route at that point.
+- A-01 (Hallucination Detection) may eventually gate or enrich the AI summary path.
+
+---
 *[Next entry: append below this line using the format above. Do not modify existing entries.]*
