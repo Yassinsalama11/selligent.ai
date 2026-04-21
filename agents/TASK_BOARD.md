@@ -45,7 +45,7 @@
 
 | # | Task Name | Owner | Branch | Started | Notes |
 |---|---|---|---|---|---|
-| — | — | — | — | — | — |
+| M-02 | Proactive Outbound Campaign Engine | Codex | task/m02-outbound-campaigns | 2026-04-21 | Backend-first implementation: tenant-scoped campaigns, audience preview, recipient tracking, explicit batch send. |
 
 ---
 
@@ -122,7 +122,6 @@
 | # | Task Name | Priority | Depends On | Notes |
 |---|---|---|---|---|
 | M-01 | Build Marketing Landing Page | High | C-02 (i18n) | `chatorai.com` public page. Arabic + English. SEO. |
-| M-02 | Proactive Outbound Campaign Engine | Medium | F-01, C-09 | `Campaign` model. Scheduler. WhatsApp 24h window compliance. |
 | M-03 | In-Chat Checkout with MENA Providers | Medium | F-12, C-09 | `Order`, `PaymentLink` models. Stripe + Checkout.com/HyperPay adapters. Rich card in widget. |
 | M-04 | Competitor Migration Wizard (Full UX) | High | F-01 | Multi-step wizard for Intercom/Zendesk. OAuth connect. Preview. Progress. Conflict resolution. |
 | M-05 | Public Template Gallery | Medium | C-05, M-01 | 10 seed templates. Public gallery page. One-click install. SEO. |
