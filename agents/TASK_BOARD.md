@@ -27,8 +27,9 @@
 | ~~T-04~~ | ~~Socket.IO Isolation Test and CORS Hardening~~ | ~~Codex~~ | ~~F-09 ✓~~ | ~~High~~ | DONE. See DECISION-014. |
 | ~~F-10~~ | ~~Eliminate localStorage Conversation State from Frontend~~ | ~~Codex~~ | ~~F-09 ✓~~ | ~~Critical~~ | DONE. See DECISION-015. |
 | ~~C-07~~ | ~~Build Tickets Page with Real Backend~~ | ~~Codex~~ | ~~F-01 ✓, C-06 ✓~~ | ~~High~~ | DONE. See DECISION-016. |
-| C-08 | Inbox Filtering, Search, and Assignment UI | Codex | F-09 ✓, C-06 ✓ | High | Filter by channel/status/tag/agent. Full-text search. Bulk actions. Snooze. Brief required. |
+| ~~C-08~~ | ~~Inbox Filtering, Search, and Assignment UI~~ | ~~Codex~~ | ~~F-09 ✓, C-06 ✓~~ | ~~High~~ | DONE. See DECISION-017. |
 | C-09 | Routing Rules Engine | Codex | F-01 ✓, C-06 ✓ | High | `RoutingRule` model. JSON DSL conditions. Rule evaluation in message processor. Brief required. |
+| C-13 | Human Handoff Protocol | Codex | C-06 ✓, C-08 ✓ | High | Socket.IO `agent:handoff_requested` event. Agent accept/decline. AI summary on handoff. Brief required. |
 | — | — | — | — | — | — |
 | F-02 | Real PR Test Gate CI Pipeline | Codex | None | Critical | Create `.github/workflows/ci.yml` with backend-test, frontend-build, typecheck, eval-gate, redteam-gate jobs. |
 | F-11 | PII Encryption at Rest for Messages | Codex | F-01 ✓ | Critical | Wire `encrypt()`/`decrypt()` from `vendor/db/src/encryption.js` into `saveMessage()` and `getMessages()`. |
@@ -96,7 +97,7 @@
 | C-10 | Canned Replies System | Medium | F-01 | `CannedReply` model. CRUD API. `/` picker in chat window. Multilingual variants. |
 | C-11 | Build Golden Eval Set (200 Conversations) | Critical | None | Audit `packages/eval/src/suites/golden.js`. Add dialect samples. Wire to CI eval-gate. |
 | C-12 | Jailbreak and Prompt Injection Detection | Critical | None | Runtime classifier in `streamReply()`. Flagged message queue. Fallback response. |
-| C-13 | Human Handoff Protocol | High | C-06 ✓, C-08 | Socket.IO `agent:handoff_requested` event. Agent accept/decline. AI summary on handoff. |
+| ~~C-13~~ | ~~Human Handoff Protocol~~ | ~~High~~ | ~~C-06 ✓, C-08~~ | Promoted to READY. See READY section. |
 
 ### Trust and Reliability Layer
 
@@ -147,6 +148,7 @@
 
 | # | Task Name | Completed By | Notes |
 |---|---|---|---|
+| C-08 | Inbox Filtering, Search, and Assignment UI | Codex | APPROVED (DECISION-017). Commit 848aa36, merge 6e2c158. Server-side filtering by channel/status/tag/agent; tenant-safe full-text search; assignment flow with agent scope enforcement; bulk actions and snooze. Branch: task/c08-inbox-filtering. C-13 dependency satisfied. |
 | T-04 | Socket.IO Isolation Test and CORS Hardening | Codex | APPROVED (DECISION-014). Merge 845c2ea. Tenant isolation enforced on Socket.IO rooms; `.pages.dev` wildcard CORS removed. Security fix re-validated by Gemini. Branch: task/t04-socket-isolation. |
 | F-10 | Eliminate localStorage Conversation State from Frontend | Codex | APPROVED (DECISION-015). Merge e9e6f30. `loadPersistedStore()` and all `localStorage('airos_conv_store')` usage removed from conversations page. Branch: task/f10-frontend-cleanup. |
 | C-07 | Build Tickets Page with Real Backend | Codex | APPROVED (DECISION-016). Merge aae683c. `Ticket` model, CRUD API (`tickets.js` route + query module), migration `20260421_tickets.sql`, full UI (TicketList, TicketDetailPanel, TicketEditorModal, tickets page). Branch: task/c07-tickets-page. |
@@ -176,4 +178,4 @@
 ---
 
 *Board initialized from `/MISSING_TASKS_AND_EXECUTION_GAPS.md` Section 11 (Dependency-Ordered Master Task List).*
-*Last updated: T-04, F-10, C-07 DONE (DECISIONS-014/015/016, 2026-04-21). F-09 DONE — RLS active in production. C-06 DONE (DECISION-013). C-08, C-09 in READY. C-13 unblocked on C-06 ✓ pending C-08 completion.*
+*Last updated: C-08 DONE (DECISION-017, 2026-04-21). C-13 promoted to READY (C-06 ✓, C-08 ✓). T-04, F-10, C-07 DONE (DECISIONS-014/015/016). F-09 DONE — RLS active in production. C-06 DONE (DECISION-013).*

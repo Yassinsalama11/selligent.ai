@@ -1089,4 +1089,44 @@ C-13 (Human Handoff) depends on C-07. Any escalation writing to `tickets` must r
 RLS policy and RBAC guards established here.
 
 ---
+### [DECISION-017] C-08 Inbox Filtering, Search, and Assignment UI — APPROVED
+
+**Logged by:** Claude
+**Authority Level:** Decision + Security Sign-off
+**Context:**
+C-08 (Inbox Filtering, Search, and Assignment UI) was implemented by Codex on branch
+`task/c08-inbox-filtering` (commit 848aa36). Gemini validation: PASSED. No bugs found.
+Regression risk: low. Merged to main as 6e2c158.
+
+**Decision:**
+APPROVED. C-08 status → DONE.
+
+Security sign-off items confirmed:
+1. **Server-side filtering** — all filter parameters (channel, status, tag, agent) are applied
+   in the query layer, not the client. Filter values are parameterized; no SQL injection surface.
+2. **Tenant-safe search** — full-text search is scoped to `tenant_id` via `tenantMiddleware`
+   (`req.db`). Cross-tenant search is structurally impossible; RLS enforces the boundary at
+   the database layer as the second line of defence.
+3. **Assignment flow** — agent assignment writes are routed through `conversations.js` route
+   which is behind `authMiddleware` + `tenantMiddleware`. The assigned `agent_id` is validated
+   against the same tenant before write.
+4. **Agent scope enforcement** — agents can only view and be assigned conversations within
+   their `tenant_id`. The RBAC layer (C-06) gates mutation operations to owner/admin roles
+   where applicable.
+
+**Downstream effect:** C-13 (Human Handoff Protocol) dependency on C-08 is now satisfied.
+C-13 promoted to READY — both blockers (`C-06 ✓`, `C-08 ✓`) are done.
+
+**Affected Files / Modules:**
+`airos/backend/src/api/routes/conversations.js`,
+`airos/backend/src/db/queries/conversations.js`,
+`airos/frontend/src/app/dashboard/conversations/page.js`,
+`airos/frontend/src/components/conversations/ConversationList.js`
+
+**Revisit Conditions:**
+If bulk-action endpoints are added in a future task, each must be audited for tenant isolation
+before approval. Any new filter dimension that touches a cross-tenant table requires explicit
+RLS policy verification.
+
+---
 *[Next entry: append below this line using the format above. Do not modify existing entries.]*
