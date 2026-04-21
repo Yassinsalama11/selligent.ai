@@ -123,6 +123,20 @@ CREATE TABLE tickets (
   UNIQUE(tenant_id, conversation_id)
 );
 
+CREATE TABLE routing_rules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  description TEXT DEFAULT '',
+  priority INTEGER NOT NULL DEFAULT 100,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  conditions JSONB NOT NULL DEFAULT '{}',
+  action JSONB NOT NULL DEFAULT '{}',
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE ai_suggestions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
@@ -343,6 +357,7 @@ CREATE INDEX idx_tickets_tenant_status ON tickets(tenant_id, status);
 CREATE INDEX idx_tickets_tenant_priority ON tickets(tenant_id, priority);
 CREATE INDEX idx_tickets_tenant_assignee ON tickets(tenant_id, assignee_id);
 CREATE INDEX idx_tickets_tenant_created ON tickets(tenant_id, created_at DESC);
+CREATE INDEX idx_routing_rules_tenant_priority ON routing_rules(tenant_id, enabled, priority, created_at);
 CREATE INDEX idx_customers_tenant ON customers(tenant_id);
 CREATE INDEX idx_products_tenant ON products(tenant_id);
 CREATE INDEX idx_products_source ON products(tenant_id, source);

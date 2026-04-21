@@ -8,6 +8,7 @@ const { normalizeInstagram } = require('../channels/instagram/normalizer');
 const { normalizeMessenger } = require('../channels/messenger/normalizer');
 const { normalizeLiveChat } = require('../channels/livechat/normalizer');
 const { getIO } = require('../channels/livechat/socket');
+const { resolveRoutingAssigneeId } = require('./routingRulesEngine');
 const {
   normalizeTenantSettings,
   containsProfanity,
@@ -100,6 +101,16 @@ async function routeMessage(jobData) {
   const deal = await getOrCreateDeal(tenantId, conversation.id, customer.id);
   unified.meta.deal_id = deal.id;
 
+  const ticket = await queryAdmin(
+    `SELECT id, priority, channel, assignee_id
+     FROM tickets
+     WHERE tenant_id = $1
+       AND conversation_id = $2
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    [tenantId, conversation.id]
+  ).then((result) => result.rows[0] || null);
+
   // ── 5. Persist message ───────────────────────────────────────────────────
   const savedMessage = await saveMessage(tenantId, conversation.id, {
     direction: 'inbound',
@@ -120,6 +131,7 @@ async function routeMessage(jobData) {
       conversation,
       customer,
       message: unified.message,
+      ticket,
     });
 
     if (assigneeId) {
@@ -134,8 +146,9 @@ async function routeMessage(jobData) {
       message: savedMessage,
       conversation: assignedConversation,
       customer,
-      deal,
-      unified,
+    deal,
+    ticket,
+    unified,
       moderation,
     });
   } catch {
@@ -148,6 +161,7 @@ async function routeMessage(jobData) {
     conversation: assignedConversation,
     customer,
     deal,
+    ticket,
     credentials,
     moderation,
     blocked: moderation.blocked,
@@ -203,6 +217,9 @@ async function determineAssignee(tenantId, settings, context) {
   if (!isWithinWorkingHours(settings.global) && settings.global?.assignBot) {
     return null;
   }
+
+  const ruleAssignee = await resolveRoutingAssigneeId(tenantId, context);
+  if (ruleAssignee.matched) return ruleAssignee.assignee_id;
 
   const routedAssignee = await resolveRoutedAssignee(tenantId, settings, users, context);
   if (routedAssignee !== undefined) return routedAssignee;
