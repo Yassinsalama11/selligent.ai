@@ -31,6 +31,18 @@ CREATE TABLE users (
   UNIQUE(tenant_id, email)
 );
 
+CREATE TABLE platform_admin_security (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  lockout_key TEXT NOT NULL UNIQUE,
+  failed_login_count INTEGER NOT NULL DEFAULT 0,
+  locked_until TIMESTAMPTZ,
+  totp_secret_enc TEXT,
+  totp_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  totp_enrolled_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE channel_connections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
@@ -403,6 +415,8 @@ CREATE TABLE report_agent_daily (
 -- ─────────────────────────────────────────
 
 CREATE INDEX idx_conversations_tenant ON conversations(tenant_id);
+CREATE INDEX idx_platform_admin_security_user ON platform_admin_security(user_id) WHERE user_id IS NOT NULL;
+CREATE INDEX idx_platform_admin_security_locked ON platform_admin_security(lockout_key, locked_until);
 CREATE INDEX idx_conversations_updated ON conversations(updated_at DESC);
 CREATE INDEX idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX idx_messages_search_tokens ON messages USING GIN (search_tokens);
