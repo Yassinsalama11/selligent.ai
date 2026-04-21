@@ -23,17 +23,7 @@ const log = {
 };
 
 /* ─── Conversation Store ───────────────────────── */
-function loadPersistedStore() {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem('airos_conv_store');
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return { ...parsed, aiTyping: {}, autoReply: parsed.autoReply || {} };
-  } catch { return null; }
-}
-
-const STORE_INIT = loadPersistedStore() || {
+const STORE_INIT = {
   activeId:  null,
   autoReply: {},
   aiTyping:  {},
@@ -264,13 +254,6 @@ export default function ConversationsPage() {
   const [store, dispatch] = useReducer(storeReducer, STORE_INIT);
   const storeRef = useRef(store);
   useEffect(() => { storeRef.current = store; }, [store]);
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      try { localStorage.setItem('airos_conv_store', JSON.stringify(store)); } catch {}
-    }, 300);
-    return () => clearTimeout(t);
-  }, [store]);
 
   const liveConvs  = Object.values(store.convs).sort((a, b) => (b.updatedAt||0) - (a.updatedAt||0));
   const activeLive = store.activeId ? store.convs[store.activeId] : null;
