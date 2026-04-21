@@ -1,4 +1,5 @@
 const { queryAdmin } = require('../pool');
+const { decryptMessageContent, buildMessageSearchTokens } = require('./messages');
 
 async function getOrCreateConversation(tenantId, customerId, channel, client) {
   // Try to find an existing open conversation
@@ -68,6 +69,7 @@ async function listConversations(tenantId, {
   }
   if (search) {
     const like = `%${String(search).trim().toLowerCase()}%`;
+    const searchTokens = buildMessageSearchTokens(tenantId, search);
     conditions.push(`(
       LOWER(COALESCE(cu.name, '')) LIKE $${i}
       OR LOWER(COALESCE(cu.phone, '')) LIKE $${i}
@@ -77,11 +79,19 @@ async function listConversations(tenantId, {
         FROM messages m
         WHERE m.tenant_id = c.tenant_id
           AND m.conversation_id = c.id
-          AND LOWER(COALESCE(m.content, '')) LIKE $${i}
+          AND (
+            m.search_tokens ?| $${i + 1}::text[]
+            OR (
+              COALESCE(jsonb_array_length(m.search_tokens), 0) = 0
+              AND COALESCE(m.content, '') NOT LIKE 'enc:v1:%'
+              AND LOWER(COALESCE(m.content, '')) LIKE $${i}
+            )
+          )
       )
     )`);
     params.push(like);
-    i += 1;
+    params.push(searchTokens);
+    i += 2;
   }
 
   if (viewerRole === 'agent' && viewerId) {
@@ -122,7 +132,10 @@ async function listConversations(tenantId, {
     LIMIT $${i++} OFFSET $${i}
   `, params);
 
-  return res.rows;
+  return Promise.all(res.rows.map(async (row) => ({
+    ...row,
+    last_message: await decryptMessageContent(tenantId, row.last_message),
+  })));
 }
 
 async function updateConversationStatus(tenantId, conversationId, status, client) {
@@ -179,7 +192,10 @@ async function assignConversation(tenantId, conversationId, userId, client) {
     LIMIT 1
   `, [conversationId, tenantId]);
 
-  return enriched.rows[0] || res.rows[0];
+  const row = enriched.rows[0] || res.rows[0];
+  return row
+    ? { ...row, last_message: await decryptMessageContent(tenantId, row.last_message) }
+    : row;
 }
 
 module.exports = { getOrCreateConversation, listConversations, updateConversationStatus, assignConversation };

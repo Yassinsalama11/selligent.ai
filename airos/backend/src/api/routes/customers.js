@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const express = require('express');
 
 const { appendRecycleItem } = require('../../core/recycleBin');
+const { decryptMessageRow } = require('../../db/queries/messages');
 
 const router = express.Router();
 
@@ -190,7 +191,9 @@ router.get('/:id/timeline', async (req, res, next) => {
 
     const customer = mapCustomerRow(customerRow);
     const conversations = conversationResult.rows;
-    const messages = messageResult.rows;
+    const messages = await Promise.all(
+      messageResult.rows.map((message) => decryptMessageRow(tenantId, message))
+    );
     const deals = dealResult.rows;
 
     const activity = [

@@ -10,6 +10,7 @@ const {
   updateHandoffSummary,
 } = require('../../db/queries/handoffs');
 const { assignConversation } = require('../../db/queries/conversations');
+const { decryptMessageRow } = require('../../db/queries/messages');
 const { emitToTenantConversations } = require('../../channels/livechat/socket');
 
 const router = express.Router({ mergeParams: true }); // inherits :id from parent
@@ -110,7 +111,10 @@ router.post('/', requireAny, async (req, res, next) => {
        WHERE tenant_id = $1 AND conversation_id = $2
        ORDER BY created_at DESC LIMIT 12`,
       [tenantId, conversationId]
-    ).then(r => attachAiSummary(tenantId, handoff.id, r.rows.reverse())).catch(() => {});
+    ).then(async (r) => {
+      const rows = await Promise.all(r.rows.reverse().map((row) => decryptMessageRow(tenantId, row)));
+      return attachAiSummary(tenantId, handoff.id, rows);
+    }).catch(() => {});
 
     res.status(201).json({ handoff });
   } catch (err) { next(err); }

@@ -74,6 +74,7 @@ CREATE TABLE messages (
   direction VARCHAR(20) NOT NULL,           -- inbound | outbound
   type VARCHAR(50) DEFAULT 'text',          -- text | image | voice | document
   content TEXT,
+  search_tokens JSONB DEFAULT '[]',
   media_url TEXT,
   sent_by VARCHAR(50) DEFAULT 'customer',   -- customer | agent | ai
   metadata JSONB DEFAULT '{}',
@@ -365,6 +366,7 @@ CREATE TABLE report_agent_daily (
 CREATE INDEX idx_conversations_tenant ON conversations(tenant_id);
 CREATE INDEX idx_conversations_updated ON conversations(updated_at DESC);
 CREATE INDEX idx_messages_conversation ON messages(conversation_id);
+CREATE INDEX idx_messages_search_tokens ON messages USING GIN (search_tokens);
 CREATE INDEX idx_deals_tenant_stage ON deals(tenant_id, stage);
 CREATE INDEX idx_deals_tenant_created ON deals(tenant_id, created_at DESC);
 CREATE INDEX idx_tickets_tenant_status ON tickets(tenant_id, status);

@@ -1,5 +1,7 @@
 const { query } = require('../db/pool');
 const { updateMigrationJob } = require('./base');
+const { encrypt } = require('../vendor/db/src/encryption');
+const { buildMessageSearchTokens } = require('../db/queries/messages');
 
 function basicAuth(email, apiToken) {
   return Buffer.from(`${email}/token:${apiToken}`).toString('base64');
@@ -100,19 +102,23 @@ async function insertMessageIfNeeded(tenantId, conversationId, message) {
 
   if (duplicate.rows[0]) return false;
 
+  const encryptedContent = await encrypt(tenantId, message.content);
+  const searchTokens = buildMessageSearchTokens(tenantId, message.content);
+
   await query(`
     INSERT INTO messages (
-      tenant_id, conversation_id, direction, type, content, sent_by, metadata, created_at
+      tenant_id, conversation_id, direction, type, content, sent_by, metadata, created_at, search_tokens
     )
-    VALUES ($1, $2, $3, 'text', $4, $5, $6, COALESCE($7::timestamptz, NOW()))
+    VALUES ($1, $2, $3, 'text', $4, $5, $6, COALESCE($7::timestamptz, NOW()), $8)
   `, [
     tenantId,
     conversationId,
     message.direction,
-    message.content,
+    encryptedContent,
     message.sentBy,
     JSON.stringify(message.metadata),
     message.createdAt,
+    JSON.stringify(searchTokens),
   ]);
 
   await query('UPDATE conversations SET updated_at = NOW() WHERE id = $1', [conversationId]);
