@@ -6,8 +6,9 @@ import { CH_ICON, IC_COLOR } from './constants';
 const ConversationList = forwardRef(({
   search,
   setSearch,
-  filter,
-  setFilter,
+  filters,
+  setFilters,
+  agents,
   liveConvs,
   filtered,
   activeId,
@@ -35,9 +36,9 @@ const ConversationList = forwardRef(({
           {['all','whatsapp','instagram','messenger','livechat'].map(f => (
             <button 
               key={f} 
-              onClick={() => setFilter(f)}
+              onClick={() => setFilters(current => ({ ...current, channel: f }))}
               className={`text-[11px] px-2.5 py-1 rounded-full font-semibold cursor-pointer border transition-all duration-150 ${
-                filter === f 
+                filters.channel === f
                   ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30' 
                   : 'bg-transparent text-[var(--t4)] border-[var(--b1)]'
               }`}
@@ -45,6 +46,31 @@ const ConversationList = forwardRef(({
               {f === 'all' ? 'All' : CH_ICON[f]}
             </button>
           ))}
+        </div>
+        <div className="grid grid-cols-2 gap-1.5 mt-2.5">
+          <select
+            className="input text-[11px] py-1.5"
+            value={filters.status}
+            onChange={e => setFilters(current => ({ ...current, status: e.target.value }))}
+          >
+            {['all', 'open', 'pending', 'closed'].map(value => <option key={value} value={value}>{value}</option>)}
+          </select>
+          <select
+            className="input text-[11px] py-1.5"
+            value={filters.assigned_to}
+            onChange={e => setFilters(current => ({ ...current, assigned_to: e.target.value }))}
+          >
+            <option value="all">all agents</option>
+            <option value="unassigned">unassigned</option>
+            {agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name || agent.email}</option>)}
+          </select>
+          <select
+            className="input text-[11px] py-1.5 col-span-2"
+            value={filters.priority}
+            onChange={e => setFilters(current => ({ ...current, priority: e.target.value }))}
+          >
+            {['all', 'low', 'medium', 'high', 'urgent'].map(value => <option key={value} value={value}>{value} priority</option>)}
+          </select>
         </div>
       </div>
       
