@@ -1,6 +1,6 @@
 const { query } = require('../db/pool');
 const { updateMigrationJob } = require('./base');
-const { encrypt } = require('../vendor/db/src/encryption');
+const { encrypt } = require('../../vendor/db/src/encryption');
 const { buildMessageSearchTokens } = require('../db/queries/messages');
 
 function basicAuth(email, apiToken) {
