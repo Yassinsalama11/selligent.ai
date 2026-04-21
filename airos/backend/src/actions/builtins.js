@@ -205,12 +205,44 @@ const ticketEscalateAction = defineAction({
   }),
   output: z.object({
     conversationId: z.string(),
+    ticketId: z.string(),
     status: z.string(),
     priority: z.string(),
   }),
   requiresApproval: false,
   handler: async ({ input, tenantId }) => {
     return withTenant(tenantId, async (tx) => {
+      const conversationResult = await tx.$queryRaw`
+        SELECT
+          c.id AS conversation_id,
+          c.channel,
+          c.customer_id,
+          COALESCE(cu.name, '') AS customer_name
+        FROM conversations c
+        LEFT JOIN customers cu ON cu.id = c.customer_id
+        WHERE c.tenant_id = ${tenantId}
+          AND c.id = ${input.conversationId}
+          AND c.deleted_at IS NULL
+        LIMIT 1
+      `;
+
+      const conversation = conversationResult[0];
+      if (!conversation) {
+        throw Object.assign(new Error(`ticket.escalate: conversation ${input.conversationId} not found`), {
+          code: 'NOT_FOUND',
+        });
+      }
+
+      const existingTicketResult = await tx.$queryRaw`
+        SELECT id
+        FROM tickets
+        WHERE tenant_id = ${tenantId}
+          AND conversation_id = ${input.conversationId}
+          AND deleted_at IS NULL
+        ORDER BY created_at DESC
+        LIMIT 1
+      `;
+
       await tx.conversation.update({
         where: { id: input.conversationId },
         data: {
@@ -219,19 +251,73 @@ const ticketEscalateAction = defineAction({
         },
       });
 
+      let ticketId = existingTicketResult[0]?.id || null;
+      if (ticketId) {
+        await tx.$executeRaw`
+          UPDATE tickets
+          SET
+            status = 'escalated',
+            priority = ${input.priority},
+            assignee_id = ${input.assignToUserId || null},
+            escalation_reason = ${input.reason},
+            escalated_at = COALESCE(escalated_at, NOW()),
+            updated_at = NOW()
+          WHERE tenant_id = ${tenantId}
+            AND id = ${ticketId}
+            AND deleted_at IS NULL
+        `;
+      } else {
+        const createdTicketResult = await tx.$queryRaw`
+          INSERT INTO tickets (
+            tenant_id,
+            conversation_id,
+            customer_id,
+            customer_name,
+            title,
+            channel,
+            status,
+            priority,
+            assignee_id,
+            source,
+            escalation_reason,
+            escalated_at
+          ) VALUES (
+            ${tenantId},
+            ${input.conversationId},
+            ${conversation.customer_id || null},
+            ${conversation.customer_name || 'Unknown customer'},
+            ${input.reason},
+            ${conversation.channel || 'manual'},
+            'escalated',
+            ${input.priority},
+            ${input.assignToUserId || null},
+            'action',
+            ${input.reason},
+            NOW()
+          )
+          RETURNING id
+        `;
+        ticketId = createdTicketResult[0].id;
+      }
+
       // Audit note
       await tx.auditLog.create({
         data: {
           tenantId,
           actorType: 'system',
-          action: 'conversation.escalated',
-          entityType: 'conversation',
-          entityId: input.conversationId,
-          metadata: { reason: input.reason, priority: input.priority },
+          action: 'ticket.escalated',
+          entityType: 'ticket',
+          entityId: ticketId,
+          metadata: {
+            conversationId: input.conversationId,
+            reason: input.reason,
+            priority: input.priority,
+            assignToUserId: input.assignToUserId || null,
+          },
         },
       });
 
-      return { conversationId: input.conversationId, status: 'escalated', priority: input.priority };
+      return { conversationId: input.conversationId, ticketId, status: 'escalated', priority: input.priority };
     });
   },
 });
