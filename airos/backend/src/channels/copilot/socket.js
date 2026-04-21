@@ -20,6 +20,25 @@
 const jwt = require('jsonwebtoken');
 const { streamCopilotSuggestion, logCopilotOutcome } = require('@chatorai/ai-core').copilot;
 const { logger } = require('../../core/logger');
+const { validateTenant } = require('../livechat/socket');
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function readHandshakeValue(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function readHandshakeToken(socket) {
+  return readHandshakeValue(socket.handshake.auth?.token) || readHandshakeValue(socket.handshake.query?.token);
+}
+
+function normalizeTenantId(tenantId) {
+  if (!tenantId || !UUID_RE.test(tenantId)) {
+    return null;
+  }
+
+  return tenantId;
+}
 
 /**
  * Attach the /copilot namespace to a Socket.IO Server instance.
@@ -31,15 +50,27 @@ function initCopilotNamespace(io) {
   const nsp = io.of('/copilot');
 
   // JWT auth middleware
-  nsp.use((socket, next) => {
-    const token = socket.handshake.auth?.token;
+  nsp.use(async (socket, next) => {
+    const token = readHandshakeToken(socket);
     if (!token) return next(new Error('UNAUTHORIZED'));
 
     try {
-      const payload = jwt.verify(token, process.env.JWT_SECRET);
-      socket.data.userId   = payload.id   || payload.sub;
-      socket.data.tenantId = payload.tenant_id;
-      socket.data.role     = payload.role;
+      const payload = jwt.verify(token, process.env.JWT_SECRET || 'chatorai-secret');
+      const tenantId = normalizeTenantId(payload.tenant_id || payload.tenantId);
+      const userId = payload.id || payload.userId || payload.sub;
+
+      if (!tenantId || !userId) {
+        return next(new Error('UNAUTHORIZED'));
+      }
+
+      if (!(await validateTenant(tenantId))) {
+        return next(new Error('UNAUTHORIZED'));
+      }
+
+      socket.data.userId = userId;
+      socket.data.tenantId = tenantId;
+      socket.data.role = payload.role || null;
+      socket.data.authenticated = true;
       next();
     } catch {
       next(new Error('UNAUTHORIZED'));
