@@ -8,6 +8,7 @@ const {
   escalateTicket,
   deleteTicket,
 } = require('../../db/queries/tickets');
+const { applyRoutingRules } = require('../../core/routingRulesEngine');
 
 const router = express.Router();
 const requireTicketRole = requireRole('owner', 'admin', 'agent');
@@ -149,6 +150,23 @@ router.post('/:id/escalate', async (req, res, next) => {
     );
 
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+    const routed = await applyRoutingRules(req.user.tenant_id, {
+      trigger: 'ticket_escalation',
+      ticket,
+      conversation: ticket.conversation_id ? { id: ticket.conversation_id, channel: ticket.conversation_channel || ticket.channel } : null,
+      customer: {
+        id: ticket.customer_id,
+        name: ticket.customer_name,
+        channel: ticket.customer_channel,
+      },
+      message: { content: ticket.description || ticket.title },
+    }, req.db);
+
+    if (routed.ticket?.id) {
+      const updated = await getTicketById(req.user.tenant_id, ticket.id, req.db);
+      return res.json(updated || ticket);
+    }
+
     res.json(ticket);
   } catch (err) {
     next(err);
