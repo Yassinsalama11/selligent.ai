@@ -11,6 +11,7 @@ const NAV = [
   { href: '/dashboard/conversations', icon: '💬', label: 'Conversations'               },
   { href: '/dashboard/contacts',       icon: '👥', label: 'Contacts'                    },
   { href: '/dashboard/broadcast',      icon: '📣', label: 'Broadcast'                   },
+  { href: '/dashboard/campaigns',      icon: '✉',  label: 'Campaigns'                  },
   { href: '/dashboard/deals',         icon: '🎯', label: 'Deal Pipeline'               },
   { href: '/dashboard/tickets',       icon: '🎫', label: 'Tickets'                     },
   { href: '/dashboard/products',      icon: '📦', label: 'Products'                    },

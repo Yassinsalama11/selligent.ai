@@ -152,6 +152,45 @@ CREATE TABLE conversation_handoffs (
   resolved_by     UUID        REFERENCES users(id)
 );
 
+CREATE TABLE campaigns (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  description TEXT DEFAULT '',
+  channel VARCHAR(50) NOT NULL DEFAULT 'whatsapp',
+  message_type VARCHAR(50) NOT NULL DEFAULT 'template',
+  template_name VARCHAR(255),
+  template_language VARCHAR(20) DEFAULT 'ar',
+  body TEXT NOT NULL DEFAULT '',
+  variables JSONB NOT NULL DEFAULT '{}',
+  audience_filter JSONB NOT NULL DEFAULT '{}',
+  scheduled_at TIMESTAMPTZ,
+  status VARCHAR(50) NOT NULL DEFAULT 'draft',
+  created_by UUID REFERENCES users(id),
+  sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE campaign_recipients (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  campaign_id UUID NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  conversation_id UUID REFERENCES conversations(id),
+  channel VARCHAR(50) NOT NULL DEFAULT 'whatsapp',
+  address TEXT NOT NULL DEFAULT '',
+  status VARCHAR(50) NOT NULL DEFAULT 'pending',
+  provider_message_id TEXT,
+  error TEXT,
+  sent_at TIMESTAMPTZ,
+  delivered_at TIMESTAMPTZ,
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(campaign_id, customer_id)
+);
+
 CREATE TABLE ai_suggestions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
@@ -387,6 +426,9 @@ CREATE INDEX idx_report_daily_tenant_date ON report_daily(tenant_id, date DESC);
 CREATE INDEX idx_report_agent_tenant_date ON report_agent_daily(tenant_id, date DESC);
 CREATE INDEX idx_handoffs_tenant_conv   ON conversation_handoffs(tenant_id, conversation_id);
 CREATE INDEX idx_handoffs_tenant_status ON conversation_handoffs(tenant_id, status);
+CREATE INDEX idx_campaigns_tenant_status ON campaigns(tenant_id, status, scheduled_at, created_at DESC);
+CREATE INDEX idx_campaign_recipients_campaign_status ON campaign_recipients(tenant_id, campaign_id, status);
+CREATE INDEX idx_campaign_recipients_customer ON campaign_recipients(tenant_id, customer_id);
 
 -- ─────────────────────────────────────────
 -- UNIQUE CONSTRAINTS (for ON CONFLICT upserts)
