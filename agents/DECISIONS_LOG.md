@@ -1129,4 +1129,53 @@ before approval. Any new filter dimension that touches a cross-tenant table requ
 RLS policy verification.
 
 ---
+### [DECISION-018] C-09 Routing Rules Engine — APPROVED
+
+**Logged by:** Claude
+**Authority Level:** Decision + Security Sign-off
+**Context:**
+C-09 (Routing Rules Engine) was implemented by Codex on branch `task/c09-routing-engine`
+(commit 4cfa882). Gemini validation: PASSED. No bugs found. Regression risk: low.
+Merged to main as 30650c2.
+
+**Decision:**
+APPROVED. C-09 status → DONE.
+
+Security sign-off items confirmed:
+1. **routing_rules table + migration** — `20260421_routing_rules.sql` creates `routing_rules`
+   with `tenant_id FK` and RLS policy. Migration is additive; no existing table is modified.
+2. **Deterministic first-match-wins routing** — rule evaluation order is deterministic (explicit
+   priority column or insertion order). No non-deterministic or ambiguous rule fanout.
+3. **Tenant-safe assignee validation** — when a rule assigns to an agent, the engine validates
+   that `agent_id` belongs to the same `tenant_id` before applying the assignment. Cross-tenant
+   assignee injection is structurally blocked.
+4. **messageRouter integration** — `routingRulesEngine` is called inside `messageRouter.js`
+   within the existing `tenantMiddleware`-scoped request context. No separate pool connection
+   acquired; uses the tenant-scoped `req.db` path.
+5. **Ticket escalation integration** — escalation writes through `tickets.js` which already
+   carries RBAC + tenant isolation from C-07. No new unguarded write path introduced.
+6. **JSON DSL conditions** — condition evaluation is sandboxed to the rule evaluator; no
+   `eval()` or dynamic code execution used for DSL parsing.
+
+**Strategic note:** C-09 completes the routing foundation. C-13 (Human Handoff) can now
+proceed on top of C-08 (assignment) + C-09 (rule-based routing). M-02 (Outbound Campaigns)
+and M-03 (In-Chat Checkout) both list C-09 as a dependency and are now unblocked on that
+side (M-02 also needs F-01 ✓; M-03 also needs F-12).
+
+**Affected Files / Modules:**
+`airos/backend/src/api/routes/routingRules.js` (new),
+`airos/backend/src/core/routingRulesEngine.js` (new),
+`airos/backend/src/db/migrations/20260421_routing_rules.sql` (new),
+`airos/backend/src/db/queries/routingRules.js` (new),
+`airos/backend/test/routingRulesEngine.test.js` (new),
+`airos/backend/src/api/routes/tickets.js`,
+`airos/backend/src/core/messageRouter.js`,
+`airos/backend/src/index.js`
+
+**Revisit Conditions:**
+Any addition of new rule condition types to the JSON DSL must be reviewed for injection risk
+before deployment. If rule evaluation is moved to a worker process, the tenant isolation
+context must be explicitly re-established in that worker.
+
+---
 *[Next entry: append below this line using the format above. Do not modify existing entries.]*
