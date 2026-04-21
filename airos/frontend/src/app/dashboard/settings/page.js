@@ -76,7 +76,7 @@ const NAV = [
     { id:'tags',          label:'Tags' },
   ]},
   { group:'MESSAGING CHANNELS',icon:'📡', items:[
-    { id:'ch_fb',         label:'Facebook Messenger' },
+    { id:'ch_messenger',  label:'Facebook Messenger' },
     { id:'ch_livechat',   label:'Live Chat' },
     { id:'ch_instagram',  label:'Instagram' },
     { id:'ch_whatsapp',   label:'WhatsApp' },
@@ -568,10 +568,10 @@ export default function SettingsPage() {
     readReceipts: true,
   });
   const CHANNEL_STATS = {
-    whatsapp:  { conversations:420, deals:38, rate:'42%', response:'1.2m', satisfaction:'4.8' },
-    instagram: { conversations:280, deals:22, rate:'28%', response:'2.1m', satisfaction:'4.5' },
+    whatsapp:  { conversations:0, deals:0, rate:'—', response:'—', satisfaction:'—' },
+    instagram: { conversations:0, deals:0, rate:'—', response:'—', satisfaction:'—' },
     messenger: { conversations:0,   deals:0,  rate:'—',   response:'—',    satisfaction:'—'   },
-    livechat:  { conversations:95,  deals:12, rate:'35%', response:'0.8m', satisfaction:'4.9' },
+    livechat:  { conversations:0,  deals:0, rate:'—', response:'—', satisfaction:'—' },
   };
   const [channelStats, setChannelStats] = useState(CHANNEL_STATS);
 
@@ -607,7 +607,7 @@ export default function SettingsPage() {
     if (connected) {
       const sectionByChannel = {
         instagram: 'ch_instagram',
-        messenger: 'ch_fb',
+        messenger: 'ch_messenger',
         whatsapp: 'ch_whatsapp',
       };
       const labelByChannel = {
@@ -633,7 +633,7 @@ export default function SettingsPage() {
       const failedChannel = channel === 'messenger' || channel === 'whatsapp' ? channel : 'instagram';
       const sectionByChannel = {
         instagram: 'ch_instagram',
-        messenger: 'ch_fb',
+        messenger: 'ch_messenger',
         whatsapp: 'ch_whatsapp',
       };
       const labelByChannel = {
@@ -674,9 +674,15 @@ export default function SettingsPage() {
         setWaOAuthModal(true);
       }
 
+      const sectionByChannel = {
+        instagram: 'ch_instagram',
+        messenger: 'ch_messenger',
+        whatsapp: 'ch_whatsapp',
+      };
+      const returnTo = `/dashboard/settings#${sectionByChannel[channel] || 'ch_instagram'}`;
       const query = new URLSearchParams({
         channel,
-        return_to: '/dashboard/settings',
+        return_to: returnTo,
         token,
       });
 
@@ -959,7 +965,13 @@ export default function SettingsPage() {
       instagram: {
         ...currentChannels.instagram,
         connected: Boolean(registry.instagram),
-        page: registry.instagram?.details?.pageName || registry.instagram?.details?.pageId || currentChannels.instagram.page,
+        page: registry.instagram?.details?.instagramBusinessAccountUsername
+          || registry.instagram?.details?.instagramBusinessAccountId
+          || currentChannels.instagram.page,
+        pageName: registry.instagram?.details?.pageName || currentChannels.instagram.pageName,
+        pageId: registry.instagram?.details?.pageId || currentChannels.instagram.pageId,
+        instagramBusinessAccountId: registry.instagram?.details?.instagramBusinessAccountId || currentChannels.instagram.instagramBusinessAccountId,
+        instagramBusinessAccountUsername: registry.instagram?.details?.instagramBusinessAccountUsername || currentChannels.instagram.instagramBusinessAccountUsername,
         verified: Boolean(registry.instagram?.details?.verified),
         token: currentChannels.instagram.token && !isMaskedSecret(currentChannels.instagram.token)
           ? currentChannels.instagram.token
@@ -1989,8 +2001,13 @@ export default function SettingsPage() {
                 <div style={{ flex:1 }}>
                   <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>Instagram DM</p>
                   <p style={{ fontSize:12, color: ig.connected ? '#34d399' : 'var(--t4)' }}>
-                    {ig.connected ? `● Connected · @${ig.page} · Verified` : '○ Not connected'}
+                    {ig.connected ? `● Connected · ${ig.page ? `@${ig.page}` : 'Instagram Business'} · Verified` : '○ Not connected'}
                   </p>
+                  {ig.connected && ig.pageName && (
+                    <p style={{ fontSize:11, color:'var(--t4)', marginTop:3 }}>
+                      Linked via Facebook Page: {ig.pageName}
+                    </p>
+                  )}
                 </div>
                 {ig.connected
                   ? <button className="btn btn-sm btn-ghost" style={{ color:'#fca5a5' }}
@@ -2088,7 +2105,7 @@ export default function SettingsPage() {
         );
       }
 
-      case 'ch_fb': {
+      case 'ch_messenger': {
         const fbm = channels.messenger;
         const fbmStats = channelStats.messenger;
         return (

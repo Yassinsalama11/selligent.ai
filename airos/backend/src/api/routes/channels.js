@@ -45,7 +45,11 @@ function summarizeCredentials(channel, rawCredentials) {
     return {
       pageId: credentials.page_id || '',
       pageName: credentials.page_name || '',
-      verified: Boolean(credentials.page_id),
+      instagramBusinessAccountId: credentials.instagram_business_account_id || '',
+      instagramBusinessAccountUsername: credentials.instagram_business_account_username || '',
+      verified: channel === 'instagram'
+        ? Boolean(credentials.instagram_business_account_id)
+        : Boolean(credentials.page_id),
       accessTokenMasked: maskToken(credentials.access_token || ''),
     };
   }

@@ -4,17 +4,17 @@ import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
 
 const CHANNELS = [
-  { id:'whatsapp',  name:'WhatsApp',          icon:'📱', color:'#25D366', status:'connected',     desc:'Meta Cloud API · Business' },
-  { id:'instagram', name:'Instagram DM',       icon:'📸', color:'#E1306C', status:'connected',     desc:'Meta Graph API · OAuth'    },
+  { id:'whatsapp',  name:'WhatsApp',          icon:'📱', color:'#25D366', status:'not_connected', desc:'Meta Cloud API · Business' },
+  { id:'instagram', name:'Instagram DM',       icon:'📸', color:'#E1306C', status:'not_connected', desc:'Meta Graph API · OAuth'    },
   { id:'messenger', name:'Messenger',          icon:'💬', color:'#0099FF', status:'not_connected', desc:'Facebook Page Messages'    },
-  { id:'livechat',  name:'Live Chat Widget',   icon:'⚡', color:'#6366f1', status:'connected',     desc:'Your website · Socket.io'  },
+  { id:'livechat',  name:'Live Chat Widget',   icon:'⚡', color:'#6366f1', status:'not_connected', desc:'Your website · Socket.io'  },
 ];
 
 const STATS = {
-  whatsapp:  { conversations:420, deals:38, rate:'42%', response:'1.2m', satisfaction:'4.8' },
-  instagram: { conversations:280, deals:22, rate:'28%', response:'2.1m', satisfaction:'4.5' },
+  whatsapp:  { conversations:0, deals:0, rate:'—', response:'—', satisfaction:'—' },
+  instagram: { conversations:0, deals:0, rate:'—', response:'—', satisfaction:'—' },
   messenger: { conversations:0,   deals:0,  rate:'—',   response:'—',    satisfaction:'—'   },
-  livechat:  { conversations:95,  deals:12, rate:'35%', response:'0.8m', satisfaction:'4.9' },
+  livechat:  { conversations:0,  deals:0, rate:'—', response:'—', satisfaction:'—' },
 };
 
 const WA_STEPS = [

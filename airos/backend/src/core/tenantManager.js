@@ -32,7 +32,10 @@ async function getTenantByPageId(pageId, channel) {
 
   for (const row of res.rows) {
     const creds = decryptCredentials(row.credentials);
-    if (creds.page_id === pageId) {
+    if (
+      creds.page_id === pageId
+      || (channel === 'instagram' && creds.instagram_business_account_id === pageId)
+    ) {
       return { tenant_id: row.tenant_id, credentials: creds };
     }
   }

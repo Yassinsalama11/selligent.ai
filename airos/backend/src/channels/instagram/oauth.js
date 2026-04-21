@@ -84,8 +84,10 @@ async function handlePageOAuthCallback(tenantId, userToken, channel) {
     page_name: page.name,
     access_token: page.access_token,
     instagram_business_account_id: page.instagram_business_account?.id || null,
+    instagram_business_account_username: page.instagram_business_account?.username || null,
   };
 
+  await subscribePageApp(page.id, page.access_token, channel);
   await upsertChannelConnection(tenantId, channel, JSON.stringify({ encrypted: encryptCredentials(credentials) }));
 
   return { page_id: page.id, page_name: page.name };
@@ -240,10 +242,22 @@ async function getLongLivedToken(shortToken) {
 async function getPages(userToken) {
   const data = await graphGet(
     '/me/accounts',
-    { fields: 'id,name,access_token,instagram_business_account', limit: '100' },
+    { fields: 'id,name,access_token,instagram_business_account{id,username}', limit: '100' },
     userToken,
   );
   return data.data || [];
+}
+
+async function subscribePageApp(pageId, pageToken, channel) {
+  const subscribedFields = channel === 'messenger'
+    ? 'messages,messaging_postbacks'
+    : 'messages';
+
+  try {
+    await graphPost(`/${pageId}/subscribed_apps`, { subscribed_fields: subscribedFields }, pageToken);
+  } catch (err) {
+    console.warn(`[Meta ${channel} subscribe]`, err.message);
+  }
 }
 
 function encryptCredentials(obj) {
