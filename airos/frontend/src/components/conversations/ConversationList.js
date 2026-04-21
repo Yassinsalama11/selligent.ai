@@ -16,7 +16,8 @@ const ConversationList = forwardRef(({
   openLiveConv,
   selectConv,
   layoutPrefs,
-  aiAutoReply
+  aiAutoReply,
+  pendingHandoffs = {},
 }, ref) => {
   const listItemPadding = layoutPrefs.density === 'compact' ? 'py-2.5 px-3'
     : layoutPrefs.density === 'expanded' ? 'py-4 px-4'
@@ -178,6 +179,9 @@ const ConversationList = forwardRef(({
                 )}
                 {aiAutoReply[c.id] && (
                   <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#67e8f9] border-[1.5px] border-[var(--bg2)]" />
+                )}
+                {pendingHandoffs[c.id]?.status === 'pending' && (
+                  <span className="absolute -bottom-0.5 -left-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 border-[1.5px] border-[var(--bg2)] animate-pulse" title="Handoff pending" />
                 )}
               </div>
               <div className="flex-1 min-w-0">

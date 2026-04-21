@@ -9,6 +9,7 @@ import { connectSocket } from '@/lib/socket';
 import ConversationList from '@/components/conversations/ConversationList';
 import ChatWindow from '@/components/conversations/ChatWindow';
 import CustomerProfilePanel from '@/components/conversations/CustomerProfilePanel';
+import HandoffPanel from '@/components/conversations/HandoffPanel';
 
 // Module-level auto-reply map — updated synchronously when toggle changes.
 const _autoReply = {}; // { [convId]: boolean }
@@ -270,6 +271,8 @@ export default function ConversationsPage() {
   });
   const [tags, setTags]             = useState({ '1': ['VIP'], '2': [] });
   const [assignedTo, setAssignedTo] = useState({});
+  const [handoffs, setHandoffs] = useState({});      // { [convId]: handoff | null }
+  const [currentUser, setCurrentUser] = useState(null);
   const [store, dispatch] = useReducer(storeReducer, STORE_INIT);
   const storeRef = useRef(store);
   useEffect(() => { storeRef.current = store; }, [store]);
@@ -287,6 +290,16 @@ export default function ConversationsPage() {
     const cfg = getAiConfig();
     return cfg === null || cfg.enabled !== false;
   });
+
+  // Decode JWT for RBAC in HandoffPanel (no sensitive use — frontend display only)
+  useEffect(() => {
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('airos_token') : null;
+      if (!token) return;
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      setCurrentUser({ id: payload.id, role: payload.role, tenant_id: payload.tenant_id });
+    } catch {}
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -379,6 +392,20 @@ export default function ConversationsPage() {
       playNotif();
     });
 
+    // Handoff events — update per-conversation handoff state
+    socket.on('agent:handoff_requested', ({ handoff, conversation_id }) => {
+      setHandoffs(h => ({ ...h, [conversation_id]: handoff }));
+    });
+    socket.on('agent:handoff_accepted', ({ handoff, conversation_id }) => {
+      setHandoffs(h => ({ ...h, [conversation_id]: handoff }));
+    });
+    socket.on('agent:handoff_declined', ({ handoff, conversation_id }) => {
+      setHandoffs(h => ({ ...h, [conversation_id]: handoff }));
+    });
+    socket.on('conversation:handoff_status', ({ handoff, conversation_id }) => {
+      setHandoffs(h => ({ ...h, [conversation_id]: handoff }));
+    });
+
     socket.on('whatsapp:message', ({ conversation, message }) => {
       dispatch({ type: 'INBOUND_MESSAGE', conv: normalizeConversation(conversation), message });
       playNotif();
@@ -420,6 +447,13 @@ export default function ConversationsPage() {
       const data = await secureApi.get(`/api/conversations/${encodeURIComponent(conv.id)}/messages`);
       if (Array.isArray(data)) dispatch({ type: 'LOAD_MESSAGES', convId: conv.id, messages: data });
     } catch {}
+    // Fetch pending handoff for this conversation
+    try {
+      const hData = await secureApi.get(`/api/conversations/${encodeURIComponent(conv.id)}/handoff`);
+      setHandoffs(h => ({ ...h, [conv.id]: hData.handoff }));
+    } catch {
+      setHandoffs(h => ({ ...h, [conv.id]: null }));
+    }
   }, []);
 
   const sendLiveReply = useCallback(async (text) => {
@@ -522,7 +556,7 @@ export default function ConversationsPage() {
   return (
     <>
       <div className="flex h-full overflow-hidden bg-[var(--bg)]">
-        <ConversationList 
+        <ConversationList
           ref={searchInputRef}
           search={search} setSearch={setSearch}
           filters={filters} setFilters={setFilters}
@@ -531,6 +565,7 @@ export default function ConversationsPage() {
           activeId={active?.id} activeLiveId={activeLive?.id}
           openLiveConv={openLiveConv} selectConv={selectConv}
           layoutPrefs={layoutPrefs} aiAutoReply={aiAutoReply}
+          pendingHandoffs={handoffs}
         />
 
         <ChatWindow 
@@ -578,20 +613,33 @@ export default function ConversationsPage() {
         />
 
         {showPanel && (active || activeLive) && (
-          <CustomerProfilePanel 
-            activeConv={activeLive || active}
-            isAutoOn={activeLive ? (_autoReply[activeLive.id] !== false) : isAutoOn}
-            onToggleAuto={activeLive ? () => {
-              const next = !(_autoReply[activeLive.id] !== false);
-              _autoReply[activeLive.id] = next;
-              dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: next });
-            } : toggleAutoReply}
-            tags={activeTags}
-            currentAgent={currentAgent}
-            onManageCanned={() => setCannedMgmtModal(true)}
-            onAddTag={() => !activeLive && setTagModal(true)}
-            onViewHistory={() => !activeLive && setHistoryModal(true)}
-          />
+          <div className="flex flex-col overflow-y-auto">
+            <CustomerProfilePanel
+              activeConv={activeLive || active}
+              isAutoOn={activeLive ? (_autoReply[activeLive.id] !== false) : isAutoOn}
+              onToggleAuto={activeLive ? () => {
+                const next = !(_autoReply[activeLive.id] !== false);
+                _autoReply[activeLive.id] = next;
+                dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: next });
+              } : toggleAutoReply}
+              tags={activeTags}
+              currentAgent={currentAgent}
+              onManageCanned={() => setCannedMgmtModal(true)}
+              onAddTag={() => !activeLive && setTagModal(true)}
+              onViewHistory={() => !activeLive && setHistoryModal(true)}
+            />
+            {(activeLive || active) && (
+              <div className="p-3 border-t border-[var(--b1)]">
+                <HandoffPanel
+                  conversationId={(activeLive || active).id}
+                  handoff={handoffs[(activeLive || active).id] || null}
+                  agents={agents}
+                  currentUser={currentUser}
+                  onHandoffChange={(h) => setHandoffs(prev => ({ ...prev, [(activeLive || active).id]: h }))}
+                />
+              </div>
+            )}
+          </div>
         )}
       </div>
 
