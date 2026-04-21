@@ -1331,3 +1331,57 @@ will fail startup if `ADMIN_JWT_SECRET` is unset. Development/test may still fal
 Proceed with F-07-P2+ for failed-login lockout, TOTP MFA, and eventual removal of
 `ADMIN_EMAIL`/`ADMIN_PASSWORD` bootstrap auth. Do not loosen admin secret isolation in any
 environment that resembles production.
+
+---
+### [DECISION-022] M-02 Proactive Outbound Campaign Engine — APPROVED
+
+**Logged by:** Codex
+**Authority Level:** Observation + Closure
+**Context:**
+M-02 was implemented on branch `task/m02-outbound-campaigns` (commit a4728ec). Gemini
+validation PASSED with no blockers and no regressions. The user authorized direct finalization.
+
+**Decision:**
+M-02 status → DONE.
+
+Outbound campaigns now have durable tenant-scoped campaign and recipient tracking tables,
+server-side audience resolution, protected campaign APIs, explicit batch sending, and a minimal
+dashboard UI.
+
+**Reason:**
+The prior broadcast flow was settings-backed and did not provide durable campaign lifecycle or
+per-recipient delivery tracking. M-02 introduces a real campaign model while preserving the
+current messaging stack and tenant isolation boundaries.
+
+**Alternatives Considered:**
+- Reuse tenant settings broadcast history only: rejected because it cannot support durable
+  lifecycle, recipient tracking, or reliable retry/resume.
+- Build a broad scheduler/queue subsystem in this task: rejected as unnecessary scope. M-02
+  uses explicit rate-safe batch sending now; future scheduler work can trigger the same send
+  path.
+- Send without persisting outbound messages: rejected because conversations must remain the
+  customer communication source of truth and F-11 encryption must apply.
+
+**Impact:**
+New `campaigns` and `campaign_recipients` tables are RLS-protected and tenant-scoped. Audience
+resolution filters customers server-side by tags, channel presence, conversation status,
+assignment, and segment. Sending materializes recipients, sends WhatsApp template batches, tracks
+recipient status, and persists each outbound message via `saveMessage()`, preserving message
+encryption at rest. RBAC restricts campaign mutations and sends to owner/admin while allowing
+owner/admin/agent read access.
+
+**Affected Files / Modules:**
+`airos/backend/src/db/migrations/20260421_campaigns.sql`,
+`airos/backend/src/db/schema.sql`,
+`airos/backend/src/db/queries/campaigns.js`,
+`airos/backend/src/api/routes/campaigns.js`,
+`airos/backend/src/index.js`,
+`airos/backend/test/campaigns.queries.test.js`,
+`airos/frontend/src/app/dashboard/campaigns/page.js`,
+`airos/frontend/src/components/DashboardLayout.js`,
+`agents/TASK_BOARD.md`
+
+**Revisit Conditions:**
+If scheduled auto-send is required, add a worker/scheduler that invokes the existing explicit
+batch send path instead of creating a second delivery implementation. Additional channels must
+be reviewed for provider policy and tenant-safe address resolution before enabling sends.

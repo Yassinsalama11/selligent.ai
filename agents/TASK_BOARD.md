@@ -45,7 +45,7 @@
 
 | # | Task Name | Owner | Branch | Started | Notes |
 |---|---|---|---|---|---|
-| M-02 | Proactive Outbound Campaign Engine | Codex | task/m02-outbound-campaigns | 2026-04-21 | Backend-first implementation: tenant-scoped campaigns, audience preview, recipient tracking, explicit batch send. |
+| — | — | — | — | — | — |
 
 ---
 
@@ -146,6 +146,7 @@
 
 | # | Task Name | Completed By | Notes |
 |---|---|---|---|
+| M-02 | Proactive Outbound Campaign Engine | Codex | APPROVED by Gemini. Commit a4728ec, merge eb72c7a. Tenant-scoped `campaigns` + `campaign_recipients` schema with RLS; audience preview/resolution by tags, channel presence, conversation status, assignment, and segment; explicit rate-safe WhatsApp batch send; outbound messages persist through `saveMessage()` and F-11 encryption; owner/admin mutation and send RBAC. Branch: task/m02-outbound-campaigns. |
 | F-07-P1 | Admin Account Hardening — Phase 1 | Codex | APPROVED by Gemini. Commit 164cded. Dedicated `ADMIN_JWT_SECRET` required in production; admin JWT and cookie TTL reduced to 1h; admin cookie `sameSite: strict`; admin login bcrypt-only with plaintext fallback removed. Remaining F-07 phases stay READY as F-07-P2+. |
 | F-11 | PII Encryption at Rest for Messages | Codex | APPROVED by Gemini. Commit 94e0d04. `messages.content` encrypted on write and decrypted on read; imports/handoff/customer timeline paths decrypt before response; tenant-scoped hashed `messages.search_tokens` preserves inbox message-content search for encrypted rows with deterministic legacy plaintext fallback. T-02 and A-03 dependencies satisfied on F-11 side. |
 | C-13 | Human Handoff Protocol | Codex | APPROVED (DECISION-019). Commit 0f05bbe, merge 8fc9c70. conversation_handoffs table (RLS), full lifecycle REST API, tenant-scoped socket events, RBAC enforcement (no self-approval, targeted resolution), fire-and-forget AI summary (haiku), HandoffPanel UI, amber inbox badge. Branch: task/c13-human-handoff. |
@@ -180,4 +181,4 @@
 ---
 
 *Board initialized from `/MISSING_TASKS_AND_EXECUTION_GAPS.md` Section 11 (Dependency-Ordered Master Task List).*
-*Last updated: C-13 DONE (DECISION-019, 2026-04-21). C-09 DONE (DECISION-018). C-08 DONE (DECISION-017). T-04, F-10, C-07 DONE (DECISIONS-014/015/016). F-09 DONE — RLS active in production. C-06 DONE (DECISION-013).*
+*Last updated: M-02 DONE (DECISION-022, 2026-04-21). F-11 DONE (DECISION-020). F-07-P1 DONE (DECISION-021). C-13 DONE (DECISION-019).*
