@@ -137,6 +137,20 @@ CREATE TABLE routing_rules (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE conversation_handoffs (
+  id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id       UUID        NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  conversation_id UUID        NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  requested_by    UUID        NOT NULL REFERENCES users(id),
+  requested_to    UUID        REFERENCES users(id),
+  reason          TEXT        NOT NULL DEFAULT '',
+  ai_summary      TEXT,
+  status          VARCHAR(50) NOT NULL DEFAULT 'pending',
+  requested_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved_at     TIMESTAMPTZ,
+  resolved_by     UUID        REFERENCES users(id)
+);
+
 CREATE TABLE ai_suggestions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
@@ -369,6 +383,8 @@ CREATE INDEX idx_knowledge_chunks_tenant ON knowledge_chunks(tenant_id, created_
 CREATE INDEX idx_migration_jobs_tenant_created ON migration_jobs(tenant_id, created_at DESC);
 CREATE INDEX idx_report_daily_tenant_date ON report_daily(tenant_id, date DESC);
 CREATE INDEX idx_report_agent_tenant_date ON report_agent_daily(tenant_id, date DESC);
+CREATE INDEX idx_handoffs_tenant_conv   ON conversation_handoffs(tenant_id, conversation_id);
+CREATE INDEX idx_handoffs_tenant_status ON conversation_handoffs(tenant_id, status);
 
 -- ─────────────────────────────────────────
 -- UNIQUE CONSTRAINTS (for ON CONFLICT upserts)
