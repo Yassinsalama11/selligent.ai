@@ -10,6 +10,9 @@ export default function AdminLogin() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [totpCode, setTotpCode] = useState('');
+  const [step, setStep] = useState('password');
+  const [challengeToken, setChallengeToken] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -30,7 +33,26 @@ export default function AdminLogin() {
     event.preventDefault();
     setLoading(true);
     try {
+      if (step === 'totp') {
+        const data = await adminApi.post('/api/admin/auth/totp/verify', {
+          challenge_token: challengeToken,
+          code: totpCode,
+        });
+        setAdminSession({ admin: data.admin });
+        toast.success(`Welcome back, ${String(data.admin?.name || 'Admin').split(' ')[0]}`);
+        router.replace('/admin');
+        return;
+      }
+
       const data = await adminApi.post('/api/admin/auth/login', { email, password });
+      if (data.totp_required) {
+        setChallengeToken(data.challenge_token);
+        setTotpCode('');
+        setStep('totp');
+        toast.success('Enter your verification code');
+        return;
+      }
+
       setAdminSession({ admin: data.admin });
       toast.success(`Welcome back, ${String(data.admin?.name || 'Admin').split(' ')[0]}`);
       router.replace('/admin');
@@ -39,6 +61,12 @@ export default function AdminLogin() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function returnToPasswordStep() {
+    setStep('password');
+    setChallengeToken(null);
+    setTotpCode('');
   }
 
   const inputStyle = {
@@ -73,41 +101,53 @@ export default function AdminLogin() {
           </div>
 
           <h1 style={{ fontSize:22, fontWeight:800, color:'var(--t1)', textAlign:'center', letterSpacing:'-0.03em', marginBottom:6 }}>
-            Sign in to Admin
+            {step === 'totp' ? 'Verify Admin Sign In' : 'Sign in to Admin'}
           </h1>
           <p style={{ fontSize:13, color:'var(--t4)', textAlign:'center', marginBottom:28 }}>
-            Live platform access backed by the backend API.
+            {step === 'totp'
+              ? 'Enter the 6-digit code from your authenticator app.'
+              : 'Live platform access backed by the backend API.'}
           </p>
 
           <form onSubmit={handleSubmit} style={{ display:'flex', flexDirection:'column', gap:14 }}>
-            <div>
-              <label style={{ display:'block', fontSize:12, fontWeight:600, color:'var(--t4)', marginBottom:6 }}>Email</label>
-              <input type="email" required autoFocus style={inputStyle} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@chatorai.com" />
-            </div>
+            {step === 'password' ? (
+              <>
+                <div>
+                  <label style={{ display:'block', fontSize:12, fontWeight:600, color:'var(--t4)', marginBottom:6 }}>Email</label>
+                  <input type="email" required autoFocus style={inputStyle} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@chatorai.com" />
+                </div>
 
-            <div>
-              <label style={{ display:'block', fontSize:12, fontWeight:600, color:'var(--t4)', marginBottom:6 }}>Password</label>
-              <div style={{ position:'relative' }}>
-                <input type={showPassword ? 'text' : 'password'} required style={{ ...inputStyle, paddingRight:44 }} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" />
-                <button type="button" onClick={() => setShowPassword((value) => !value)} style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'var(--t4)', fontSize:16, lineHeight:1 }}>
-                  {showPassword ? '🙈' : '👁'}
-                </button>
+                <div>
+                  <label style={{ display:'block', fontSize:12, fontWeight:600, color:'var(--t4)', marginBottom:6 }}>Password</label>
+                  <div style={{ position:'relative' }}>
+                    <input type={showPassword ? 'text' : 'password'} required style={{ ...inputStyle, paddingRight:44 }} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" />
+                    <button type="button" onClick={() => setShowPassword((value) => !value)} style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'var(--t4)', fontSize:16, lineHeight:1 }}>
+                      {showPassword ? '🙈' : '👁'}
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div>
+                <label style={{ display:'block', fontSize:12, fontWeight:600, color:'var(--t4)', marginBottom:6 }}>Verification code</label>
+                <input inputMode="numeric" pattern="[0-9]*" maxLength={6} required autoFocus style={{ ...inputStyle, textAlign:'center', letterSpacing:'0.4em', fontSize:20, fontWeight:800 }} value={totpCode} onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" />
               </div>
-            </div>
+            )}
 
             <button type="submit" disabled={loading} style={{ marginTop:6, padding:'13px', borderRadius:12, border:'none', background: loading ? 'rgba(245,158,11,0.4)' : '#f59e0b', color:'#000', fontWeight:800, fontSize:14, cursor: loading ? 'not-allowed' : 'pointer', letterSpacing:'-0.01em' }}>
-              {loading ? 'Signing in…' : 'Sign In →'}
+              {loading ? 'Signing in…' : step === 'totp' ? 'Verify Code →' : 'Sign In →'}
             </button>
+
+            {step === 'totp' && (
+              <button type="button" onClick={returnToPasswordStep} disabled={loading} style={{ background:'none', border:'none', color:'var(--t4)', cursor: loading ? 'not-allowed' : 'pointer', fontSize:12, fontWeight:700 }}>
+                Back to password
+              </button>
+            )}
           </form>
 
-          <div style={{ marginTop:24, padding:'12px 14px', borderRadius:10, background:'rgba(245,158,11,0.04)', border:'1px solid rgba(245,158,11,0.12)' }}>
-            <p style={{ fontSize:11.5, fontWeight:700, color:'#f59e0b', marginBottom:6 }}>
-              First-time setup
-            </p>
-            <p style={{ fontSize:11.5, color:'var(--t4)', lineHeight:1.6 }}>
-              Configure `ADMIN_EMAIL` and `ADMIN_PASSWORD` on the backend to create the first live platform admin on first successful login.
-            </p>
-          </div>
+          <p style={{ marginTop:24, fontSize:11.5, color:'var(--t4)', lineHeight:1.6, textAlign:'center' }}>
+            Contact your platform administrator to set up access.
+          </p>
         </div>
       </div>
     </>
