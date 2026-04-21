@@ -1385,3 +1385,51 @@ owner/admin/agent read access.
 If scheduled auto-send is required, add a worker/scheduler that invokes the existing explicit
 batch send path instead of creating a second delivery implementation. Additional channels must
 be reviewed for provider policy and tenant-safe address resolution before enabling sends.
+
+---
+### [DECISION-023] F-07 Phase 2 Admin Login Lockout — APPROVED
+
+**Logged by:** Codex
+**Authority Level:** Observation + Closure
+**Context:**
+F-07 Phase 1 isolated admin JWT secrets and reduced session risk. Phase 2 adds brute-force
+protection to the admin login endpoint. Gemini validation PASSED with no blockers, production
+runtime is healthy, and the tickets migration gap has been resolved.
+
+**Decision:**
+F-07-P2 status -> DONE.
+
+Admin login now applies a 5 failed attempts / 15 minute lockout policy before password
+verification, clears counters on successful login, and keeps all locked or invalid credential
+responses as the same generic 401 response.
+
+**Reason:**
+The public admin login endpoint previously had no lockout or throttling, allowing repeated
+password attempts against a high-privilege control plane. Phase 2 adds targeted protection
+without changing tenant auth, response shapes, or unrelated admin behavior.
+
+**Alternatives Considered:**
+- Redis-only lockout: rejected because login protection must continue when Redis is unavailable.
+- DB-only lockout: rejected because Redis is the intended low-latency primary path.
+- Email-only lockout key: rejected because it creates easier cross-IP lockout abuse and exposes
+  more direct account targeting semantics.
+- Distinct locked-account response: rejected because it would create account enumeration signal.
+
+**Impact:**
+Admin lockout uses Redis as the primary counter/lock store and mirrors state to the
+`platform_admin_security` DB fallback. Lockout keys are SHA-256 hashes of normalized email plus
+request IP. Any locked account, nonexistent admin, or bad password returns the same generic 401,
+preserving no-enumeration behavior.
+
+**Affected Files / Modules:**
+`airos/backend/src/api/middleware/adminLockout.js`,
+`airos/backend/src/api/routes/admin.js`,
+`airos/backend/src/db/migrations/20260421_admin_security.sql`,
+`airos/backend/src/db/schema.sql`,
+`airos/backend/test/admin.lockout.test.js`,
+`agents/TASK_BOARD.md`
+
+**Revisit Conditions:**
+Proceed with remaining F-07 phases for TOTP MFA and eventual removal of
+`ADMIN_EMAIL`/`ADMIN_PASSWORD` bootstrap auth. Revisit the lockout key strategy if trusted proxy
+IP handling changes or if abuse data shows excessive collateral lockouts.
