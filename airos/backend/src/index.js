@@ -36,7 +36,7 @@ require('./actions');
 
 const { authMiddleware } = require('./api/middleware/auth');
 const { tenantMiddleware } = require('./api/middleware/tenant');
-const { initSocketServer, getSocketMetrics } = require('./channels/livechat/socket');
+const { initSocketServer, getSocketMetrics, createCorsOriginChecker } = require('./channels/livechat/socket');
 const { initCopilotNamespace } = require('./channels/copilot/socket');
 const { startReportScheduler } = require('./core/reportScheduler');
 const { startRetentionScheduler } = require('@chatorai/db').retention;
@@ -59,17 +59,7 @@ initCopilotNamespace(io);
 // Core middleware
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors({
-  origin: (origin, cb) => {
-    const raw = process.env.ALLOWED_ORIGINS || '';
-    const defaults = ['https://chatorai.com', 'http://localhost:3000'];
-    const allowed = raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : defaults;
-    // Allow Cloudflare Pages preview deployments and no-origin requests
-    if (!origin || allowed.includes(origin) || origin.endsWith('.pages.dev')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: createCorsOriginChecker(),
   credentials: true,
 }));
 // Raw body capture for webhook signature verification.

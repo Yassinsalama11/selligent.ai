@@ -7,6 +7,9 @@ const { logger } = require('../../core/logger');
 let io;
 let activeSockets = 0;
 const tenantSocketCounts = new Map();
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const DEFAULT_ALLOWED_ORIGINS = ['https://chatorai.com', 'http://localhost:3000'];
 
 function loadRedisAdapter() {
   try {
@@ -25,6 +28,66 @@ function conversationRoom(tenantId) {
   return `tenant:${tenantId}:conversations`;
 }
 
+function getAllowedOrigins() {
+  const raw = process.env.ALLOWED_ORIGINS || '';
+  if (!raw) return DEFAULT_ALLOWED_ORIGINS;
+
+  return [...new Set(
+    raw
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+  )];
+}
+
+function isAllowedOrigin(origin, allowedOrigins = getAllowedOrigins()) {
+  if (!origin) return true;
+  if (origin === 'null') return false;
+
+  let parsed;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+
+  return allowedOrigins.includes(parsed.origin);
+}
+
+function createCorsOriginChecker() {
+  return (origin, callback) => {
+    if (isAllowedOrigin(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('Not allowed by CORS'));
+  };
+}
+
+function readHandshakeValue(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function readHandshakeToken(socket) {
+  return readHandshakeValue(socket.handshake.auth?.token) || readHandshakeValue(socket.handshake.query?.token);
+}
+
+function readHandshakeTenantId(socket) {
+  return readHandshakeValue(socket.handshake.query?.tenantId) || readHandshakeValue(socket.handshake.auth?.tenantId);
+}
+
+function readHandshakeSessionId(socket) {
+  return readHandshakeValue(socket.handshake.query?.sessionId) || readHandshakeValue(socket.handshake.auth?.sessionId);
+}
+
+function normalizeTenantId(tenantId) {
+  if (!tenantId || !UUID_RE.test(tenantId)) {
+    return null;
+  }
+
+  return tenantId;
+}
+
 async function validateTenant(tenantId) {
   const result = await queryAdmin(
     'SELECT id FROM tenants WHERE id = $1 AND status IN ($2, $3) LIMIT 1',
@@ -35,12 +98,16 @@ async function validateTenant(tenantId) {
 
 function initSocketServer(httpServer) {
   const redisClient = getRedisClient();
+  const originChecker = createCorsOriginChecker();
 
   io = new Server(httpServer, {
     cors: {
-      origin: parseAllowedOrigins(),
+      origin: originChecker,
       methods: ['GET', 'POST'],
       credentials: true,
+    },
+    allowRequest: (req, callback) => {
+      callback(null, isAllowedOrigin(req.headers.origin));
     },
     transports: ['websocket', 'polling'],
   });
@@ -57,32 +124,47 @@ function initSocketServer(httpServer) {
   }
 
   io.use(async (socket, next) => {
-    const { tenantId, token } = socket.handshake.query;
-    if (!tenantId) return next(new Error('tenantId is required'));
-
-    const normalizedTenantId = String(tenantId);
+    const normalizedTenantId = normalizeTenantId(readHandshakeTenantId(socket));
+    if (!normalizedTenantId) return next(new Error('tenantId is required'));
 
     try {
-      try {
-        if (token) {
-          const decoded = jwt.verify(token, process.env.JWT_SECRET || 'chatorai-secret');
-          const tokenTenantId = decoded.tenant_id || decoded.tenantId;
-          if (!tokenTenantId || String(tokenTenantId) !== normalizedTenantId) {
-            return next(new Error('tenantId does not match authenticated tenant'));
-          }
+      const sessionId = readHandshakeSessionId(socket);
+      if (sessionId && !SESSION_ID_RE.test(sessionId)) {
+        return next(new Error('invalid sessionId'));
+      }
 
-          socket.userId = decoded.id || decoded.userId;
-          socket.userRole = decoded.role;
-          socket.authenticated = true;
+      const token = readHandshakeToken(socket);
+      if (token) {
+        let decoded;
+
+        try {
+          decoded = jwt.verify(token, process.env.JWT_SECRET || 'chatorai-secret');
+        } catch {
+          return next(new Error('invalid socket token'));
         }
-      } catch {
-        return next(new Error('invalid socket token'));
+
+        const tokenTenantId = normalizeTenantId(decoded.tenant_id || decoded.tenantId);
+        if (!tokenTenantId || tokenTenantId !== normalizedTenantId) {
+          return next(new Error('tenantId does not match authenticated tenant'));
+        }
+
+        const userId = decoded.id || decoded.userId || decoded.sub;
+        if (!userId) {
+          return next(new Error('invalid socket token'));
+        }
+
+        socket.data.userId = userId;
+        socket.data.userRole = decoded.role || null;
+        socket.data.authenticated = true;
+      } else {
+        socket.data.authenticated = false;
       }
 
       const tenantValid = await validateTenant(normalizedTenantId);
       if (!tenantValid) return next(new Error('tenant not found or inactive'));
 
-      socket.tenantId = normalizedTenantId;
+      socket.data.tenantId = normalizedTenantId;
+      socket.data.sessionId = sessionId;
       return next();
     } catch (err) {
       return next(err);
@@ -90,8 +172,8 @@ function initSocketServer(httpServer) {
   });
 
   io.on('connection', (socket) => {
-    const tenantId = socket.tenantId;
-    const sessionId = socket.handshake.query.sessionId;
+    const tenantId = socket.data.tenantId;
+    const sessionId = socket.data.sessionId;
     activeSockets += 1;
     tenantSocketCounts.set(tenantId, (tenantSocketCounts.get(tenantId) || 0) + 1);
 
@@ -130,7 +212,7 @@ function initSocketServer(httpServer) {
     logger.info('Socket connected', {
       tenantId,
       socketId: socket.id,
-      authenticated: Boolean(socket.authenticated),
+      authenticated: Boolean(socket.data.authenticated),
     });
   });
 
@@ -165,10 +247,7 @@ function getSocketMetrics() {
 }
 
 function parseAllowedOrigins() {
-  const raw = process.env.ALLOWED_ORIGINS || '';
-  const defaults = ['https://chatorai.com', 'http://localhost:3000'];
-  if (!raw) return defaults;
-  return raw.split(',').map(s => s.trim()).filter(Boolean);
+  return getAllowedOrigins();
 }
 
 module.exports = {
@@ -180,4 +259,8 @@ module.exports = {
   getSocketMetrics,
   tenantRoom,
   conversationRoom,
+  createCorsOriginChecker,
+  isAllowedOrigin,
+  parseAllowedOrigins,
+  validateTenant,
 };
