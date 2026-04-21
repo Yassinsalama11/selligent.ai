@@ -36,7 +36,7 @@
 | F-04 | Rate Limiting on All Public Endpoints | Codex | None | Critical | Install `express-rate-limit` with Redis store. Auth endpoints: 5 req/min/IP. AI route: per-tenant cap. Webhook: 1000/min/IP. |
 | F-05 | Token Budget Enforcement in AI Route | Codex | None | Critical | Wire `checkAndDeductBudget()` from `vendor/ai-core/src/cost/` into `POST /v1/ai/reply` before SSE headers. Auto-tier Opus→Sonnet→Haiku at 80%/95% budget. |
 | F-06 | Idempotency Keys on All Webhook Processing | Codex | None | High | Create `webhook_idempotency` table. Check before processing. Unique constraint on `(channel, external_message_id)`. |
-| F-07 | Admin Account Hardening | Codex | None | Critical | Remove `ADMIN_EMAIL`/`ADMIN_PASSWORD` seeding from env vars. Implement TOTP MFA. Reduce admin JWT to 1-hour expiry. Add failed-login lockout. |
+| F-07 | Admin Account Hardening | Codex | None | Critical | Remove `ADMIN_EMAIL`/`ADMIN_PASSWORD` env auth. TOTP MFA. 1h JWT. Failed-login lockout. 4-phase rollout. **Brief ready: `agents/briefs/F-07_admin_hardening.md`** |
 | F-08 | BullMQ Dead Letter Queue and Retry Strategy | Codex | None | High | Configure all queues: `attempts: 3, backoff: exponential`. Create DLQ with Sentry logging. |
 
 ---
