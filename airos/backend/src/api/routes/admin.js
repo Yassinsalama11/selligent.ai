@@ -6,6 +6,15 @@ const Stripe = require('stripe');
 
 const { queryAdmin, adminWithTransaction } = require('../../db/pool');
 const { adminAuthMiddleware } = require('../middleware/adminAuth');
+const {
+  buildLockoutIdentifier,
+  checkLockout,
+  clearLockout,
+  getRequestIp,
+  hashIdentifier,
+  normalizeAdminEmail,
+  recordFailedLogin,
+} = require('../middleware/adminLockout');
 const { logAuditEvent } = require('../../db/queries/audit');
 
 const router = express.Router();
@@ -88,6 +97,22 @@ async function logAdminAction(req, action, entityType, entityId, metadata = {}) 
   } catch {
     // Audit logging should not block admin control-plane operations.
   }
+}
+
+async function logAdminLoginFailure(req, email, admin, action = 'admin.login.failed') {
+  await logAuditEvent({
+    tenantId: null,
+    actorType: 'platform_admin',
+    actorId: admin?.id || null,
+    action,
+    entityType: 'admin_session',
+    entityId: admin?.id || hashIdentifier(normalizeAdminEmail(email)),
+    metadata: {
+      request_id: req.requestId,
+      email_hash: hashIdentifier(normalizeAdminEmail(email)),
+      ip: getRequestIp(req),
+    },
+  }).catch(() => {});
 }
 
 async function getPlatformAdminByEmail(email) {
@@ -257,36 +282,51 @@ router.post('/auth/login', async (req, res, next) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
+    const normalizedEmail = normalizeAdminEmail(email);
+    const lockoutIdentifier = buildLockoutIdentifier(normalizedEmail, getRequestIp(req));
+    const lockout = await checkLockout(lockoutIdentifier);
+    if (lockout.locked) {
+      await logAdminLoginFailure(req, normalizedEmail, null, 'admin.login.locked');
+      return res.status(401).json({ error: 'Invalid admin credentials' });
+    }
+
     let admin = null;
     try {
-      admin = await ensureConfiguredAdmin(email, password);
+      admin = await ensureConfiguredAdmin(normalizedEmail, password);
     } catch (err) {
       if (err.code !== 'ECONNREFUSED' && err.code !== 'DB_UNAVAILABLE') throw err;
     }
 
     if (!admin) {
       try {
-        admin = await getPlatformAdminByEmail(email);
+        admin = await getPlatformAdminByEmail(normalizedEmail);
       } catch (err) {
         if (err.code !== 'ECONNREFUSED' && err.code !== 'DB_UNAVAILABLE') throw err;
       }
     }
 
     if (!admin) {
+      const failure = await recordFailedLogin(lockoutIdentifier, null);
+      await logAdminLoginFailure(req, normalizedEmail, null, failure.locked ? 'admin.login.locked' : 'admin.login.failed');
       return res.status(401).json({ error: 'Invalid admin credentials' });
     }
 
     if (!admin.password_hash) {
+      const failure = await recordFailedLogin(lockoutIdentifier, admin.id);
+      await logAdminLoginFailure(req, normalizedEmail, admin, failure.locked ? 'admin.login.locked' : 'admin.login.failed');
       return res.status(401).json({ error: 'Invalid admin credentials' });
     }
 
     const valid = await bcrypt.compare(password, admin.password_hash);
 
     if (!valid) {
+      const failure = await recordFailedLogin(lockoutIdentifier, admin.id);
+      await logAdminLoginFailure(req, normalizedEmail, admin, failure.locked ? 'admin.login.locked' : 'admin.login.failed');
       return res.status(401).json({ error: 'Invalid admin credentials' });
     }
 
     const safeAdmin = sanitizeAdmin(admin);
+    await clearLockout(lockoutIdentifier, safeAdmin.id);
     const token = signAdminToken(safeAdmin);
     setAdminCookie(res, token);
     await logAuditEvent({
