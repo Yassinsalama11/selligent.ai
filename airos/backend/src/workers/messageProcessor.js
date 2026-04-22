@@ -151,7 +151,7 @@ async function processRoutedResult(result, jobId = 'inline') {
       [tenantId]
     ).then(r => r.rows),
     queryAdmin(
-      'SELECT name, rates, currency FROM shipping_zones WHERE tenant_id = $1 LIMIT 4',
+      'SELECT name, rates, NULL::text AS currency FROM shipping_zones WHERE tenant_id = $1 LIMIT 4',
       [tenantId]
     ).then(r => r.rows),
   ]);
