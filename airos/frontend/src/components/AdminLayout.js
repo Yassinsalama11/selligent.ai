@@ -92,8 +92,8 @@ export default function AdminLayout({ children }) {
         overflow:'hidden',
       }}>
         <div style={{ height:'var(--topbar-h)', display:'flex', alignItems:'center', padding:'0 14px', borderBottom:'1px solid var(--b1)' }}>
-          <div style={{ background:'rgba(255,255,255,0.92)', borderRadius:8, padding:'4px 8px', display:'inline-flex', alignItems:'center' }}>
-            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={120} height={30} style={{ height:30, width:'auto', objectFit:'contain', display:'block' }} priority />
+          <div style={{ display:'inline-flex', alignItems:'center' }}>
+            <Image src="/ChatOrAi.png" alt="ChatOrAI" width={120} height={30} style={{ height:30, width:'auto', objectFit:'contain', display:'block' }} priority />
           </div>
         </div>
 

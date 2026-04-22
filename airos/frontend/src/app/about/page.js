@@ -7,8 +7,8 @@ export default function AboutPage() {
     <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--t1)' }}>
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Link href="/" style={{ textDecoration: 'none' }}>
-          <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex' }}>
-            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
+          <div style={{ display: 'inline-flex' }}>
+            <Image src="/ChatOrAi.png" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
           </div>
         </Link>
         <div style={{ display: 'flex', gap: 12 }}>

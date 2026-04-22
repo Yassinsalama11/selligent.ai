@@ -16,8 +16,8 @@ export default function PressPage() {
     <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--t1)' }}>
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Link href="/" style={{ textDecoration: 'none' }}>
-          <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex' }}>
-            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
+          <div style={{ display: 'inline-flex' }}>
+            <Image src="/ChatOrAi.png" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
           </div>
         </Link>
         <Link href="/" style={{ fontSize: 13, color: 'var(--t4)', textDecoration: 'none' }}>← Back to Home</Link>
@@ -62,10 +62,10 @@ export default function PressPage() {
             <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 16 }}>🎨 Logo & Brand Assets</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ padding: '24px', borderRadius: 12, background: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={180} height={46} style={{ height: 46, width: 'auto', objectFit: 'contain' }} />
+                <Image src="/ChatOrAi.png" alt="ChatOrAI" width={180} height={46} style={{ height: 46, width: 'auto', objectFit: 'contain' }} />
               </div>
               <div style={{ padding: '24px', borderRadius: 12, background: '#08080f', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={180} height={46} style={{ height: 46, width: 'auto', objectFit: 'contain' }} />
+                <Image src="/ChatOrAi.png" alt="ChatOrAI" width={180} height={46} style={{ height: 46, width: 'auto', objectFit: 'contain' }} />
               </div>
               <p style={{ fontSize: 12, color: 'var(--t4)' }}>Logo files available on request. Please contact press@chatorai.com.</p>
             </div>

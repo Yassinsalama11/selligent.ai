@@ -61,8 +61,8 @@ export default function LoginPage() {
         <div className="orb" style={{ width: 300, height: 300, bottom: -60, right: -80, background: 'radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 65%)' }} />
 
         <Link href="/" style={{ textDecoration: 'none', position: 'relative', zIndex: 1, display: 'inline-flex' }}>
-          <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 10, padding: '5px 14px', display: 'inline-flex', alignItems: 'center' }}>
-            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={180} height={46}
+          <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <Image src="/ChatOrAi.png" alt="ChatOrAI" width={180} height={46}
               style={{ height: 46, width: 'auto', objectFit: 'contain', display: 'block' }}
               priority />
           </div>
@@ -100,8 +100,8 @@ export default function LoginPage() {
         <div style={{ width: '100%', maxWidth: 420 }}>
           {/* Mobile logo */}
           <div className="anim-up" style={{ display: 'flex', justifyContent: 'center', marginBottom: 40 }}>
-            <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 10, padding: '5px 16px', display: 'inline-flex', alignItems: 'center' }}>
-              <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={200} height={50}
+            <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <Image src="/ChatOrAi.png" alt="ChatOrAI" width={200} height={50}
                 style={{ height: 50, width: 'auto', objectFit: 'contain', display: 'block' }}
                 priority />
             </div>

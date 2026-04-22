@@ -50,8 +50,8 @@ function Nav() {
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? 'glass' : ''}`} style={{ padding: scrolled ? '12px 0' : '20px 0' }}>
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
-          <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 10, padding: '4px 12px', display: 'inline-flex', alignItems: 'center' }}>
-            <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={180} height={48}
+          <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <Image src="/ChatOrAi.png" alt="ChatOrAI" width={180} height={48}
               style={{ height: 40, width: 'auto', objectFit: 'contain', display: 'block' }}
               priority />
           </div>
@@ -561,8 +561,8 @@ function Footer() {
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 48, marginBottom: 56 }}>
           <div>
             <div style={{ marginBottom: 16 }}>
-              <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex', alignItems: 'center' }}>
-                <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={150} height={36}
+              <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+                <Image src="/ChatOrAi.png" alt="ChatOrAI" width={150} height={36}
                   style={{ height: 36, width: 'auto', objectFit: 'contain', display: 'block' }} />
               </div>
             </div>

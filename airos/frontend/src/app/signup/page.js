@@ -159,8 +159,8 @@ export default function SignupPage() {
       {/* Top bar */}
       <div style={{ padding: '16px 32px', display: 'flex', alignItems: 'center',
         justifyContent: 'space-between', borderBottom: '1px solid var(--b1)' }}>
-        <div style={{ background: 'rgba(255,255,255,0.92)', borderRadius: 8, padding: '4px 10px', display: 'inline-flex' }}>
-          <Image src="/chatorai-logo.svg" alt="ChatOrAI" width={110} height={28}
+        <div style={{ display: 'inline-flex' }}>
+          <Image src="/ChatOrAi.png" alt="ChatOrAI" width={110} height={28}
             style={{ height: 28, width: 'auto', objectFit: 'contain' }} priority />
         </div>
         <p style={{ fontSize: 13, color: 'var(--t4)' }}>

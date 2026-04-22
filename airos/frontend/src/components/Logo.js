@@ -5,42 +5,29 @@ import Link from 'next/link';
 /**
  * ChatOrAI Logo component
  * size: 'sm' | 'md' | 'lg' | 'xl'
- * variant: 'full' (icon + wordmark) | 'icon' (mark only) | 'wordmark' (text only)
+ * variant: ignored (since the image is now the full logo)
  * href: wrap in link if provided
- * dark: if false, show on white/light bg (not needed — PNG has transparent-friendly look)
  */
 export default function Logo({ size = 'md', variant = 'full', href, style = {} }) {
+  // Approximate 3.5:1 ratio for 748x210 PNG
   const sizes = {
-    sm: { icon: 26, fontSize: 14, gap: 7 },
-    md: { icon: 34, fontSize: 17, gap: 9 },
-    lg: { icon: 44, fontSize: 22, gap: 12 },
-    xl: { icon: 56, fontSize: 28, gap: 14 },
+    sm: { height: 20, width: 70 },
+    md: { height: 28, width: 98 },
+    lg: { height: 36, width: 126 },
+    xl: { height: 48, width: 168 },
   };
   const s = sizes[size] || sizes.md;
 
-  const icon = (
-    <Image
-      src="/chatorai-logo.svg"
-      alt="ChatOrAI"
-      width={s.icon * 4}
-      height={s.icon * 4}
-      style={{ width: s.icon, height: s.icon, objectFit: 'contain', flexShrink: 0 }}
-      priority
-    />
-  );
-
-  const wordmark = (
-    <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700,
-      fontSize: s.fontSize, letterSpacing: '-0.025em',
-      whiteSpace: 'nowrap', color: 'var(--t1)', lineHeight: 1 }}>
-      ChatOr<span style={{ color: '#38bdf8' }}>AI</span>
-    </span>
-  );
-
   const content = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: s.gap, ...style }}>
-      {(variant === 'full' || variant === 'icon') && icon}
-      {(variant === 'full' || variant === 'wordmark') && wordmark}
+    <div style={{ display: 'flex', alignItems: 'center', ...style }}>
+      <Image
+        src="/ChatOrAi.png"
+        alt="ChatOrAI"
+        width={s.width * 4}
+        height={s.height * 4}
+        style={{ width: s.width, height: s.height, objectFit: 'contain', flexShrink: 0, display: 'block' }}
+        priority
+      />
     </div>
   );
 
