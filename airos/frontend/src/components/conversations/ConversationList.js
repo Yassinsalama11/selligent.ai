@@ -35,6 +35,7 @@ function ConversationItem({
   const displayLast = conversation.lastMessage || conversation.last || '';
   const displayIntent = conversation.intent || 'inquiry';
   const displayScore = Number(conversation.score || 0);
+  const displayStatus = conversation.status || 'open';
   const unread = Number(conversation.unread || 0);
   const activeAi = conversation.ai_mode === 'auto' || aiAutoReply[conversation.id];
 
@@ -43,24 +44,19 @@ function ConversationItem({
       type="button"
       onClick={() => onSelect(conversation)}
       className={[
-        'w-full text-left border-b transition-colors duration-150',
+        'w-full text-left border-b transition-colors',
         'px-4 py-4',
         active
-          ? 'bg-[var(--inbox-card)] border-white/12 shadow-[inset_3px_0_0_#00E5FF]'
-          : 'bg-transparent border-white/[0.06] hover:bg-[var(--inbox-card)]',
+          ? 'border-[var(--inbox-border-strong)] bg-[var(--inbox-card)] shadow-[inset_3px_0_0_var(--inbox-ai)]'
+          : 'border-[var(--inbox-border)] bg-transparent hover:bg-[var(--inbox-card)]',
       ].join(' ')}
     >
       <div className="flex gap-3">
-        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[var(--inbox-elevated)] text-[12px] font-bold text-[var(--inbox-text-primary)]">
+        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-elevated)] text-[12px] font-bold text-[var(--inbox-text-primary)]">
           {initials(displayName)}
-          {layoutPrefs.showChannel && (
-            <span
-              className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full border border-white/10 bg-[var(--inbox-surface)] px-1 text-[9px] font-bold"
-              style={{ color: 'var(--inbox-text-primary)' }}
-            >
-              {CH_ICON[displayChannel] || 'CH'}
-            </span>
-          )}
+          <span className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-1 text-[9px] font-bold text-[var(--inbox-text-primary)]">
+            {CH_ICON[displayChannel] || 'CH'}
+          </span>
         </div>
 
         <div className="min-w-0 flex-1">
@@ -79,19 +75,20 @@ function ConversationItem({
 
           <div className="mt-3 flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
-              {layoutPrefs.showIntent && (
-                <span
-                  className="max-w-[128px] truncate rounded-full border border-white/10 bg-[var(--inbox-surface)] px-2 py-1 text-[12px] font-medium capitalize"
-                  style={{ color: IC_COLOR[displayIntent] || 'var(--inbox-text-secondary)' }}
-                >
-                  {displayIntent.replace(/_/g, ' ')}
-                </span>
-              )}
+              <span
+                className="max-w-[128px] truncate rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-2 py-1 text-[12px] font-medium capitalize"
+                style={{ color: IC_COLOR[displayIntent] || 'var(--inbox-text-secondary)' }}
+              >
+                {displayIntent.replace(/_/g, ' ')}
+              </span>
+              <span className="rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-2 py-1 text-[12px] font-medium capitalize text-[var(--inbox-text-muted)]">
+                {displayStatus}
+              </span>
               {activeAi && (
-                <span className="h-2 w-2 shrink-0 rounded-full bg-[#00E5FF] shadow-[0_0_12px_rgba(0,229,255,0.7)]" />
+                <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--inbox-ai)] shadow-[0_0_12px_rgba(0,229,255,0.7)]" />
               )}
               {pendingHandoff?.status === 'pending' && (
-                <span className="rounded-full border border-white/10 bg-[var(--inbox-surface)] px-2 py-1 text-[12px] text-[var(--inbox-text-secondary)]">
+                <span className="rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-2 py-1 text-[12px] text-[var(--inbox-text-secondary)]">
                   handoff
                 </span>
               )}
@@ -104,7 +101,7 @@ function ConversationItem({
                 </span>
               )}
               {unread > 0 && (
-                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#00E5FF] px-1.5 text-[12px] font-bold text-[#050816]">
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--inbox-ai)] px-1.5 text-[12px] font-bold text-[#050816]">
                   {unread}
                 </span>
               )}
@@ -133,21 +130,21 @@ const ConversationList = forwardRef(({
   pendingHandoffs = {},
 }, ref) => {
   return (
-    <aside className="flex h-full w-full shrink-0 flex-col overflow-hidden border-r border-white/[0.08] bg-[var(--inbox-surface)] md:w-[320px]">
-      <div className="border-b border-white/[0.08] px-4 py-4">
+    <aside className="flex h-full w-full shrink-0 flex-col overflow-hidden border-r border-[var(--inbox-border)] bg-[var(--inbox-surface)] md:w-[320px]">
+      <div className="border-b border-[var(--inbox-border)] px-4 py-4">
         <div className="mb-4 flex items-center justify-between">
           <div>
             <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--inbox-text-muted)]">Inbox</p>
             <h1 className="mt-1 text-[20px] font-semibold tracking-[-0.02em] text-[var(--inbox-text-primary)]">Conversations</h1>
           </div>
-          <span className="rounded-full border border-white/10 bg-[var(--inbox-card)] px-3 py-1 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
+          <span className="rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-3 py-1 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
             {filtered.length}
           </span>
         </div>
 
         <input
           ref={ref}
-          className="h-10 w-full rounded-xl border border-white/[0.08] bg-[var(--inbox-main)] px-3 text-[14px] text-[var(--inbox-text-primary)] outline-none transition focus:border-white/20"
+          className="h-10 w-full rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-main)] px-3 text-[14px] text-[var(--inbox-text-primary)] outline-none transition placeholder:text-[var(--inbox-text-muted)] focus:border-[var(--inbox-border-strong)]"
           placeholder="Search conversations… (Ctrl+K)"
           value={search}
           onChange={e => setSearch(e.target.value)}
@@ -161,8 +158,8 @@ const ConversationList = forwardRef(({
               onClick={() => setFilters(current => ({ ...current, channel: f }))}
               className={`rounded-full border px-3 py-1.5 text-[12px] font-semibold transition ${
                 filters.channel === f
-                  ? 'border-white/20 bg-[var(--inbox-elevated)] text-[var(--inbox-text-primary)]'
-                  : 'border-white/[0.08] bg-transparent text-[var(--inbox-text-secondary)] hover:bg-[var(--inbox-card)]'
+                  ? 'border-[var(--inbox-border-strong)] bg-[var(--inbox-elevated)] text-[var(--inbox-text-primary)]'
+                  : 'border-[var(--inbox-border)] bg-transparent text-[var(--inbox-text-secondary)] hover:bg-[var(--inbox-card)]'
               }`}
             >
               {f === 'all' ? 'All' : CH_ICON[f]}
@@ -172,14 +169,14 @@ const ConversationList = forwardRef(({
 
         <div className="mt-3 grid grid-cols-2 gap-2">
           <select
-            className="h-9 rounded-xl border border-white/[0.08] bg-[var(--inbox-main)] px-2 text-[12px] text-[var(--inbox-text-secondary)] outline-none"
+            className="h-9 rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-main)] px-2 text-[12px] text-[var(--inbox-text-secondary)] outline-none"
             value={filters.status}
             onChange={e => setFilters(current => ({ ...current, status: e.target.value }))}
           >
             {['all', 'open', 'pending', 'closed'].map(value => <option key={value} value={value}>{value}</option>)}
           </select>
           <select
-            className="h-9 rounded-xl border border-white/[0.08] bg-[var(--inbox-main)] px-2 text-[12px] text-[var(--inbox-text-secondary)] outline-none"
+            className="h-9 rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-main)] px-2 text-[12px] text-[var(--inbox-text-secondary)] outline-none"
             value={filters.assigned_to}
             onChange={e => setFilters(current => ({ ...current, assigned_to: e.target.value }))}
           >
@@ -188,7 +185,7 @@ const ConversationList = forwardRef(({
             {agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name || agent.email}</option>)}
           </select>
           <select
-            className="col-span-2 h-9 rounded-xl border border-white/[0.08] bg-[var(--inbox-main)] px-2 text-[12px] text-[var(--inbox-text-secondary)] outline-none"
+            className="col-span-2 h-9 rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-main)] px-2 text-[12px] text-[var(--inbox-text-secondary)] outline-none"
             value={filters.priority}
             onChange={e => setFilters(current => ({ ...current, priority: e.target.value }))}
           >
@@ -199,7 +196,7 @@ const ConversationList = forwardRef(({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center px-6 py-24 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-[var(--inbox-card)] text-[14px] font-bold text-[var(--inbox-text-secondary)]">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-card)] text-[14px] font-bold text-[var(--inbox-text-secondary)]">
               IN
             </div>
             <p className="mt-4 text-[14px] font-semibold text-[var(--inbox-text-primary)]">No conversations</p>

@@ -23,7 +23,7 @@ function parseMessageTime(value) {
 }
 
 function formatMessageTime(message = {}) {
-  const raw = message.timestamp || message.created_at || message.createdAt || message.sent_at || message.updated_at || message.updatedAt;
+  const raw = message.timestamp;
   const parsed = parseMessageTime(raw);
   if (!parsed) return '';
   return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(parsed);
@@ -36,17 +36,17 @@ function initials(name = '') {
 }
 
 function normalizeText(message = {}) {
-  return message.content ?? message.text ?? '';
+  return message.content ?? '';
 }
 
 function MsgContent({ message }) {
   if (message.type === 'image') {
     return (
       <div className="flex flex-col gap-2">
-        <a href={message.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-2xl border border-white/10">
+        <a href={message.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-[14px] border border-[var(--inbox-border)]">
           <img src={message.url} alt={message.fileName || 'image'} className="block max-h-[220px] max-w-[260px] object-cover" />
         </a>
-        {message.text && <p className="text-[14px] leading-6" dir="auto">{message.text}</p>}
+        {message.content && <p className="break-words text-[14px] leading-6" dir="auto">{message.content}</p>}
         {message.fileName && <p className="text-[12px] text-[var(--inbox-text-muted)]">{message.fileName}</p>}
       </div>
     );
@@ -55,7 +55,7 @@ function MsgContent({ message }) {
   if (message.type === 'file') {
     return (
       <a href={message.url} download={message.fileName} className="flex items-center gap-3 text-inherit">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/10 text-[12px] font-bold">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-surface)] text-[12px] font-bold">
           FILE
         </span>
         <span className="min-w-0">
@@ -66,13 +66,13 @@ function MsgContent({ message }) {
     );
   }
 
-  return <span className="whitespace-pre-wrap text-[14px] leading-6" dir="auto">{normalizeText(message)}</span>;
+  return <span className="whitespace-pre-wrap break-words text-[14px] leading-6" dir="auto">{normalizeText(message)}</span>;
 }
 
 function MessageBubble({ message, contactName }) {
-  const sentBy = message.sent_by || message.sentBy || message.by;
-  const isAi = sentBy === 'ai' || message.auto;
-  const isOut = message.direction === 'outbound' || message.dir === 'out' || sentBy === 'agent' || sentBy === 'ai';
+  const sentBy = message.sent_by;
+  const isAi = sentBy === 'ai';
+  const isOut = message.direction === 'outbound';
   const isSending = message.status === 'sending';
   const isFailed = message.status === 'failed';
   const time = formatMessageTime(message);
@@ -80,18 +80,18 @@ function MessageBubble({ message, contactName }) {
   return (
     <div className={`flex w-full gap-3 ${isOut ? 'justify-end' : 'justify-start'}`}>
       {!isOut && (
-        <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-[var(--inbox-elevated)] text-[12px] font-bold text-[var(--inbox-text-secondary)]">
+        <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-elevated)] text-[12px] font-bold text-[var(--inbox-text-secondary)]">
           {initials(contactName)}
         </div>
       )}
 
-      <div className={`flex w-fit max-w-[65%] flex-col ${isOut ? 'items-end' : 'items-start'}`}>
+      <div className={`flex min-w-0 max-w-[65%] flex-col ${isOut ? 'items-end' : 'items-start'}`}>
         <div
           className={[
-            'rounded-2xl border px-4 py-3 shadow-sm',
+            'min-w-0 rounded-[14px] border px-4 py-3 shadow-sm',
             isOut
               ? 'border-[#FF7A18]/25 bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] text-white shadow-[0_12px_32px_rgba(255,90,31,0.18)]'
-              : 'border-white/[0.08] bg-[var(--inbox-card)] text-[var(--inbox-text-primary)]',
+              : 'border-[var(--inbox-border)] bg-[var(--inbox-card)] text-[var(--inbox-text-primary)]',
             isSending ? 'opacity-60' : '',
             isFailed ? 'ring-1 ring-red-400/70' : '',
           ].join(' ')}
@@ -108,7 +108,7 @@ function MessageBubble({ message, contactName }) {
       </div>
 
       {isOut && (
-        <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-[var(--inbox-elevated)] text-[11px] font-bold text-[var(--inbox-text-primary)]">
+        <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-elevated)] text-[11px] font-bold text-[var(--inbox-text-primary)]">
           {isAi ? 'AI' : 'AG'}
         </div>
       )}
@@ -131,26 +131,26 @@ function TopBar({
   const name = activeConv.customerName || activeConv.name || 'Unknown customer';
   const channel = activeConv.channel || activeConv.ch || 'livechat';
   const intent = (activeConv.intent || 'inquiry').replace(/_/g, ' ');
-  const aiState = aiTyping ? 'waiting' : isAutoOn ? 'AI handling' : 'manual';
+  const aiState = aiTyping ? 'AI composing' : isAutoOn ? 'AI handling' : 'Manual mode';
 
   return (
-    <header className="flex min-h-[72px] shrink-0 items-center justify-between gap-4 border-b border-white/[0.08] bg-[var(--inbox-surface)] px-5 py-4">
+    <header className="grid min-h-[72px] shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-5 py-4 xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
       <div className="flex min-w-0 items-center gap-3">
         <button
           type="button"
           onClick={onBackToList}
-          className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-[var(--inbox-card)] text-[14px] text-[var(--inbox-text-primary)] md:hidden"
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-card)] text-[14px] text-[var(--inbox-text-primary)] md:hidden"
           aria-label="Back to conversations"
         >
           ←
         </button>
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[var(--inbox-elevated)] text-[12px] font-bold text-[var(--inbox-text-primary)]">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-elevated)] text-[12px] font-bold text-[var(--inbox-text-primary)]">
           {initials(name)}
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <p className="truncate text-[14px] font-semibold text-[var(--inbox-text-primary)]">{name}</p>
-            <span className="rounded-full border border-white/10 bg-[var(--inbox-card)] px-2 py-1 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
+            <span className="rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-2 py-1 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
               {CH_ICON[channel] || 'CH'}
             </span>
           </div>
@@ -158,22 +158,24 @@ function TopBar({
         </div>
       </div>
 
-      <div className="hidden shrink-0 items-center rounded-full border border-white/[0.08] bg-[var(--inbox-card)] px-4 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)] lg:flex">
-        <span className={`mr-2 h-2 w-2 rounded-full ${isAutoOn ? 'bg-[#00E5FF] shadow-[0_0_12px_rgba(0,229,255,0.8)]' : 'bg-[var(--inbox-text-muted)]'}`} />
-        {aiConfigured ? aiState : 'AI not configured'}
+      <div className="col-span-2 flex min-w-0 shrink-0 items-center justify-center rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-4 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)] xl:col-span-1">
+        <span className={`mr-2 h-2 w-2 rounded-full ${isAutoOn ? 'bg-[var(--inbox-ai)] shadow-[0_0_12px_rgba(0,229,255,0.8)]' : 'bg-[var(--inbox-text-muted)]'}`} />
+        {aiConfigured ? aiState : 'AI unavailable'}
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
-        <button type="button" onClick={onAssign} className="hidden rounded-xl border border-white/[0.08] bg-[var(--inbox-card)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)] transition hover:bg-[var(--inbox-elevated)] sm:inline-flex">
+      <div className="flex shrink-0 items-center justify-end gap-2">
+        <button type="button" onClick={onAssign} className="hidden rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)] transition hover:bg-[var(--inbox-elevated)] sm:inline-flex">
           Assign
         </button>
-        <button type="button" onClick={onClose} className="hidden rounded-xl border border-white/[0.08] bg-[var(--inbox-card)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)] transition hover:bg-[var(--inbox-elevated)] sm:inline-flex">
+        <button type="button" onClick={onClose} className="hidden rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)] transition hover:bg-[var(--inbox-elevated)] sm:inline-flex">
           Close
         </button>
-        <button type="button" onClick={onTakeOver} className="rounded-xl bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-3 py-2 text-[12px] font-semibold text-white shadow-[0_10px_24px_rgba(255,90,31,0.22)]">
-          Take Over
-        </button>
-        <button type="button" onClick={onTogglePanel} className="rounded-xl border border-white/[0.08] bg-[var(--inbox-card)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)] transition hover:bg-[var(--inbox-elevated)]">
+        {isAutoOn && (
+          <button type="button" onClick={onTakeOver} className="rounded-[10px] bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-3 py-2 text-[12px] font-semibold text-white shadow-[0_10px_24px_rgba(255,90,31,0.22)]">
+            Take Over
+          </button>
+        )}
+        <button type="button" onClick={onTogglePanel} className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)] transition hover:bg-[var(--inbox-elevated)]">
           {showPanel ? 'Hide' : 'Context'}
         </button>
       </div>
@@ -184,8 +186,8 @@ function TopBar({
 function EmptyChat() {
   return (
     <div className="flex h-full flex-1 items-center justify-center bg-[var(--inbox-main)] px-8">
-      <div className="max-w-[420px] rounded-[24px] border border-white/[0.08] bg-[var(--inbox-surface)] p-8 text-center shadow-[0_24px_80px_rgba(0,0,0,0.25)]">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-[var(--inbox-card)] text-[12px] font-bold text-[var(--inbox-text-secondary)]">
+      <div className="max-w-[420px] rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-surface)] p-8 text-center shadow-[0_24px_80px_rgba(0,0,0,0.25)]">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-card)] text-[12px] font-bold text-[var(--inbox-text-secondary)]">
           IN
         </div>
         <h2 className="mt-5 text-[20px] font-semibold tracking-[-0.02em] text-[var(--inbox-text-primary)]">Select a conversation</h2>
@@ -228,6 +230,7 @@ export default function ChatWindow({
   onManageCanned,
   fileInputRef,
   imageInputRef,
+  onFileSelect,
   onBackToList,
 }) {
   if (!activeConv) return <EmptyChat />;
@@ -249,8 +252,8 @@ export default function ChatWindow({
         onBackToList={onBackToList}
       />
 
-      <div className="border-b border-white/[0.08] bg-[var(--inbox-surface)] px-5 py-3">
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-white/[0.08] bg-[var(--inbox-card)] px-4 py-3">
+      <div className="border-b border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-5 py-3">
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-4 py-3">
           <div className="min-w-0">
             <p className="text-[12px] font-semibold text-[var(--inbox-text-primary)]">
               {isAutoOn ? 'AI is handling this conversation' : 'Manual response mode'}
@@ -262,10 +265,10 @@ export default function ChatWindow({
           <button
             type="button"
             onClick={onToggleAuto}
-            className={`relative h-8 w-14 shrink-0 rounded-full border transition ${isAutoOn ? 'border-[#00E5FF]/40 bg-[#00E5FF]/15' : 'border-white/[0.08] bg-[var(--inbox-elevated)]'}`}
+            className={`relative h-8 w-14 shrink-0 rounded-full border transition ${isAutoOn ? 'border-[#00E5FF]/40 bg-[#00E5FF]/15' : 'border-[var(--inbox-border)] bg-[var(--inbox-elevated)]'}`}
             aria-label="Toggle AI mode"
           >
-            <span className={`absolute top-1 h-6 w-6 rounded-full transition ${isAutoOn ? 'left-7 bg-[#00E5FF]' : 'left-1 bg-[var(--inbox-text-secondary)]'}`} />
+            <span className={`absolute top-1 h-6 w-6 rounded-full transition ${isAutoOn ? 'left-7 bg-[var(--inbox-ai)]' : 'left-1 bg-[var(--inbox-text-secondary)]'}`} />
           </button>
         </div>
       </div>
@@ -273,7 +276,7 @@ export default function ChatWindow({
       <div ref={msgsContainerRef} className="min-h-0 flex-1 overflow-y-auto bg-[var(--inbox-main)] px-5 py-6">
         {messages.length === 0 ? (
           <div className="flex min-h-full items-center justify-center">
-            <div className="max-w-[420px] rounded-[24px] border border-white/[0.08] bg-[var(--inbox-surface)] p-8 text-center">
+            <div className="max-w-[420px] rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-surface)] p-8 text-center">
               <p className="text-[16px] font-semibold text-[var(--inbox-text-primary)]">No messages yet</p>
               <p className="mt-2 text-[14px] leading-6 text-[var(--inbox-text-secondary)]">
                 New messages for this conversation will appear here immediately.
@@ -288,8 +291,8 @@ export default function ChatWindow({
 
             {aiTyping && (
               <div className="flex items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-[var(--inbox-elevated)] text-[11px] font-bold text-[#00E5FF]">AI</div>
-                <div className="rounded-2xl border border-white/[0.08] bg-[var(--inbox-card)] px-4 py-3 text-[12px] font-semibold text-[#00E5FF]">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-elevated)] text-[11px] font-bold text-[var(--inbox-ai)]">AI</div>
+                <div className="rounded-[14px] border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-4 py-3 text-[12px] font-semibold text-[var(--inbox-ai)]">
                   AI is composing...
                 </div>
               </div>
@@ -299,7 +302,7 @@ export default function ChatWindow({
         <div ref={bottomRef} />
       </div>
 
-      {!isAutoOn && suggestion && (
+      {!isAutoOn && (suggestion || aiTyping || aiConfigured) && (
         <AISuggestionBar
           suggestion={suggestion}
           aiTyping={aiTyping}
@@ -327,6 +330,7 @@ export default function ChatWindow({
         onManageCanned={onManageCanned}
         fileInputRef={fileInputRef}
         imageInputRef={imageInputRef}
+        onFileSelect={onFileSelect}
       />
     </main>
   );

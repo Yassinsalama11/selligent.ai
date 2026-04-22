@@ -51,9 +51,9 @@ function normalizeMessage(message = {}, fallbackConversationId = null) {
       || fallbackConversationId
       || ''
   );
-  const sentBy = message.sent_by || message.sentBy || message.by || (message.direction === 'outbound' ? 'agent' : 'customer');
+  const sentBy = message.sent_by || message.sentBy || message.by || (message.auto ? 'ai' : message.direction === 'outbound' ? 'agent' : 'customer');
   const direction = message.direction
-    || (message.dir === 'out' ? 'outbound' : null)
+    || (message.dir === 'out' ? 'outbound' : message.dir === 'in' ? 'inbound' : null)
     || (['agent', 'ai'].includes(sentBy) ? 'outbound' : 'inbound');
 
   return {
@@ -251,9 +251,6 @@ function normalizeConversation(row = {}) {
 
 /* -- Page ----------------------------------------------------------------─-- */
 export default function ConversationsPage() {
-  const [active, setActive]         = useState(null);
-  const [msgs, setMsgs]             = useState([]);
-  const [reply, setReply]           = useState('');
   const [filters, setFilters]       = useState({
     status: 'all',
     channel: 'all',
@@ -262,7 +259,8 @@ export default function ConversationsPage() {
   });
   const [search, setSearch]         = useState('');
   const [agents, setAgents]         = useState([]);
-  const [showPanel, setShow]        = useState(true);
+  const [desktopPanelOpen, setDesktopPanelOpen] = useState(true);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [isNarrow, setIsNarrow]     = useState(false);
   const [isLightMode, setIsLightMode] = useState(false);
   const [layoutPrefs, setLayoutPrefs] = useState({
@@ -274,7 +272,6 @@ export default function ConversationsPage() {
     showTimestamp:true,
   });
   const [tags, setTags]             = useState({});
-  const [assignedTo, setAssignedTo] = useState({});
   const [handoffs, setHandoffs] = useState({});      // { [convId]: handoff | null }
   const [currentUser, setCurrentUser] = useState(null);
   const [store, dispatch] = useReducer(storeReducer, STORE_INIT);
@@ -291,7 +288,7 @@ export default function ConversationsPage() {
   const [suggestion, setSuggestion] = useState(null);
   const [liveReply,  setLiveReply]  = useState('');
   const aiConfigured = true;
-  const hasActiveConversation = Boolean(activeLive || active);
+  const hasActiveConversation = Boolean(activeLive);
   const inboxTheme = isLightMode ? {
     '--inbox-main': '#F8FAFC',
     '--inbox-surface': '#FFFFFF',
@@ -300,6 +297,12 @@ export default function ConversationsPage() {
     '--inbox-text-primary': '#0F172A',
     '--inbox-text-secondary': '#475569',
     '--inbox-text-muted': '#64748B',
+    '--inbox-border': 'rgba(15,23,42,0.10)',
+    '--inbox-border-strong': 'rgba(15,23,42,0.14)',
+    '--inbox-primary': '#FF5A1F',
+    '--inbox-brand-from': '#FF7A18',
+    '--inbox-brand-to': '#FF3D00',
+    '--inbox-ai': '#00E5FF',
   } : {
     '--inbox-main': '#050816',
     '--inbox-surface': '#0B1220',
@@ -308,6 +311,12 @@ export default function ConversationsPage() {
     '--inbox-text-primary': '#FFFFFF',
     '--inbox-text-secondary': '#9CA3AF',
     '--inbox-text-muted': '#6B7280',
+    '--inbox-border': 'rgba(255,255,255,0.08)',
+    '--inbox-border-strong': 'rgba(255,255,255,0.12)',
+    '--inbox-primary': '#FF5A1F',
+    '--inbox-brand-from': '#FF7A18',
+    '--inbox-brand-to': '#FF3D00',
+    '--inbox-ai': '#00E5FF',
   };
 
   useEffect(() => {
@@ -317,7 +326,7 @@ export default function ConversationsPage() {
 
     const syncNarrow = () => {
       setIsNarrow(narrowQuery.matches);
-      if (narrowQuery.matches) setShow(false);
+      if (!narrowQuery.matches) setMobilePanelOpen(false);
     };
     const syncLight = () => setIsLightMode(lightQuery.matches);
 
@@ -381,15 +390,14 @@ export default function ConversationsPage() {
         searchInputRef.current?.focus();
       }
       if (e.key === 'Escape') {
-        if (activeLive || active) {
+        if (activeLive) {
           dispatch({ type: 'CLOSE_ACTIVE' });
-          setActive(null);
         }
       }
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [active, activeLive]);
+  }, [activeLive]);
 
   useLayoutEffect(() => {
     const el = msgsContainerRef.current;
@@ -501,7 +509,6 @@ export default function ConversationsPage() {
 
   /* AI assist state */
   const [aiAutoReply, setAiAutoReply] = useState({});
-  const [aiThinking, setAiThinking]   = useState(false);
   const autoReplyTimers               = useRef({});
 
   /* Canned replies */
@@ -519,24 +526,12 @@ export default function ConversationsPage() {
   const [historyModal, setHistoryModal] = useState(false);
   const [tagInput, setTagInput]         = useState('');
 
-  const isAutoOn = activeLive ? activeLive.ai_mode === 'auto' : aiAutoReply[active?.id] || false;
+  const isAutoOn = activeLive?.ai_mode === 'auto';
 
   function selectConv(c) {
     openLiveConv(c);
     setShowCannedPicker(false);
-    if (isNarrow) setShow(false);
-  }
-
-  function toggleAutoReply() {
-    const val = !isAutoOn;
-    setAiAutoReply(a => ({ ...a, [active.id]: val }));
-    toast(val ? '🤖 AI Auto-Reply ON' : '👤 Manual mode');
-  }
-
-  function send() {
-    if (!reply.trim()) return;
-    setMsgs(m => [...m, { id: Date.now()+'', dir:'out', text:reply, by:'agent' }]);
-    setReply('');
+    if (isNarrow) setMobilePanelOpen(false);
   }
 
   function handleFileSelect(e, type) {
@@ -545,8 +540,8 @@ export default function ConversationsPage() {
 
   const filtered = Object.values(store.convs).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-  const activeTags   = tags[(activeLive || active)?.id] || [];
-  const currentAgent = activeLive?.assigneeName || assignedTo[active?.id] || 'Unassigned';
+  const activeTags   = tags[activeLive?.id] || [];
+  const currentAgent = activeLive?.assigneeName || 'Unassigned';
 
   async function assignActiveConversation(agent) {
     const conv = activeLive;
@@ -603,10 +598,9 @@ export default function ConversationsPage() {
   );
 
   return (
-    <>
+    <div className="h-full min-h-0" style={inboxTheme}>
       <div
-        className="flex h-[calc(100vh-var(--topbar-h))] min-h-0 w-full overflow-hidden bg-[var(--inbox-main)] text-[14px]"
-        style={inboxTheme}
+        className="flex h-full min-h-0 w-full overflow-hidden bg-[var(--inbox-main)] font-['Inter',sans-serif] text-[14px] text-[var(--inbox-text-primary)]"
       >
         <div className={`${hasActiveConversation ? 'hidden md:flex' : 'flex'} h-full min-h-0 w-full shrink-0 md:w-[320px]`}>
           <ConversationList
@@ -624,18 +618,18 @@ export default function ConversationsPage() {
 
         <div className={`${hasActiveConversation ? 'flex' : 'hidden md:flex'} h-full min-h-0 min-w-0 flex-1`}>
           <ChatWindow
-            activeConv={activeLive || active}
-            messages={activeLive ? liveMsgs.filter(m => String(m.conversationId || m.conversation_id) === String(activeLive.id)) : msgs}
-            reply={activeLive ? liveReply : reply}
-            setReply={activeLive ? setLiveReply : setReply}
-            onSend={activeLive ? () => sendLiveReply(liveReply) : send}
-            isAutoOn={activeLive ? activeLive.ai_mode === 'auto' : isAutoOn}
-            onToggleAuto={activeLive ? () => setActiveLiveAiMode(activeLive.ai_mode !== 'auto') : toggleAutoReply}
-            aiTyping={activeLive ? store.aiTyping[activeLive.id] : aiThinking}
+            activeConv={activeLive}
+            messages={activeLive ? liveMsgs.filter(m => String(m.conversationId) === String(activeLive.id)) : []}
+            reply={liveReply}
+            setReply={setLiveReply}
+            onSend={() => sendLiveReply(liveReply)}
+            isAutoOn={isAutoOn}
+            onToggleAuto={() => activeLive && setActiveLiveAiMode(activeLive.ai_mode !== 'auto')}
+            aiTyping={activeLive ? store.aiTyping[activeLive.id] : false}
             aiConfigured={aiConfigured}
             suggestion={suggestion}
-            onUseSuggestion={(text) => activeLive ? (setLiveReply(text), setSuggestion(null)) : (setReply(text), toast('Loaded ↑'))}
-            onSendSuggestion={(text) => activeLive ? (sendLiveReply(text), setSuggestion(null)) : null}
+            onUseSuggestion={(text) => { setLiveReply(text); setSuggestion(null); }}
+            onSendSuggestion={(text) => { sendLiveReply(text); setSuggestion(null); }}
             onDismissSuggestion={() => setSuggestion(null)}
             onTakeOver={() => {
               if (activeLive) {
@@ -644,8 +638,11 @@ export default function ConversationsPage() {
             }}
             onAssign={() => setAssignModal(true)}
             onClose={() => activeLive ? (dispatch({ type:'CLOSE_ACTIVE' }), setSuggestion(null)) : setCloseModal(true)}
-            onTogglePanel={() => setShow(v => !v)}
-            showPanel={showPanel}
+            onTogglePanel={() => {
+              if (isNarrow) setMobilePanelOpen(true);
+              else setDesktopPanelOpen(value => !value);
+            }}
+            showPanel={!isNarrow && desktopPanelOpen}
             layoutPrefs={layoutPrefs}
             msgsContainerRef={msgsContainerRef}
             bottomRef={bottomRef}
@@ -654,78 +651,105 @@ export default function ConversationsPage() {
             cannedSearch={cannedSearch}
             setCannedSearch={setCannedSearch}
             filteredCanned={filteredCanned}
-            onInsertCanned={(text) => { activeLive ? setLiveReply(text) : setReply(text); setShowCannedPicker(false); }}
+            onInsertCanned={(text) => { setLiveReply(text); setShowCannedPicker(false); }}
             onManageCanned={() => setCannedMgmtModal(true)}
             fileInputRef={fileInputRef}
             imageInputRef={imageInputRef}
+            onFileSelect={handleFileSelect}
             onBackToList={() => {
               dispatch({ type:'CLOSE_ACTIVE' });
-              setActive(null);
               setSuggestion(null);
+              setMobilePanelOpen(false);
             }}
           />
         </div>
 
-        {showPanel && (active || activeLive) && (
-          <div className="fixed bottom-0 right-0 top-[var(--topbar-h)] z-30 flex w-[320px] flex-shrink-0 flex-col overflow-y-auto border-l border-white/[0.08] bg-[var(--inbox-surface)] shadow-[0_24px_80px_rgba(0,0,0,0.35)] md:static md:z-auto md:h-full md:min-h-0 md:shadow-none">
+        {desktopPanelOpen && activeLive && (
+          <div className="hidden h-full min-h-0 w-[320px] flex-shrink-0 flex-col overflow-y-auto border-l border-[var(--inbox-border)] bg-[var(--inbox-surface)] md:flex">
             <CustomerProfilePanel
-              activeConv={activeLive || active}
-              isAutoOn={activeLive ? activeLive.ai_mode === 'auto' : isAutoOn}
-              onToggleAuto={activeLive ? () => setActiveLiveAiMode(activeLive.ai_mode !== 'auto') : toggleAutoReply}
+              activeConv={activeLive}
+              isAutoOn={isAutoOn}
+              onToggleAuto={() => setActiveLiveAiMode(activeLive.ai_mode !== 'auto')}
               tags={activeTags}
               currentAgent={currentAgent}
               onManageCanned={() => setCannedMgmtModal(true)}
-              onAddTag={() => !activeLive && setTagModal(true)}
-              onViewHistory={() => !activeLive && setHistoryModal(true)}
+              onAddTag={() => setTagModal(true)}
+              onViewHistory={() => setHistoryModal(true)}
             />
-            {(activeLive || active) && (
+            {activeLive && (
               <div className="p-4 pt-0">
                 <HandoffPanel
-                  conversationId={(activeLive || active).id}
-                  handoff={handoffs[(activeLive || active).id] || null}
+                  conversationId={activeLive.id}
+                  handoff={handoffs[activeLive.id] || null}
                   agents={agents}
                   currentUser={currentUser}
-                  onHandoffChange={(h) => setHandoffs(prev => ({ ...prev, [(activeLive || active).id]: h }))}
+                  onHandoffChange={(h) => setHandoffs(prev => ({ ...prev, [activeLive.id]: h }))}
                 />
               </div>
             )}
           </div>
         )}
-        {showPanel && hasActiveConversation && (
+
+        {mobilePanelOpen && activeLive && (
+          <div className="fixed inset-y-0 right-0 z-30 flex w-[320px] max-w-[calc(100vw-32px)] flex-col overflow-y-auto border-l border-[var(--inbox-border)] bg-[var(--inbox-surface)] shadow-[0_24px_80px_rgba(0,0,0,0.35)] md:hidden">
+            <CustomerProfilePanel
+              activeConv={activeLive}
+              isAutoOn={isAutoOn}
+              onToggleAuto={() => setActiveLiveAiMode(activeLive.ai_mode !== 'auto')}
+              tags={activeTags}
+              currentAgent={currentAgent}
+              onManageCanned={() => setCannedMgmtModal(true)}
+              onAddTag={() => setTagModal(true)}
+              onViewHistory={() => setHistoryModal(true)}
+            />
+            {activeLive && (
+              <div className="p-4 pt-0">
+                <HandoffPanel
+                  conversationId={activeLive.id}
+                  handoff={handoffs[activeLive.id] || null}
+                  agents={agents}
+                  currentUser={currentUser}
+                  onHandoffChange={(h) => setHandoffs(prev => ({ ...prev, [activeLive.id]: h }))}
+                />
+              </div>
+            )}
+          </div>
+        )}
+        {mobilePanelOpen && hasActiveConversation && (
           <button
             type="button"
             className="fixed inset-0 z-20 bg-black/40 md:hidden"
-            onClick={() => setShow(false)}
+            onClick={() => setMobilePanelOpen(false)}
             aria-label="Close context panel"
           />
         )}
       </div>
 
       {/* Modals */}
-      <Modal open={cannedMgmtModal} onClose={() => setCannedMgmtModal(false)} title="Canned Replies" width={560}>
+      <Modal open={cannedMgmtModal} onClose={() => setCannedMgmtModal(false)} title="Canned Replies" width={560} variant="inbox">
         <div className="flex flex-col gap-4">
           {cannedReplies.map(c => (
-            <div key={c.id} className="flex items-center justify-between rounded-2xl border border-white/[0.08] bg-[var(--inbox-card)] p-4">
+            <div key={c.id} className="flex items-center justify-between rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-card)] p-4">
               <div>
                 <p className="text-[14px] font-semibold text-[var(--inbox-text-primary)]">{c.title}</p>
                 <p className="mt-1 text-[12px] text-[var(--inbox-text-secondary)]">{c.shortcut}</p>
               </div>
-              <button className="rounded-xl border border-white/[0.08] bg-[var(--inbox-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)]" onClick={() => setCannedReplies(r => r.filter(x => x.id !== c.id))}>Delete</button>
+              <button className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)]" onClick={() => setCannedReplies(r => r.filter(x => x.id !== c.id))}>Delete</button>
             </div>
           ))}
-          <button className="rounded-xl bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-4 py-3 text-[14px] font-semibold text-white shadow-[0_10px_24px_rgba(255,90,31,0.22)]" onClick={() => toast('Add form logic here')}>Add new</button>
+        <button className="rounded-[10px] bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-4 py-3 text-[14px] font-semibold text-white shadow-[0_10px_24px_rgba(255,90,31,0.22)]" onClick={() => toast('Add form logic here')}>Add new</button>
         </div>
       </Modal>
 
-      <Modal open={assignModal} onClose={() => setAssignModal(false)} title="Assign Agent">
+      <Modal open={assignModal} onClose={() => setAssignModal(false)} title="Assign Agent" variant="inbox">
         <div className="flex flex-col gap-2">
-          <button className="rounded-xl border border-white/[0.08] bg-[var(--inbox-card)] px-4 py-3 text-left text-[14px] font-semibold text-[var(--inbox-text-primary)]" onClick={() => activeLive ? assignActiveConversation(null) : setAssignModal(false)}>
+          <button className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-4 py-3 text-left text-[14px] font-semibold text-[var(--inbox-text-primary)]" onClick={() => activeLive ? assignActiveConversation(null) : setAssignModal(false)}>
             Unassigned
           </button>
           {agents.map(agent => (
             <button
               key={agent.id}
-              className="rounded-xl border border-white/[0.08] bg-[var(--inbox-card)] px-4 py-3 text-left text-[14px] font-semibold text-[var(--inbox-text-primary)]"
+              className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-4 py-3 text-left text-[14px] font-semibold text-[var(--inbox-text-primary)]"
               onClick={() => activeLive ? assignActiveConversation(agent) : setAssignModal(false)}
             >
               {agent.name || agent.email}
@@ -734,34 +758,34 @@ export default function ConversationsPage() {
         </div>
       </Modal>
 
-      <Modal open={closeModal} onClose={() => setCloseModal(false)} title="Close Conversation">
+      <Modal open={closeModal} onClose={() => setCloseModal(false)} title="Close Conversation" variant="inbox">
         <p className="mb-4">Mark this conversation as closed?</p>
         <div className="flex gap-2">
-          <button className="flex-1 rounded-xl bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-4 py-3 text-[14px] font-semibold text-white" onClick={() => setCloseModal(false)}>Close</button>
-          <button className="flex-1 rounded-xl border border-white/[0.08] bg-[var(--inbox-card)] px-4 py-3 text-[14px] font-semibold text-[var(--inbox-text-primary)]" onClick={() => setCloseModal(false)}>Cancel</button>
+          <button className="flex-1 rounded-[10px] bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-4 py-3 text-[14px] font-semibold text-white" onClick={() => setCloseModal(false)}>Close</button>
+          <button className="flex-1 rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-4 py-3 text-[14px] font-semibold text-[var(--inbox-text-primary)]" onClick={() => setCloseModal(false)}>Cancel</button>
         </div>
       </Modal>
 
-      <Modal open={tagModal} onClose={() => setTagModal(false)} title="Add Tag">
+      <Modal open={tagModal} onClose={() => setTagModal(false)} title="Add Tag" variant="inbox">
         <div className="flex gap-2 mb-4">
-          <input className="flex-1 rounded-xl border border-white/[0.08] bg-[var(--inbox-card)] px-4 py-3 text-[14px] text-[var(--inbox-text-primary)] outline-none" value={tagInput} onChange={e => setTagInput(e.target.value)} placeholder="Tag name..." />
-          <button className="rounded-xl bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-4 py-3 text-[14px] font-semibold text-white" onClick={() => { setTags(t => ({ ...t, [active.id]: [...(t[active.id]||[]), tagInput] })); setTagInput(''); setTagModal(false); }}>Add</button>
+          <input className="flex-1 rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-4 py-3 text-[14px] text-[var(--inbox-text-primary)] outline-none" value={tagInput} onChange={e => setTagInput(e.target.value)} placeholder="Tag name..." />
+          <button className="rounded-[10px] bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-4 py-3 text-[14px] font-semibold text-white" onClick={() => { if (!activeLive) return; setTags(t => ({ ...t, [activeLive.id]: [...(t[activeLive.id]||[]), tagInput] })); setTagInput(''); setTagModal(false); }}>Add</button>
         </div>
         <div className="flex flex-wrap gap-2">
           {TAGS.map(t => (
-            <button key={t} className="rounded-full border border-white/[0.08] bg-[var(--inbox-card)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)]" onClick={() => { setTags(tgs => ({ ...tgs, [active.id]: [...(tgs[active.id]||[]), t] })); setTagModal(false); }}>{t}</button>
+            <button key={t} className="rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)]" onClick={() => { if (!activeLive) return; setTags(tgs => ({ ...tgs, [activeLive.id]: [...(tgs[activeLive.id]||[]), t] })); setTagModal(false); }}>{t}</button>
           ))}
         </div>
       </Modal>
 
-      <Modal open={historyModal} onClose={() => setHistoryModal(false)} title="Conversation History">
+      <Modal open={historyModal} onClose={() => setHistoryModal(false)} title="Conversation History" variant="inbox">
         <div className="flex flex-col gap-3">
-          <div className="rounded-2xl border border-white/[0.08] bg-[var(--inbox-card)] p-4">
+          <div className="rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-card)] p-4">
             <p className="text-[14px] font-semibold text-[var(--inbox-text-primary)]">No history available</p>
             <p className="mt-1 text-[12px] text-[var(--inbox-text-secondary)]">This panel will show previous interactions when real history is available.</p>
           </div>
         </div>
       </Modal>
-    </>
+    </div>
   );
 }

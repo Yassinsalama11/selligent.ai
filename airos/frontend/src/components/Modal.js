@@ -1,7 +1,7 @@
 'use client';
 import { useEffect } from 'react';
 
-export default function Modal({ open, onClose, title, children, width = 480 }) {
+export default function Modal({ open, onClose, title, children, width = 480, variant = 'default' }) {
   useEffect(() => {
     if (!open) return;
     const esc = e => { if (e.key === 'Escape') onClose(); };
@@ -10,6 +10,8 @@ export default function Modal({ open, onClose, title, children, width = 480 }) {
   }, [open, onClose]);
 
   if (!open) return null;
+
+  const isInbox = variant === 'inbox';
 
   return (
     <div
@@ -26,10 +28,10 @@ export default function Modal({ open, onClose, title, children, width = 480 }) {
         onClick={e => e.stopPropagation()}
         style={{
           width: '100%', maxWidth: width,
-          background: 'var(--bg3)',
-          border: '1px solid var(--b2)',
-          borderRadius: 'var(--r-xl)',
-          padding: '28px 28px 24px',
+          background: isInbox ? 'var(--inbox-surface)' : 'var(--bg3)',
+          border: isInbox ? '1px solid var(--inbox-border)' : '1px solid var(--b2)',
+          borderRadius: isInbox ? 12 : 'var(--r-xl)',
+          padding: isInbox ? 24 : '28px 28px 24px',
           display: 'flex', flexDirection: 'column', gap: 20,
           boxShadow: '0 24px 80px rgba(0,0,0,0.55)',
           animation: 'slide-up 0.2s ease',
@@ -37,12 +39,14 @@ export default function Modal({ open, onClose, title, children, width = 480 }) {
       >
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={{ fontSize: 17, fontWeight: 800, color: 'var(--t1)' }}>{title}</h2>
+          <h2 style={{ fontSize: isInbox ? 14 : 17, fontWeight: isInbox ? 600 : 800, color: isInbox ? 'var(--inbox-text-primary)' : 'var(--t1)' }}>{title}</h2>
           <button
             onClick={onClose}
             style={{
-              width: 30, height: 30, borderRadius: '50%', border: '1px solid var(--b1)',
-              background: 'var(--s1)', color: 'var(--t3)', cursor: 'pointer',
+              width: 30, height: 30, borderRadius: '50%',
+              border: isInbox ? '1px solid var(--inbox-border)' : '1px solid var(--b1)',
+              background: isInbox ? 'var(--inbox-card)' : 'var(--s1)',
+              color: isInbox ? 'var(--inbox-text-secondary)' : 'var(--t3)', cursor: 'pointer',
               fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
               lineHeight: 1,
             }}
