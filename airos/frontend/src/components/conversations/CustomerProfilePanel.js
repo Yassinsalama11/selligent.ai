@@ -1,7 +1,31 @@
 'use client';
 
 import React from 'react';
-import { IC_COLOR, CH_COLOR, CH_ICON } from './constants';
+import { CH_ICON } from './constants';
+
+function initials(name = '') {
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  return parts.slice(0, 2).map(part => part[0]).join('').toUpperCase();
+}
+
+function Section({ title, children }) {
+  return (
+    <section className="rounded-2xl border border-white/[0.08] bg-[var(--inbox-card)] p-4">
+      <h3 className="mb-3 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--inbox-text-muted)]">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function DetailRow({ label, value, valueClassName = '' }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2">
+      <span className="text-[12px] text-[var(--inbox-text-secondary)]">{label}</span>
+      <span className={`min-w-0 truncate text-right text-[12px] font-semibold text-[var(--inbox-text-primary)] ${valueClassName}`}>{value}</span>
+    </div>
+  );
+}
 
 export default function CustomerProfilePanel({
   activeConv,
@@ -15,87 +39,91 @@ export default function CustomerProfilePanel({
 }) {
   if (!activeConv) return null;
 
-  const isLive = !!activeConv.customerName;
-  const name = isLive ? activeConv.customerName : activeConv.name;
-  const channel = isLive ? (activeConv.channel || 'whatsapp') : activeConv.ch;
-  const score = activeConv.score || 0;
+  const name = activeConv.customerName || activeConv.name || 'Unknown customer';
+  const channel = activeConv.channel || activeConv.ch || 'livechat';
+  const score = Math.max(0, Math.min(100, Number(activeConv.score || 0)));
   const intent = activeConv.intent || 'inquiry';
-  const autoOn = isAutoOn;
-  const scoreColor = score > 70 ? '#34d399' : score > 40 ? '#fcd34d' : '#fca5a5';
-  const safeName = name || 'Unknown customer';
+  const phone = activeConv.customerPhone || activeConv.phone || '';
+  const email = activeConv.customerEmail || activeConv.email || '';
 
   return (
-    <div className="w-full flex-shrink-0 bg-[#0b1120] p-5 overflow-y-auto flex flex-col gap-5">
-      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 text-center shadow-xl">
-        <div className={`w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center font-extrabold text-[22px] border ${
-          isLive 
-            ? 'bg-gradient-to-br from-[#25D366]/25 to-[#10B981]/20 border-[#25D366]/25' 
-            : 'bg-gradient-to-br from-indigo-500/25 to-violet-500/20 border-indigo-500/20'
-        }`}>
-          {safeName.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}
-        </div>
-        <p className="font-bold text-[16px] text-slate-100 leading-tight">{safeName}</p>
-        <div className="mt-3 flex justify-center">
-          <span
-            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide"
-            style={{
-              color: isLive ? '#25D366' : CH_COLOR[channel],
-              borderColor: `${isLive ? '#25D366' : CH_COLOR[channel] || '#64748b'}33`,
-              background: `${isLive ? '#25D366' : CH_COLOR[channel] || '#64748b'}14`,
-            }}
-          >
-            {isLive ? '📱' : CH_ICON[channel]} {channel}
-          </span>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-        <div className="flex items-center justify-between">
-          <span className="text-[12px] font-semibold text-slate-400">Lead score</span>
-          <span className="text-[13px] font-extrabold" style={{ color: scoreColor }}>{score}/100</span>
-        </div>
-        <div className="mt-3 h-2 rounded-full bg-slate-800 overflow-hidden">
-          <div className="h-full rounded-full transition-all" style={{ width: `${Math.max(0, Math.min(100, score))}%`, background: scoreColor }} />
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 flex flex-col gap-3">
-        {[
-          { l: 'Intent', v: intent.replace(/_/g, ' '), c: IC_COLOR[intent] || 'var(--t1)' },
-          { l: 'Assigned', v: currentAgent || 'Unassigned', c: 'var(--t1)' },
-          { l: 'AI Mode', v: autoOn ? 'Auto reply' : 'Manual', c: autoOn ? '#67e8f9' : 'var(--t3)' },
-        ].map(row => (
-          <div key={row.l} className="flex justify-between items-center gap-4">
-            <span className="text-[12px] text-slate-500">{row.l}</span>
-            <span className="text-[12px] font-semibold text-right capitalize" style={{ color: row.c }}>{row.v}</span>
+    <div className="flex w-full flex-col gap-4 bg-[var(--inbox-surface)] p-4">
+      <Section title="Customer">
+        <div className="flex items-center gap-3">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[var(--inbox-elevated)] text-[16px] font-bold text-[var(--inbox-text-primary)]">
+            {initials(name)}
           </div>
-        ))}
-      </div>
-
-      {tags.length > 0 && (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 flex flex-wrap gap-1.5">
-          {tags.map(t => (
-            <span key={t} className="text-[11px] px-2.5 py-1 rounded-full bg-indigo-500/12 text-indigo-300 border border-indigo-500/20">
-              {t}
-            </span>
-          ))}
+          <div className="min-w-0">
+            <p className="truncate text-[16px] font-semibold text-[var(--inbox-text-primary)]">{name}</p>
+            <div className="mt-2 inline-flex items-center rounded-full border border-white/10 bg-[var(--inbox-surface)] px-2 py-1 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
+              {CH_ICON[channel] || 'CH'} · {channel}
+            </div>
+          </div>
         </div>
-      )}
-
-      <div className="flex flex-col gap-2 mt-auto rounded-2xl border border-white/10 bg-white/[0.035] p-3">
-        <div className={`flex items-center justify-between p-2.5 px-3 rounded-[var(--r)] border transition-all ${
-          autoOn ? 'bg-cyan-500/5 border-cyan-500/25' : 'bg-[var(--s1)] border-[var(--b1)]'
-        }`}>
-          <span className={`text-[12.5px] font-semibold ${autoOn ? 'text-cyan-300' : 'text-[var(--t3)]'}`}>AI Auto-Reply</span>
-          <div 
-            className={`toggle transition-transform scale-[0.75] ${autoOn ? 'on' : ''}`} 
-            onClick={onToggleAuto} 
-          />
+        <div className="mt-4 border-t border-white/[0.06] pt-2">
+          <DetailRow label="Phone" value={phone || 'Not provided'} />
+          <DetailRow label="Email" value={email || 'Not provided'} />
         </div>
-        <button className="btn btn-ghost btn-sm w-full justify-center" onClick={onManageCanned}>💬 Canned Replies</button>
-        <button className="btn btn-ghost btn-sm w-full justify-center" onClick={onAddTag}>+ Add Tag</button>
-        <button className="btn btn-ghost btn-sm w-full justify-center" onClick={onViewHistory}>View History</button>
-      </div>
+      </Section>
+
+      <Section title="Lead score">
+        <div className="flex items-end justify-between">
+          <span className="text-[28px] font-semibold tracking-[-0.04em] text-[var(--inbox-text-primary)]">{score}</span>
+          <span className="pb-1 text-[12px] text-[var(--inbox-text-secondary)]">/100</span>
+        </div>
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--inbox-elevated)]">
+          <div className="h-full rounded-full bg-[#00E5FF]" style={{ width: `${score}%` }} />
+        </div>
+      </Section>
+
+      <Section title="Conversation">
+        <DetailRow label="Intent" value={intent.replace(/_/g, ' ')} valueClassName="capitalize" />
+        <DetailRow label="Assignee" value={currentAgent || 'Unassigned'} />
+        <DetailRow label="AI mode" value={isAutoOn ? 'Auto reply' : 'Manual'} valueClassName={isAutoOn ? 'text-[#00E5FF]' : ''} />
+      </Section>
+
+      <Section title="AI state">
+        <button
+          type="button"
+          onClick={onToggleAuto}
+          className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 transition ${
+            isAutoOn ? 'border-[#00E5FF]/30 bg-[#00E5FF]/10' : 'border-white/[0.08] bg-[var(--inbox-surface)]'
+          }`}
+        >
+          <span className="text-[14px] font-semibold text-[var(--inbox-text-primary)]">
+            {isAutoOn ? 'AI handling' : 'Manual'}
+          </span>
+          <span className={`h-3 w-3 rounded-full ${isAutoOn ? 'bg-[#00E5FF] shadow-[0_0_14px_rgba(0,229,255,0.8)]' : 'bg-[var(--inbox-text-muted)]'}`} />
+        </button>
+      </Section>
+
+      <Section title="Tags">
+        {tags.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {tags.map(tag => (
+              <span key={tag} className="rounded-full border border-white/[0.08] bg-[var(--inbox-surface)] px-3 py-1 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
+                {tag}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[12px] text-[var(--inbox-text-secondary)]">No tags yet.</p>
+        )}
+      </Section>
+
+      <Section title="Actions">
+        <div className="grid grid-cols-1 gap-2">
+          <button type="button" className="rounded-xl border border-white/[0.08] bg-[var(--inbox-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-primary)] transition hover:bg-[var(--inbox-elevated)]" onClick={onManageCanned}>
+            Canned replies
+          </button>
+          <button type="button" className="rounded-xl border border-white/[0.08] bg-[var(--inbox-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-primary)] transition hover:bg-[var(--inbox-elevated)]" onClick={onAddTag}>
+            Add tag
+          </button>
+          <button type="button" className="rounded-xl border border-white/[0.08] bg-[var(--inbox-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-primary)] transition hover:bg-[var(--inbox-elevated)]" onClick={onViewHistory}>
+            View history
+          </button>
+        </div>
+      </Section>
     </div>
   );
 }

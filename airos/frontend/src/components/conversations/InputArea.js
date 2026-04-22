@@ -7,6 +7,7 @@ export default function InputArea({
   setReply,
   onSend,
   isAutoOn,
+  onTakeOver,
   showCannedPicker,
   setShowCannedPicker,
   cannedSearch,
@@ -18,119 +19,131 @@ export default function InputArea({
   imageInputRef
 }) {
   return (
-    <div className={`px-5 pb-5 bg-[#0f172a] border-t border-white/10 ${isAutoOn ? 'opacity-50 pointer-events-none' : 'opacity-100'}`} data-canned-area="">
-      {/* Canned replies picker dropdown */}
+    <footer className="shrink-0 border-t border-white/[0.08] bg-[var(--inbox-surface)] px-5 py-4">
       {showCannedPicker && (
-        <div className="bg-[#111827] border border-white/10 rounded-2xl mb-3 overflow-hidden shadow-2xl">
-          <div className="p-2.5 px-3 border-b border-[var(--b1)] flex items-center justify-between">
-            <span className="text-[12px] font-bold text-[var(--t2)]">
-              💬 Canned Replies
-              <span className="text-[11px] text-[var(--t4)] ml-1.5">type to filter · click to insert</span>
-            </span>
-            <div className="flex gap-1.5">
-              <button 
-                onClick={onManageCanned}
-                className="text-[11px] px-2.5 py-1 rounded-md cursor-pointer bg-[var(--s2)] text-[var(--t3)] border border-[var(--b1)] font-semibold hover:bg-[var(--s3)] transition-colors"
-              >
-                ⚙ Manage
+        <div className="mb-4 overflow-hidden rounded-2xl border border-white/[0.08] bg-[var(--inbox-card)] shadow-[0_24px_64px_rgba(0,0,0,0.25)]">
+          <div className="flex items-center justify-between gap-4 border-b border-white/[0.08] px-4 py-3">
+            <div>
+              <p className="text-[12px] font-semibold text-[var(--inbox-text-primary)]">Canned replies</p>
+              <p className="mt-1 text-[12px] text-[var(--inbox-text-muted)]">Type `/` to filter, click to insert.</p>
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={onManageCanned} className="rounded-xl border border-white/[0.08] bg-[var(--inbox-elevated)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
+                Manage
               </button>
-              <button 
-                onClick={() => setShowCannedPicker(false)}
-                className="text-[13px] px-2 py-1 rounded-md cursor-pointer bg-transparent text-[var(--t4)] border-none hover:bg-[var(--s1)] transition-colors"
-              >
-                ✕
+              <button type="button" onClick={() => setShowCannedPicker(false)} className="rounded-xl border border-white/[0.08] bg-[var(--inbox-elevated)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
+                Close
               </button>
             </div>
           </div>
-          <div className="max-h-[200px] overflow-y-auto">
+
+          <div className="max-h-[220px] overflow-y-auto">
             {filteredCanned.length === 0 ? (
-              <p className="p-4 text-[13px] text-[var(--t4)] text-center">
-                No matches — <button onClick={onManageCanned} className="text-indigo-400 bg-none border-none cursor-pointer font-semibold hover:underline">add one</button>
-              </p>
-            ) : filteredCanned.map(c => (
-              <button 
-                key={c.id} 
-                onClick={() => onInsertCanned(c.text)}
-                className="w-full p-2.5 px-3.5 text-left cursor-pointer bg-transparent border-none border-b border-white/5 flex items-start gap-2.5 transition-colors duration-100 hover:bg-[var(--s1)]"
+              <div className="px-4 py-6 text-center text-[14px] text-[var(--inbox-text-secondary)]">
+                No matching replies.
+              </div>
+            ) : filteredCanned.map(replyItem => (
+              <button
+                type="button"
+                key={replyItem.id}
+                onClick={() => onInsertCanned(replyItem.text)}
+                className="flex w-full items-start gap-3 border-b border-white/[0.06] px-4 py-3 text-left transition hover:bg-[var(--inbox-elevated)]"
               >
-                <span className="text-[11px] font-mono text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5">
-                  {c.shortcut}
+                <span className="shrink-0 rounded-lg border border-white/[0.08] bg-[var(--inbox-surface)] px-2 py-1 text-[12px] font-mono text-[var(--inbox-text-secondary)]">
+                  {replyItem.shortcut}
                 </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[12.5px] font-semibold text-[var(--t1)] mb-0.5">{c.title}</p>
-                  <p className="text-[12px] text-[var(--t3)] overflow-hidden text-ellipsis whitespace-nowrap" dir="auto">{c.text}</p>
-                </div>
+                <span className="min-w-0">
+                  <span className="block text-[14px] font-semibold text-[var(--inbox-text-primary)]">{replyItem.title}</span>
+                  <span className="mt-1 block truncate text-[12px] text-[var(--inbox-text-secondary)]" dir="auto">{replyItem.text}</span>
+                </span>
               </button>
             ))}
           </div>
         </div>
       )}
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-1.5 mb-2.5">
-        <button 
-          title="Attach file" 
-          onClick={() => fileInputRef.current?.click()}
-          className="p-1.5 px-2 rounded-lg cursor-pointer text-[16px] bg-[var(--s1)] border border-[var(--b1)] text-[var(--t3)] transition-all duration-150 hover:bg-[var(--s2)] hover:text-[var(--t1)]"
-        >
-          📎
-        </button>
-        <button 
-          title="Send image" 
-          onClick={() => imageInputRef.current?.click()}
-          className="p-1.5 px-2 rounded-lg cursor-pointer text-[16px] bg-[var(--s1)] border border-[var(--b1)] text-[var(--t3)] transition-all duration-150 hover:bg-[var(--s2)] hover:text-[var(--t1)]"
-        >
-          🖼
-        </button>
-        <button 
-          title="Canned replies" 
-          onClick={() => { setShowCannedPicker(v => !v); setCannedSearch(''); }}
-          className={`p-1.5 px-2.5 rounded-lg cursor-pointer text-[12px] font-semibold border transition-all duration-150 flex items-center gap-1.5 ${
-            showCannedPicker 
-              ? 'bg-indigo-500/15 border-indigo-500/35 text-indigo-300' 
-              : 'bg-[var(--s1)] border-[var(--b1)] text-[var(--t3)] hover:text-[var(--t1)] hover:bg-[var(--s2)]'
-          }`}
-        >
-          💬 <span>Canned</span>
-        </button>
-        <span className="text-[11px] text-[var(--t4)] ml-0.5">
-          {isAutoOn ? 'AI is handling — click "Take Over" to reply' : 'Type / to search canned · Ctrl+Enter to send'}
-        </span>
-      </div>
+      {isAutoOn ? (
+        <div className="flex flex-col gap-3 rounded-2xl border border-white/[0.08] bg-[var(--inbox-card)] p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-[14px] font-semibold text-[var(--inbox-text-primary)]">AI is handling this conversation</p>
+            <p className="mt-1 text-[12px] text-[var(--inbox-text-secondary)]">Click Take Over to enable the composer.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onTakeOver}
+            className="rounded-xl bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-4 py-3 text-[14px] font-semibold text-white shadow-[0_10px_24px_rgba(255,90,31,0.22)]"
+          >
+            Take Over
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="mb-3 flex items-center gap-2">
+            <button
+              type="button"
+              title="Attach file"
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-xl border border-white/[0.08] bg-[var(--inbox-card)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)] transition hover:bg-[var(--inbox-elevated)]"
+            >
+              Attach
+            </button>
+            <button
+              type="button"
+              title="Send image"
+              onClick={() => imageInputRef.current?.click()}
+              className="rounded-xl border border-white/[0.08] bg-[var(--inbox-card)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)] transition hover:bg-[var(--inbox-elevated)]"
+            >
+              Image
+            </button>
+            <button
+              type="button"
+              onClick={() => { setShowCannedPicker(value => !value); setCannedSearch(''); }}
+              className={`rounded-xl border px-3 py-2 text-[12px] font-semibold transition ${
+                showCannedPicker
+                  ? 'border-white/20 bg-[var(--inbox-elevated)] text-[var(--inbox-text-primary)]'
+                  : 'border-white/[0.08] bg-[var(--inbox-card)] text-[var(--inbox-text-secondary)] hover:bg-[var(--inbox-elevated)]'
+              }`}
+            >
+              Canned
+            </button>
+            <span className="hidden text-[12px] text-[var(--inbox-text-muted)] sm:inline">Ctrl+Enter to send</span>
+          </div>
 
-      {/* Textarea + send */}
-      <div className="flex gap-2.5 items-end rounded-2xl border border-white/10 bg-white/[0.035] p-2 shadow-xl">
-        <textarea 
-          className="input flex-1 resize-none text-[13.5px] min-h-[48px] max-h-[120px] leading-relaxed border-transparent bg-transparent focus:bg-transparent focus:shadow-none"
-          placeholder={isAutoOn ? 'AI is handling — click "Take Over" to reply manually' : 'Type a reply…'}
-          value={reply}
-          onChange={e => {
-            const val = e.target.value;
-            setReply(val);
-            if (val.startsWith('/')) {
-              setShowCannedPicker(true);
-              setCannedSearch(val.slice(1));
-            } else if (showCannedPicker && !val.startsWith('/')) {
-              setShowCannedPicker(false);
-            }
-          }}
-          onKeyDown={e => { 
-            if (e.key === 'Enter' && e.ctrlKey) {
-              e.preventDefault();
-              onSend(); 
-            }
-          }}
-          rows={2} 
-          dir="auto"
-        />
-        <button 
-          disabled={!reply.trim() || isAutoOn} 
-          onClick={onSend}
-          className="btn btn-primary h-[48px] px-5 flex-shrink-0"
-        >
-          Send ↑
-        </button>
-      </div>
-    </div>
+          <div className="flex items-end gap-3 rounded-2xl border border-white/[0.08] bg-[var(--inbox-card)] p-3">
+            <textarea
+              className="min-h-[56px] max-h-[144px] flex-1 resize-none bg-transparent px-1 py-1 text-[14px] leading-6 text-[var(--inbox-text-primary)] outline-none placeholder:text-[var(--inbox-text-muted)]"
+              placeholder="Write a reply..."
+              value={reply}
+              onChange={event => {
+                const value = event.target.value;
+                setReply(value);
+                if (value.startsWith('/')) {
+                  setShowCannedPicker(true);
+                  setCannedSearch(value.slice(1));
+                } else if (showCannedPicker && !value.startsWith('/')) {
+                  setShowCannedPicker(false);
+                }
+              }}
+              onKeyDown={event => {
+                if (event.key === 'Enter' && event.ctrlKey) {
+                  event.preventDefault();
+                  onSend();
+                }
+              }}
+              rows={2}
+              dir="auto"
+            />
+            <button
+              type="button"
+              disabled={!reply.trim()}
+              onClick={onSend}
+              className="h-12 shrink-0 rounded-xl bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-5 text-[14px] font-semibold text-white shadow-[0_10px_24px_rgba(255,90,31,0.22)] transition disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Send
+            </button>
+          </div>
+        </>
+      )}
+    </footer>
   );
 }
