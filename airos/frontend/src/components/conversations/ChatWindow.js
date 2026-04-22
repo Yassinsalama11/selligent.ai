@@ -170,11 +170,6 @@ function TopBar({
         <button type="button" onClick={onClose} className="hidden rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)] transition hover:bg-[var(--inbox-elevated)] sm:inline-flex">
           Close
         </button>
-        {isAutoOn && (
-          <button type="button" onClick={onTakeOver} className="rounded-[10px] bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-3 py-2 text-[12px] font-semibold text-white shadow-[0_10px_24px_rgba(255,90,31,0.22)]">
-            Take Over
-          </button>
-        )}
         <button type="button" onClick={onTogglePanel} className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)] transition hover:bg-[var(--inbox-elevated)]">
           {showPanel ? 'Hide' : 'Context'}
         </button>
@@ -302,7 +297,7 @@ export default function ChatWindow({
         <div ref={bottomRef} />
       </div>
 
-      {!isAutoOn && (suggestion || aiTyping || aiConfigured) && (
+      {!isAutoOn && (suggestion || aiTyping) && (
         <AISuggestionBar
           suggestion={suggestion}
           aiTyping={aiTyping}

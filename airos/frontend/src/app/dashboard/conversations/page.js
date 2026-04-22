@@ -637,7 +637,7 @@ export default function ConversationsPage() {
               }
             }}
             onAssign={() => setAssignModal(true)}
-            onClose={() => activeLive ? (dispatch({ type:'CLOSE_ACTIVE' }), setSuggestion(null)) : setCloseModal(true)}
+            onClose={() => setCloseModal(true)}
             onTogglePanel={() => {
               if (isNarrow) setMobilePanelOpen(true);
               else setDesktopPanelOpen(value => !value);
@@ -759,9 +759,9 @@ export default function ConversationsPage() {
       </Modal>
 
       <Modal open={closeModal} onClose={() => setCloseModal(false)} title="Close Conversation" variant="inbox">
-        <p className="mb-4">Mark this conversation as closed?</p>
+        <p className="mb-4 text-[14px] text-[var(--inbox-text-secondary)]">Go back to the conversation list?</p>
         <div className="flex gap-2">
-          <button className="flex-1 rounded-[10px] bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-4 py-3 text-[14px] font-semibold text-white" onClick={() => setCloseModal(false)}>Close</button>
+          <button className="flex-1 rounded-[10px] bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-4 py-3 text-[14px] font-semibold text-white" onClick={() => { dispatch({ type:'CLOSE_ACTIVE' }); setSuggestion(null); setCloseModal(false); }}>Close</button>
           <button className="flex-1 rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-4 py-3 text-[14px] font-semibold text-[var(--inbox-text-primary)]" onClick={() => setCloseModal(false)}>Cancel</button>
         </div>
       </Modal>
