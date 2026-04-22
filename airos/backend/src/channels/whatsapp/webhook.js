@@ -131,17 +131,17 @@ async function processWhatsAppMessage(rawMsg, contacts, metadata) {
     console.warn('[WhatsApp] Socket emit failed:', e.message);
   }
 
-  // 5. Enqueue for AI processing via BullMQ worker
+  // 5. Trigger AI processing from the already-saved inbound message.
   if (message.content && message.type === 'text') {
     addToQueue({
+      already_saved: true,
       channel: 'whatsapp',
       tenant_id: tenantId,
       conversation_id: conv.id,
       customer_id: dbCustomer.id,
       message_id: savedMsg.id,
+      credentials: tenantMatch?.credentials,
       phone_number_id: metadata?.phone_number_id,
-      raw: rawMsg,
-      contacts,
     }).catch(err => console.error('[WhatsApp] Queue failed:', err.message));
   }
 }

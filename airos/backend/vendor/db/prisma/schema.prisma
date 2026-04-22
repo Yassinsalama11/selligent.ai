@@ -124,6 +124,7 @@ model Conversation {
   customerId String   @map("customer_id") @db.Uuid
   channel    String   @db.VarChar(50)
   status     String   @default("open") @db.VarChar(50)
+  aiMode     String   @default("manual") @map("ai_mode") @db.VarChar(20)
   assignedTo String?  @map("assigned_to") @db.Uuid
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()

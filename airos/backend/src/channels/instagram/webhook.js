@@ -171,13 +171,14 @@ async function processInstagramMessage(msg, entryId) {
 
   if (text) {
     addToQueue({
+      already_saved: true,
       channel: 'instagram',
       tenant_id: tenantId,
       conversation_id: conv.id,
       customer_id: dbCustomer.id,
       message_id: savedMsg.id,
+      credentials: tenantMatch?.credentials,
       page_id: pageId,
-      raw: msg,
     }).catch(err => console.error('[Instagram] Queue failed:', err.message));
   }
 }

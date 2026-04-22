@@ -125,13 +125,14 @@ async function processMessengerMessage(msg, pageId) {
 
   if (text) {
     addToQueue({
+      already_saved: true,
       channel: 'messenger',
       tenant_id: tenantId,
       conversation_id: conv.id,
       customer_id: dbCustomer.id,
       message_id: savedMsg.id,
+      credentials: tenantMatch?.credentials,
       page_id: pageId,
-      raw: msg,
     }).catch(err => console.error('[Messenger] Queue failed:', err.message));
   }
 }

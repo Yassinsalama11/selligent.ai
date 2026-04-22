@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect, useReducer, useLayoutEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import Modal from '@/components/Modal';
-import { API_BASE, api as secureApi } from '@/lib/api';
+import { api as secureApi } from '@/lib/api';
 import { connectSocket } from '@/lib/socket';
 
 // Modular Components
@@ -43,6 +43,30 @@ function parseTs(ts) {
 function messageTimestamp(message = {}) {
   return message.timestamp || message.created_at || message.createdAt || message.sent_at || message.updated_at || message.updatedAt;
 }
+function normalizeMessage(message = {}, fallbackConversationId = null) {
+  const conversationId = String(
+    message.conversationId
+      || message.conversation_id
+      || message.conversation
+      || fallbackConversationId
+      || ''
+  );
+  const sentBy = message.sent_by || message.sentBy || message.by || (message.direction === 'outbound' ? 'agent' : 'customer');
+  const direction = message.direction
+    || (message.dir === 'out' ? 'outbound' : null)
+    || (['agent', 'ai'].includes(sentBy) ? 'outbound' : 'inbound');
+
+  return {
+    ...message,
+    id: String(message.id || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`),
+    conversationId,
+    conversation_id: conversationId,
+    direction,
+    sent_by: sentBy,
+    content: message.content ?? message.text ?? '',
+    timestamp: messageTimestamp(message) || new Date().toISOString(),
+  };
+}
 function sortMessages(msgs) {
   return msgs
     .map((m, i) => ({ m, i, t: parseTs(messageTimestamp(m)) }))
@@ -63,19 +87,24 @@ function storeReducer(state, action) {
     case 'REPLACE_CONVS': {
       const convs = {};
       for (const c of action.convs) {
-        convs[c.id] = { ...c, messages: state.convs[c.id]?.messages || [] };
+        const existing = state.convs[c.id];
+        convs[c.id] = { ...existing, ...c, messages: existing?.messages || [] };
+      }
+      if (state.activeId && !convs[state.activeId] && state.convs[state.activeId]) {
+        convs[state.activeId] = state.convs[state.activeId];
       }
       return {
         ...state,
-        activeId: state.activeId && convs[state.activeId] ? state.activeId : null,
+        activeId: state.activeId,
         convs,
       };
     }
     case 'LOAD_MESSAGES': {
       const existing = state.convs[action.convId]?.messages || [];
-      const serverIds = new Set(action.messages.map(m => m.id));
+      const normalizedServerMessages = action.messages.map(m => normalizeMessage(m, action.convId));
+      const serverIds = new Set(normalizedServerMessages.map(m => m.id));
       const localOnly = existing.filter(m => !serverIds.has(m.id));
-      const merged = sortMessages([...action.messages, ...localOnly]);
+      const merged = sortMessages([...normalizedServerMessages, ...localOnly]);
       return {
         ...state,
         convs: {
@@ -84,24 +113,30 @@ function storeReducer(state, action) {
         },
       };
     }
-    case 'INBOUND_MESSAGE': {
+    case 'UPSERT_MESSAGE': {
       const { conv, message } = action;
-      const existing = state.convs[conv.id];
+      const convId = String(conv?.id || message?.conversationId || message?.conversation_id || '');
+      if (!convId) return state;
+      const existing = state.convs[convId];
       const prevMsgs = existing?.messages || [];
-      if (prevMsgs.some(m => m.id === message.id)) return state;
-      const normalized = { ...message, direction: 'inbound', status: 'delivered' };
-      const messages = sortMessages([...prevMsgs, normalized]);
-      const isActive = state.activeId === conv.id;
+      const normalized = normalizeMessage({ status: 'delivered', ...message }, convId);
+      const messages = sortMessages(
+        prevMsgs.some(m => m.id === normalized.id)
+          ? prevMsgs.map(m => m.id === normalized.id ? { ...m, ...normalized } : m)
+          : [...prevMsgs, normalized]
+      );
+      const isActive = state.activeId === convId;
+      const isCustomerInbound = normalized.direction === 'inbound' && normalized.sent_by === 'customer';
       return {
         ...state,
         convs: {
           ...state.convs,
-          [conv.id]: {
+          [convId]: {
             ...(existing || conv),
             ...conv,
             messages,
-            unread: isActive ? 0 : (existing?.unread || 0) + 1,
-            lastMessage: message.content || '',
+            unread: isActive ? 0 : isCustomerInbound ? (existing?.unread || 0) + 1 : (existing?.unread || 0),
+            lastMessage: normalized.content || '',
             updatedAt: Date.now(),
           },
         },
@@ -111,7 +146,7 @@ function storeReducer(state, action) {
       const existing = state.convs[action.convId];
       if (!existing) return state;
       if (existing.messages.some(m => m.id === action.message.id)) return state;
-      const outMsg = { ...action.message, direction: 'outbound', status: 'sending' };
+      const outMsg = normalizeMessage({ ...action.message, direction: 'outbound', status: 'sending' }, action.convId);
       const messages = sortMessages([...existing.messages, outMsg]);
       return {
         ...state,
@@ -129,13 +164,22 @@ function storeReducer(state, action) {
     case 'CONFIRM_MESSAGE': {
       const existing = state.convs[action.convId];
       if (!existing) return state;
-      const realId = action.realId || action.tempId;
-      const hasDupe = existing.messages.some(m => m.id === realId && m.id !== action.tempId);
-      const messages = hasDupe
-        ? existing.messages.filter(m => m.id !== action.tempId)
-        : existing.messages.map(m =>
-            m.id === action.tempId ? { ...m, id: realId, direction: 'outbound', status: 'sent' } : m
-          );
+      const realMessage = action.message ? normalizeMessage(action.message, action.convId) : null;
+      const realId = String(realMessage?.id || action.realId || action.tempId);
+      const messages = sortMessages(existing.messages
+        .filter(m => !(realMessage && m.id === realId && m.id !== action.tempId))
+        .map(m => {
+          if (m.id !== action.tempId) return m;
+          return realMessage ? { ...m, ...realMessage, status: 'sent' } : { ...m, id: realId, direction: 'outbound', status: 'sent' };
+        }));
+      return { ...state, convs: { ...state.convs, [action.convId]: { ...existing, messages } } };
+    }
+    case 'MESSAGE_FAILED': {
+      const existing = state.convs[action.convId];
+      if (!existing) return state;
+      const messages = existing.messages.map(m =>
+        m.id === action.tempId ? { ...m, status: 'failed' } : m
+      );
       return { ...state, convs: { ...state.convs, [action.convId]: { ...existing, messages } } };
     }
     case 'UPDATE_CONV': {
@@ -182,49 +226,6 @@ function playNotif() {
   } catch {}
 }
 
-function getAiConfig() {
-  try {
-    const raw = typeof window !== 'undefined' ? localStorage.getItem('airos_ai_cfg') : null;
-    if (!raw) return null;
-    const cfg = JSON.parse(raw);
-    if (cfg?.enabled === false) return null;
-    return cfg;
-  } catch { return null; }
-}
-
-async function runFrontendAI(conv, inboundMessage, recentMessages = []) {
-  const cfg = getAiConfig() || {};
-  if (cfg.enabled === false) return null;
-  const token = typeof window !== 'undefined' ? localStorage.getItem('airos_token') : null;
-  if (!token) return null;
-
-  const history = recentMessages.slice(-6).map(m => ({
-    direction: m.direction === 'inbound' ? 'inbound' : 'outbound',
-    content:   m.content,
-  }));
-
-  try {
-    const res = await fetch(`${API_BASE}/v1/ai/reply`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        conversation_id: conv.id,
-        last_message:    inboundMessage.content,
-        history,
-        customer:        { name: conv.customerName, phone: conv.customerPhone },
-        provider:        cfg?.provider,
-        model:           cfg?.model,
-      }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data;
-  } catch { return null; }
-}
-
 const DEFAULT_CANNED = [];
 
 const TAGS   = ['VIP','Follow Up','Discount','Urgent','Refund','New Lead'];
@@ -239,6 +240,7 @@ function normalizeConversation(row = {}) {
     customerEmail: row.customer_email || row.customerEmail || '',
     channel: row.channel || 'livechat',
     status: row.status || 'open',
+    ai_mode: row.ai_mode || row.aiMode || 'manual',
     assigned_to: row.assigned_to || null,
     assigneeName: row.assignee_name || row.assigneeName || 'Unassigned',
     priority: row.priority || null,
@@ -286,10 +288,7 @@ export default function ConversationsPage() {
   const liveMsgs   = activeLive?.messages || [];
   const [suggestion, setSuggestion] = useState(null);
   const [liveReply,  setLiveReply]  = useState('');
-  const [aiConfigured, setAiConfigured] = useState(() => {
-    const cfg = getAiConfig();
-    return cfg === null || cfg.enabled !== false;
-  });
+  const aiConfigured = true;
 
   // Decode JWT for RBAC in HandoffPanel (no sensitive use — frontend display only)
   useEffect(() => {
@@ -388,8 +387,11 @@ export default function ConversationsPage() {
     socketRef.current = socket;
 
     socket.on('message:new', ({ conversation, message }) => {
-      dispatch({ type: 'INBOUND_MESSAGE', conv: normalizeConversation(conversation), message });
-      playNotif();
+      const conv = normalizeConversation(conversation || {});
+      const normalized = normalizeMessage(message, conv.id);
+      log.ws('message:new', { selectedConversationId: storeRef.current.activeId, conversationId: normalized.conversationId, message: normalized });
+      dispatch({ type: 'UPSERT_MESSAGE', conv, message: normalized });
+      if (normalized.direction === 'inbound' && normalized.sent_by === 'customer') playNotif();
     });
 
     // Handoff events — update per-conversation handoff state
@@ -406,33 +408,6 @@ export default function ConversationsPage() {
       setHandoffs(h => ({ ...h, [conversation_id]: handoff }));
     });
 
-    socket.on('whatsapp:message', ({ conversation, message }) => {
-      dispatch({ type: 'INBOUND_MESSAGE', conv: normalizeConversation(conversation), message });
-      playNotif();
-      if (!message.content) return;
-      const convId = conversation.id;
-      dispatch({ type: 'SET_AI_TYPING', convId, value: true });
-      const recentMsgs = [...(storeRef.current.convs[convId]?.messages || []), { ...message, direction: 'inbound' }].slice(-8);
-      runFrontendAI(conversation, message, recentMsgs).then(ai => {
-        dispatch({ type: 'SET_AI_TYPING', convId, value: false });
-        if (!ai || !ai.suggested_reply) return;
-        dispatch({ type: 'UPDATE_CONV', convId, fields: { intent: ai.intent, score: ai.lead_score } });
-        if (_autoReply[convId] !== false) {
-          const tempId = `ai_${Date.now()}`;
-          dispatch({ type: 'OUTBOUND_MESSAGE', convId, message: { id: tempId, content: ai.suggested_reply, sent_by: 'ai' } });
-          fetch(`${API_BASE}/api/live/send`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone: conversation.customerPhone, message: ai.suggested_reply }),
-          }).then(r => r.json()).then(d => {
-            if (d.ok) dispatch({ type: 'CONFIRM_MESSAGE', convId, tempId, realId: d.message_id });
-          });
-        } else if (storeRef.current.activeId === convId) {
-          setSuggestion({ text: ai.suggested_reply, score: ai.lead_score, intent: ai.intent });
-        }
-      });
-    });
-
     return () => {
       socket.disconnect();
       clearInterval(pollTimer);
@@ -445,7 +420,14 @@ export default function ConversationsPage() {
     setLiveReply('');
     try {
       const data = await secureApi.get(`/api/conversations/${encodeURIComponent(conv.id)}/messages`);
-      if (Array.isArray(data)) dispatch({ type: 'LOAD_MESSAGES', convId: conv.id, messages: data });
+      if (Array.isArray(data)) {
+        log.msg('messages:fetched', {
+          selectedConversationId: conv.id,
+          count: data.length,
+          messageConversationIds: data.map(m => m.conversation_id || m.conversationId),
+        });
+        dispatch({ type: 'LOAD_MESSAGES', convId: conv.id, messages: data });
+      }
     } catch {}
     // Fetch pending handoff for this conversation
     try {
@@ -464,14 +446,16 @@ export default function ConversationsPage() {
     setLiveReply('');
     setSuggestion(null);
     try {
-      const res = await fetch(`${API_BASE}/api/live/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: conv.customerPhone, message: text }),
+      const data = await secureApi.post(`/api/conversations/${encodeURIComponent(conv.id)}/messages`, {
+        content: text,
       });
-      const data = await res.json();
-      if (data.ok) dispatch({ type: 'CONFIRM_MESSAGE', convId: conv.id, tempId, realId: data.message_id });
-    } catch { toast.error('Failed to send'); }
+      if (data?.message) {
+        dispatch({ type: 'CONFIRM_MESSAGE', convId: conv.id, tempId, message: data.message });
+      }
+    } catch {
+      dispatch({ type: 'MESSAGE_FAILED', convId: conv.id, tempId });
+      toast.error('Failed to send');
+    }
   }, []);
 
   /* AI assist state */
@@ -519,7 +503,7 @@ export default function ConversationsPage() {
 
   const filtered = Object.values(store.convs).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-  const activeTags   = tags[active?.id] || [];
+  const activeTags   = tags[(activeLive || active)?.id] || [];
   const currentAgent = activeLive?.assigneeName || assignedTo[active?.id] || 'Unassigned';
 
   async function assignActiveConversation(agent) {
@@ -548,6 +532,30 @@ export default function ConversationsPage() {
     }
   }
 
+  async function setActiveLiveAiMode(enabled) {
+    const conv = activeLive;
+    if (!conv) return;
+    const previous = storeRef.current.convs[conv.id];
+    const nextMode = enabled ? 'auto' : 'manual';
+
+    _autoReply[conv.id] = enabled;
+    dispatch({ type:'SET_AUTO_REPLY', convId: conv.id, value: enabled });
+    dispatch({ type: 'UPDATE_CONV', convId: conv.id, fields: { ai_mode: nextMode } });
+
+    try {
+      const updated = await secureApi.patch(`/api/conversations/${encodeURIComponent(conv.id)}/ai-mode`, {
+        ai_mode: nextMode,
+      });
+      dispatch({ type: 'UPDATE_CONV', convId: conv.id, fields: normalizeConversation(updated) });
+      toast(enabled ? '🤖 Bot Active' : '👤 Manual');
+    } catch (err) {
+      if (previous) dispatch({ type: 'UPDATE_CONV', convId: conv.id, fields: previous });
+      _autoReply[conv.id] = previous?.ai_mode === 'auto';
+      dispatch({ type:'SET_AUTO_REPLY', convId: conv.id, value: previous?.ai_mode === 'auto' });
+      toast.error(err.message || 'Could not update AI mode');
+    }
+  }
+
   const filteredCanned = cannedReplies.filter(c =>
     !cannedSearch || c.title.toLowerCase().includes(cannedSearch.toLowerCase()) || c.shortcut.toLowerCase().includes(cannedSearch.toLowerCase())
   );
@@ -569,17 +577,12 @@ export default function ConversationsPage() {
 
         <ChatWindow 
           activeConv={activeLive || active}
-          messages={activeLive ? liveMsgs : msgs}
+          messages={activeLive ? liveMsgs.filter(m => String(m.conversationId || m.conversation_id) === String(activeLive.id)) : msgs}
           reply={activeLive ? liveReply : reply}
           setReply={activeLive ? setLiveReply : setReply}
           onSend={activeLive ? () => sendLiveReply(liveReply) : send}
-          isAutoOn={activeLive ? (_autoReply[activeLive.id] !== false) : isAutoOn}
-          onToggleAuto={activeLive ? () => {
-            const next = !(_autoReply[activeLive.id] !== false);
-            _autoReply[activeLive.id] = next;
-            dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: next });
-            toast(next ? '🤖 Bot Active' : '👤 Manual');
-          } : toggleAutoReply}
+          isAutoOn={activeLive ? activeLive.ai_mode === 'auto' : isAutoOn}
+          onToggleAuto={activeLive ? () => setActiveLiveAiMode(activeLive.ai_mode !== 'auto') : toggleAutoReply}
           aiTyping={activeLive ? store.aiTyping[activeLive.id] : aiThinking}
           aiConfigured={aiConfigured}
           suggestion={suggestion}
@@ -588,9 +591,7 @@ export default function ConversationsPage() {
           onDismissSuggestion={() => setSuggestion(null)}
           onTakeOver={() => {
             if (activeLive) {
-              _autoReply[activeLive.id] = false;
-              dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: false });
-              toast('👤 Manual takeover');
+              setActiveLiveAiMode(false);
             }
           }}
           onAssign={() => setAssignModal(true)}
@@ -615,12 +616,8 @@ export default function ConversationsPage() {
           <div className="w-[320px] flex-shrink-0 flex flex-col overflow-y-auto bg-[var(--bg2)] border-l border-[var(--b1)] hide-sm">
             <CustomerProfilePanel
               activeConv={activeLive || active}
-              isAutoOn={activeLive ? (_autoReply[activeLive.id] !== false) : isAutoOn}
-              onToggleAuto={activeLive ? () => {
-                const next = !(_autoReply[activeLive.id] !== false);
-                _autoReply[activeLive.id] = next;
-                dispatch({ type:'SET_AUTO_REPLY', convId: activeLive.id, value: next });
-              } : toggleAutoReply}
+              isAutoOn={activeLive ? activeLive.ai_mode === 'auto' : isAutoOn}
+              onToggleAuto={activeLive ? () => setActiveLiveAiMode(activeLive.ai_mode !== 'auto') : toggleAutoReply}
               tags={activeTags}
               currentAgent={currentAgent}
               onManageCanned={() => setCannedMgmtModal(true)}
