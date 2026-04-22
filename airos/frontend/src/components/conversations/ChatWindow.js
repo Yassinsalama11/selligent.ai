@@ -78,14 +78,14 @@ function MessageBubble({ message, contactName }) {
   const time = formatMessageTime(message);
 
   return (
-    <div className={`flex gap-3 ${isOut ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex w-full gap-3 ${isOut ? 'justify-end' : 'justify-start'}`}>
       {!isOut && (
         <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-[var(--inbox-elevated)] text-[12px] font-bold text-[var(--inbox-text-secondary)]">
           {initials(contactName)}
         </div>
       )}
 
-      <div className={`flex max-w-[65%] flex-col ${isOut ? 'items-end' : 'items-start'}`}>
+      <div className={`flex w-fit max-w-[65%] flex-col ${isOut ? 'items-end' : 'items-start'}`}>
         <div
           className={[
             'rounded-2xl border px-4 py-3 shadow-sm',
@@ -235,7 +235,7 @@ export default function ChatWindow({
   const name = activeConv.customerName || activeConv.name || 'Unknown customer';
 
   return (
-    <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-[var(--inbox-main)]">
+    <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--inbox-main)]">
       <TopBar
         activeConv={activeConv}
         isAutoOn={isAutoOn}
@@ -270,10 +270,7 @@ export default function ChatWindow({
         </div>
       </div>
 
-      <div
-        ref={msgsContainerRef}
-        className="min-h-0 flex-1 overflow-y-auto px-5 py-6"
-      >
+      <div ref={msgsContainerRef} className="min-h-0 flex-1 overflow-y-auto bg-[var(--inbox-main)] px-5 py-6">
         {messages.length === 0 ? (
           <div className="flex min-h-full items-center justify-center">
             <div className="max-w-[420px] rounded-[24px] border border-white/[0.08] bg-[var(--inbox-surface)] p-8 text-center">
@@ -302,7 +299,7 @@ export default function ChatWindow({
         <div ref={bottomRef} />
       </div>
 
-      {!isAutoOn && (
+      {!isAutoOn && suggestion && (
         <AISuggestionBar
           suggestion={suggestion}
           aiTyping={aiTyping}

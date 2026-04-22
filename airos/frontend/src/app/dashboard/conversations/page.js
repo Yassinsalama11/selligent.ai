@@ -605,10 +605,10 @@ export default function ConversationsPage() {
   return (
     <>
       <div
-        className="flex h-[calc(100vh-var(--topbar-h))] overflow-hidden bg-[var(--inbox-main)] text-[14px]"
+        className="flex h-[calc(100vh-var(--topbar-h))] min-h-0 w-full overflow-hidden bg-[var(--inbox-main)] text-[14px]"
         style={inboxTheme}
       >
-        <div className={`${hasActiveConversation ? 'hidden md:flex' : 'flex'} h-full w-full shrink-0 md:w-[320px]`}>
+        <div className={`${hasActiveConversation ? 'hidden md:flex' : 'flex'} h-full min-h-0 w-full shrink-0 md:w-[320px]`}>
           <ConversationList
             ref={searchInputRef}
             search={search} setSearch={setSearch}
@@ -622,7 +622,7 @@ export default function ConversationsPage() {
           />
         </div>
 
-        <div className={`${hasActiveConversation ? 'flex' : 'hidden md:flex'} h-full min-w-0 flex-1`}>
+        <div className={`${hasActiveConversation ? 'flex' : 'hidden md:flex'} h-full min-h-0 min-w-0 flex-1`}>
           <ChatWindow
             activeConv={activeLive || active}
             messages={activeLive ? liveMsgs.filter(m => String(m.conversationId || m.conversation_id) === String(activeLive.id)) : msgs}
@@ -667,7 +667,7 @@ export default function ConversationsPage() {
         </div>
 
         {showPanel && (active || activeLive) && (
-          <div className="fixed bottom-0 right-0 top-[var(--topbar-h)] z-30 flex w-[320px] flex-shrink-0 flex-col overflow-y-auto border-l border-white/[0.08] bg-[var(--inbox-surface)] shadow-[0_24px_80px_rgba(0,0,0,0.35)] md:static md:z-auto md:shadow-none">
+          <div className="fixed bottom-0 right-0 top-[var(--topbar-h)] z-30 flex w-[320px] flex-shrink-0 flex-col overflow-y-auto border-l border-white/[0.08] bg-[var(--inbox-surface)] shadow-[0_24px_80px_rgba(0,0,0,0.35)] md:static md:z-auto md:h-full md:min-h-0 md:shadow-none">
             <CustomerProfilePanel
               activeConv={activeLive || active}
               isAutoOn={activeLive ? activeLive.ai_mode === 'auto' : isAutoOn}
