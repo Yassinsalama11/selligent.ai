@@ -5,6 +5,39 @@ import { IC_COLOR, CH_COLOR, CH_ICON } from './constants';
 import AISuggestionBar from './AISuggestionBar';
 import InputArea from './InputArea';
 
+function parseMessageTime(value) {
+  if (!value) return null;
+  if (typeof value === 'number') {
+    const ms = value < 1e12 ? value * 1000 : value;
+    const date = new Date(ms);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const numeric = Number(value);
+  if (!Number.isNaN(numeric) && String(value).trim() !== '') {
+    const ms = numeric < 1e12 ? numeric * 1000 : numeric;
+    const date = new Date(ms);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatMessageTime(message = {}) {
+  const raw = message.timestamp || message.created_at || message.createdAt || message.sent_at || message.updated_at || message.updatedAt;
+  const parsed = parseMessageTime(raw);
+  if (parsed) {
+    return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(parsed);
+  }
+  if (typeof message.at === 'string' && message.at.trim()) return message.at.trim();
+  return '';
+}
+
+function initials(name = '') {
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  return parts.slice(0, 2).map(part => part[0]).join('').toUpperCase();
+}
+
 function MsgContent({ m }) {
   if (m.type === 'image') {
     return (
@@ -69,8 +102,17 @@ export default function ChatWindow({
 }) {
   if (!activeConv) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[var(--t4)] text-sm">
-        Select a conversation
+      <div className="flex-1 min-w-0 flex items-center justify-center bg-[#0f172a] relative overflow-hidden">
+        <div className="absolute inset-0 opacity-[0.08] bg-[radial-gradient(circle_at_30%_20%,#38bdf8_0,transparent_32%),radial-gradient(circle_at_70%_75%,#818cf8_0,transparent_30%)]" />
+        <div className="relative max-w-[360px] text-center px-8">
+          <div className="w-14 h-14 mx-auto mb-5 rounded-2xl bg-cyan-500/10 border border-cyan-400/20 flex items-center justify-center text-2xl">
+            💬
+          </div>
+          <h2 className="text-[20px] font-bold tracking-[-0.02em] text-slate-100">Select a conversation</h2>
+          <p className="mt-2 text-[13.5px] leading-6 text-slate-400">
+            Choose a customer from the inbox to view messages, manage assignment, and respond from one workspace.
+          </p>
+        </div>
       </div>
     );
   }
@@ -80,25 +122,24 @@ export default function ChatWindow({
   const channel = isLive ? (activeConv.channel || 'whatsapp') : activeConv.ch;
   const score = activeConv.score || 0;
   const intent = activeConv.intent || 'inquiry';
-  const bubbleRadius = layoutPrefs.bubbleStyle === 'sharp' ? '8px' : layoutPrefs.bubbleStyle === 'pill' ? '999px' : '16px';
-  const messageGap = layoutPrefs.density === 'compact' ? 'gap-1.5' : layoutPrefs.density === 'expanded' ? 'gap-3.5' : 'gap-2.5';
+  const bubbleRadius = layoutPrefs.bubbleStyle === 'sharp' ? '10px' : layoutPrefs.bubbleStyle === 'pill' ? '24px' : '18px';
+  const messageGap = layoutPrefs.density === 'compact' ? 'gap-3' : layoutPrefs.density === 'expanded' ? 'gap-6' : 'gap-4';
+  const contactInitials = initials(name);
 
   return (
-    <div className={`flex-1 flex flex-col overflow-hidden min-w-0 transition-colors duration-500 ${
-      isAutoOn && aiConfigured ? 'bg-cyan-950/5' : 'bg-[var(--bg)]'
-    }`}>
+    <div className="flex-1 min-w-0 h-full flex flex-col overflow-hidden bg-[#0f172a] transition-colors duration-500">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 border-b border-[var(--b1)] flex-shrink-0 bg-[var(--bg2)] min-h-[56px] gap-2 flex-wrap py-2">
+      <div className="flex items-center justify-between px-5 border-b border-white/10 flex-shrink-0 bg-[#111827]/95 min-h-[64px] gap-3 flex-wrap py-3 shadow-[0_1px_0_rgba(255,255,255,0.03)]">
         <div className="flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-full flex items-center justify-center font-extrabold text-[15px] ${
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-extrabold text-[13px] text-slate-100 border ${
             isLive ? 'bg-gradient-to-br from-[#25D366]/25 to-[#10B981]/20' : 'bg-gradient-to-br from-indigo-500/20 to-violet-500/20'
-          }`}>
-            {name?.[0]?.toUpperCase()}
+          } border-white/10`}>
+            {contactInitials}
           </div>
           <div>
-            <p className="font-bold text-[14px] text-[var(--t1)] leading-tight">{name}</p>
-            <p className="text-[11.5px] mt-0.5" style={{ color: isLive ? '#25D366' : CH_COLOR[channel] }}>
-              {isLive ? '📱 WhatsApp' : `${CH_ICON[channel]} ${channel}`}
+            <p className="font-bold text-[14.5px] text-slate-100 leading-tight">{name}</p>
+            <p className="text-[11.5px] mt-0.5 text-slate-400">
+              <span style={{ color: isLive ? '#25D366' : CH_COLOR[channel] }}>{isLive ? '📱' : CH_ICON[channel]} {channel}</span>
               {activeConv.customerPhone && ` · ${activeConv.customerPhone}`}
             </p>
           </div>
@@ -169,34 +210,41 @@ export default function ChatWindow({
       )}
 
       {/* Messages */}
-      <div 
+      <div
         ref={msgsContainerRef}
-        className={`flex-1 overflow-y-auto px-5 py-4 flex flex-col ${messageGap}`}
+        className={`flex-1 min-h-0 overflow-y-auto px-6 py-6 flex flex-col ${messageGap} bg-[linear-gradient(180deg,#0f172a_0%,#0b1120_100%)]`}
       >
-        <div className="flex-1 min-h-0" />
-
         {messages.length === 0 ? (
-          <div className="text-center text-[var(--t4)] text-[13px] py-5">
-            No messages yet. Waiting for customer…
+          <div className="flex-1 min-h-[360px] flex items-center justify-center">
+            <div className="max-w-[360px] rounded-3xl border border-white/10 bg-white/[0.03] px-8 py-7 text-center shadow-2xl">
+              <div className="w-12 h-12 mx-auto mb-4 rounded-2xl bg-slate-800 border border-white/10 flex items-center justify-center text-xl">
+                ✦
+              </div>
+              <h3 className="text-[17px] font-bold text-slate-100">No messages yet</h3>
+              <p className="mt-2 text-[13px] leading-6 text-slate-400">
+                New customer messages will appear here in real time once this conversation receives activity.
+              </p>
+            </div>
           </div>
         ) : messages.map((m) => {
           const isOut = m.direction === 'outbound' || (m.dir === 'out') || (m.sent_by === 'agent' || m.sent_by === 'ai');
           const isSending = m.status === 'sending';
           const isAI = m.sent_by === 'ai' || m.by === 'ai' || m.auto;
+          const time = formatMessageTime(m);
           
           return (
             <div 
               key={m.id} 
-              className={`flex items-end gap-2 ${isOut ? 'justify-end' : 'justify-start'}`}
+              className={`flex items-end gap-3 ${isOut ? 'justify-end' : 'justify-start'}`}
             >
               {!isOut && (
-                <div className="w-[26px] h-[26px] rounded-full flex-shrink-0 bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center font-bold text-[11px] text-indigo-400">
-                  {name?.[0]?.toUpperCase()}
+                <div className="w-8 h-8 rounded-full flex-shrink-0 bg-slate-800 border border-white/10 flex items-center justify-center font-bold text-[11px] text-cyan-200 shadow-lg">
+                  {contactInitials}
                 </div>
               )}
-              <div className="max-w-[70%]">
+              <div className={`max-w-[min(72%,680px)] flex flex-col ${isOut ? 'items-end' : 'items-start'}`}>
                 <div 
-                  className={`${isOut ? 'bubble-out' : 'bubble-in'} transition-opacity duration-200 ${isSending ? 'opacity-60' : 'opacity-100'}`}
+                  className={`${isOut ? 'bubble-out' : 'bubble-in'} shadow-lg transition-opacity duration-200 ${isSending ? 'opacity-60' : 'opacity-100'}`}
                   style={{ 
                     borderRadius: bubbleRadius,
                     ...(isAI && isOut ? { border: '1px solid rgba(6,182,212,0.25)', background: 'rgba(6,182,212,0.1)' } : {})
@@ -205,13 +253,18 @@ export default function ChatWindow({
                   <MsgContent m={m} />
                 </div>
                 {layoutPrefs.showTimestamp && (
-                  <p className={`text-[10px] text-[var(--t4)] mt-1 flex items-center gap-1 ${isOut ? 'justify-end' : 'justify-start'}`}>
-                    <span>{m.at || new Date(m.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                  <p className={`text-[10.5px] text-slate-500 mt-1.5 flex items-center gap-1 ${isOut ? 'justify-end' : 'justify-start'}`}>
+                    {time && <span>{time}</span>}
                     {isOut && isSending && <span className="text-slate-400">· sending…</span>}
                     {isOut && !isSending && (isAI ? <span className="text-cyan-400">· 🤖 AI ✓</span> : <span>· Agent ✓</span>)}
                   </p>
                 )}
               </div>
+              {isOut && (
+                <div className="w-8 h-8 rounded-full flex-shrink-0 bg-indigo-500/20 border border-indigo-300/20 flex items-center justify-center font-bold text-[11px] text-indigo-100 shadow-lg">
+                  {isAI ? 'AI' : 'AG'}
+                </div>
+              )}
             </div>
           );
         })}
@@ -243,7 +296,7 @@ export default function ChatWindow({
       )}
 
       {/* Input Area */}
-      <InputArea 
+      <InputArea
         reply={reply}
         setReply={setReply}
         onSend={onSend}

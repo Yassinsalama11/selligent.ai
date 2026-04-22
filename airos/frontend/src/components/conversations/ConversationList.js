@@ -24,7 +24,7 @@ const ConversationList = forwardRef(({
       : 'py-3 px-3.5';
 
   return (
-    <div className="w-[280px] flex-shrink-0 flex flex-col border-r border-[var(--b1)] bg-[var(--bg2)] overflow-hidden">
+    <div className="w-[292px] flex-shrink-0 flex flex-col border-r border-[var(--b1)] bg-[#0b1120] overflow-hidden">
       <div className="p-3.5 pb-2.5">
         <input 
           ref={ref}
@@ -153,9 +153,6 @@ const ConversationList = forwardRef(({
                 </div>
               </div>
             ))}
-            <div className="px-3.5 py-1.5 text-[10px] font-bold text-[var(--t4)] tracking-widest uppercase">
-              Demo
-            </div>
           </>
         )}
 

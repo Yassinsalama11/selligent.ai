@@ -18,10 +18,10 @@ export default function InputArea({
   imageInputRef
 }) {
   return (
-    <div className={`px-4 pb-4 ${isAutoOn ? 'opacity-50 pointer-events-none' : 'opacity-100'}`} data-canned-area="">
+    <div className={`px-5 pb-5 bg-[#0f172a] border-t border-white/10 ${isAutoOn ? 'opacity-50 pointer-events-none' : 'opacity-100'}`} data-canned-area="">
       {/* Canned replies picker dropdown */}
       {showCannedPicker && (
-        <div className="bg-[var(--bg3)] border border-[var(--b1)] rounded-xl mb-2 overflow-hidden shadow-2xl">
+        <div className="bg-[#111827] border border-white/10 rounded-2xl mb-3 overflow-hidden shadow-2xl">
           <div className="p-2.5 px-3 border-b border-[var(--b1)] flex items-center justify-between">
             <span className="text-[12px] font-bold text-[var(--t2)]">
               💬 Canned Replies
@@ -67,7 +67,7 @@ export default function InputArea({
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center gap-1.5 mb-1.5">
+      <div className="flex items-center gap-1.5 mb-2.5">
         <button 
           title="Attach file" 
           onClick={() => fileInputRef.current?.click()}
@@ -99,9 +99,9 @@ export default function InputArea({
       </div>
 
       {/* Textarea + send */}
-      <div className="flex gap-2.5 items-end">
+      <div className="flex gap-2.5 items-end rounded-2xl border border-white/10 bg-white/[0.035] p-2 shadow-xl">
         <textarea 
-          className="input flex-1 resize-none text-[13.5px] min-h-[52px] max-h-[120px] leading-relaxed"
+          className="input flex-1 resize-none text-[13.5px] min-h-[48px] max-h-[120px] leading-relaxed border-transparent bg-transparent focus:bg-transparent focus:shadow-none"
           placeholder={isAutoOn ? 'AI is handling — click "Take Over" to reply manually' : 'Type a reply…'}
           value={reply}
           onChange={e => {
@@ -126,7 +126,7 @@ export default function InputArea({
         <button 
           disabled={!reply.trim() || isAutoOn} 
           onClick={onSend}
-          className="btn btn-primary h-[52px] px-5 flex-shrink-0"
+          className="btn btn-primary h-[48px] px-5 flex-shrink-0"
         >
           Send ↑
         </button>

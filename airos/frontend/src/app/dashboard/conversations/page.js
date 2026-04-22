@@ -40,9 +40,12 @@ function parseTs(ts) {
   const d = new Date(ts).getTime();
   return isNaN(d) ? 0 : d;
 }
+function messageTimestamp(message = {}) {
+  return message.timestamp || message.created_at || message.createdAt || message.sent_at || message.updated_at || message.updatedAt;
+}
 function sortMessages(msgs) {
   return msgs
-    .map((m, i) => ({ m, i, t: parseTs(m.timestamp) }))
+    .map((m, i) => ({ m, i, t: parseTs(messageTimestamp(m)) }))
     .sort((a, b) => a.t - b.t || a.i - b.i)
     .map(x => x.m);
 }
@@ -222,10 +225,7 @@ async function runFrontendAI(conv, inboundMessage, recentMessages = []) {
   } catch { return null; }
 }
 
-const DEFAULT_CANNED = [
-  { id:'c1', title:'Welcome',        shortcut:'/hi',     text:'أهلاً وسهلاً! كيف أقدر أساعدك اليوم؟ 😊' },
-  { id:'c2', title:'Shipping Info',  shortcut:'/ship',   text:'بنوصل لكل مناطق مصر والسعودية والإمارات. وقت التوصيل من ٢ إلى ٥ أيام عمل 📦' },
-];
+const DEFAULT_CANNED = [];
 
 const TAGS   = ['VIP','Follow Up','Discount','Urgent','Refund','New Lead'];
 
@@ -269,7 +269,7 @@ export default function ConversationsPage() {
     showChannel:true,
     showTimestamp:true,
   });
-  const [tags, setTags]             = useState({ '1': ['VIP'], '2': [] });
+  const [tags, setTags]             = useState({});
   const [assignedTo, setAssignedTo] = useState({});
   const [handoffs, setHandoffs] = useState({});      // { [convId]: handoff | null }
   const [currentUser, setCurrentUser] = useState(null);
@@ -474,7 +474,7 @@ export default function ConversationsPage() {
     } catch { toast.error('Failed to send'); }
   }, []);
 
-  /* AI (demo convs) */
+  /* AI assist state */
   const [aiAutoReply, setAiAutoReply] = useState({});
   const [aiThinking, setAiThinking]   = useState(false);
   const autoReplyTimers               = useRef({});
@@ -555,7 +555,7 @@ export default function ConversationsPage() {
 
   return (
     <>
-      <div className="flex h-full overflow-hidden bg-[var(--bg)]">
+      <div className="flex h-[calc(100vh-var(--topbar-h))] overflow-hidden bg-[#0f172a]">
         <ConversationList
           ref={searchInputRef}
           search={search} setSearch={setSearch}
@@ -613,7 +613,7 @@ export default function ConversationsPage() {
         />
 
         {showPanel && (active || activeLive) && (
-          <div className="flex flex-col overflow-y-auto">
+          <div className="w-[320px] flex-shrink-0 flex flex-col overflow-y-auto bg-[var(--bg2)] border-l border-[var(--b1)] hide-sm">
             <CustomerProfilePanel
               activeConv={activeLive || active}
               isAutoOn={activeLive ? (_autoReply[activeLive.id] !== false) : isAutoOn}
@@ -629,7 +629,7 @@ export default function ConversationsPage() {
               onViewHistory={() => !activeLive && setHistoryModal(true)}
             />
             {(activeLive || active) && (
-              <div className="p-3 border-t border-[var(--b1)]">
+              <div className="p-4 pt-0">
                 <HandoffPanel
                   conversationId={(activeLive || active).id}
                   handoff={handoffs[(activeLive || active).id] || null}
@@ -698,9 +698,9 @@ export default function ConversationsPage() {
 
       <Modal open={historyModal} onClose={() => setHistoryModal(false)} title="Conversation History">
         <div className="flex flex-col gap-3">
-          <div className="p-3 border border-[var(--b1)] rounded-lg">
-            <p className="font-bold">Previous interaction</p>
-            <p className="text-sm text-[var(--t4)]">Yesterday · Completed</p>
+          <div className="p-4 border border-[var(--b1)] rounded-lg bg-[var(--s1)]">
+            <p className="font-bold text-[var(--t1)]">No history available</p>
+            <p className="text-sm text-[var(--t4)] mt-1">This panel will show previous interactions when real history is available.</p>
           </div>
         </div>
       </Modal>

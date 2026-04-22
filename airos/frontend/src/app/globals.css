@@ -392,24 +392,24 @@ select.input { cursor: pointer; }
    Chat bubbles
 ───────────────────────────────────────────────────────────────────────────── */
 .bubble-in {
-  background: var(--s2);
-  border: 1px solid var(--b1);
-  border-radius: 4px 14px 14px 14px;
-  padding: 10px 14px;
-  max-width: 72%;
+  background: #1e293b;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px 18px 18px 18px;
+  padding: 11px 14px;
   font-size: 14px;
   line-height: 1.55;
-  color: var(--t1);
+  color: #e2e8f0;
+  word-break: break-word;
 }
 .bubble-out {
-  background: rgba(99,102,241,0.18);
-  border: 1px solid rgba(99,102,241,0.22);
-  border-radius: 14px 4px 14px 14px;
-  padding: 10px 14px;
-  max-width: 72%;
+  background: linear-gradient(135deg, rgba(79,70,229,0.95), rgba(8,145,178,0.92));
+  border: 1px solid rgba(165,180,252,0.26);
+  border-radius: 18px 6px 18px 18px;
+  padding: 11px 14px;
   font-size: 14px;
   line-height: 1.55;
-  color: var(--t1);
+  color: #f8fafc;
+  word-break: break-word;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
