@@ -3,6 +3,19 @@
 import React, { forwardRef } from 'react';
 import { CH_ICON, IC_COLOR } from './constants';
 
+function formatAgo(ts) {
+  if (!ts) return '';
+  const diff = Date.now() - Number(ts);
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d`;
+  return new Date(Number(ts)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 const ConversationList = forwardRef(({
   search,
   setSearch,
@@ -156,23 +169,37 @@ const ConversationList = forwardRef(({
           </>
         )}
 
-        {filtered.map(c => (
-          <div 
-            key={c.id} 
+        {filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 px-4 text-center select-none">
+            <span className="text-2xl mb-3">💬</span>
+            <p className="text-[13px] font-semibold text-[var(--t3)]">No conversations</p>
+            <p className="text-[11.5px] text-[var(--t4)] mt-1">Adjust filters or wait for incoming messages</p>
+          </div>
+        )}
+        {filtered.map(c => {
+          const displayName = c.customerName || c.name || 'Unknown';
+          const displayChannel = c.channel || c.ch || 'livechat';
+          const displayLast = c.lastMessage || c.last || '';
+          const displayIntent = c.intent || 'inquiry';
+          const displayScore = c.score || 0;
+          const displayAgo = formatAgo(c.updatedAt);
+          return (
+          <div
+            key={c.id}
             onClick={() => selectConv(c)}
             className={`${listItemPadding} cursor-pointer border-b border-white/5 transition-colors duration-120 hover:bg-[var(--s1)] ${
-              activeId === c.id 
-                ? 'bg-indigo-500/10 border-l-2 border-l-indigo-500' 
+              activeId === c.id
+                ? 'bg-indigo-500/10 border-l-2 border-l-indigo-500'
                 : 'bg-transparent border-l-2 border-l-transparent'
             }`}
           >
             <div className="flex items-start gap-2.5">
               <div className="relative flex-shrink-0">
-                <div className="w-[38px] h-[38px] rounded-full bg-gradient-to-br from-indigo-500/20 to-violet-500/20 flex items-center justify-center font-bold text-sm">
-                  {c.name[0]}
+                <div className="w-[38px] h-[38px] rounded-full bg-gradient-to-br from-indigo-500/20 to-violet-500/20 flex items-center justify-center font-bold text-sm text-[var(--t1)]">
+                  {displayName[0]?.toUpperCase() || '?'}
                 </div>
                 {layoutPrefs.showChannel && (
-                  <span className="absolute -bottom-0.5 -right-0.5 text-[11px]">{CH_ICON[c.ch]}</span>
+                  <span className="absolute -bottom-0.5 -right-0.5 text-[11px]">{CH_ICON[displayChannel]}</span>
                 )}
                 {aiAutoReply[c.id] && (
                   <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#67e8f9] border-[1.5px] border-[var(--bg2)]" />
@@ -183,39 +210,39 @@ const ConversationList = forwardRef(({
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between mb-0.5">
-                  <span className="font-semibold text-[13.5px] text-[var(--t1)]">{c.name}</span>
-                  <span className="text-[11px] text-[var(--t4)] flex-shrink-0">{c.ago}</span>
+                  <span className="font-semibold text-[13.5px] text-[var(--t1)] truncate">{displayName}</span>
+                  <span className="text-[11px] text-[var(--t4)] flex-shrink-0 ml-2">{displayAgo}</span>
                 </div>
                 <p className="text-[12.5px] text-[var(--t3)] overflow-hidden text-ellipsis whitespace-nowrap mb-1.5" dir="auto">
-                  {c.last}
+                  {displayLast || <span className="italic text-[var(--t4)]">No messages yet</span>}
                 </p>
                 <div className="flex items-center justify-between">
                   {layoutPrefs.showIntent && (
-                    <span 
+                    <span
                       className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full border"
                       style={{
-                        backgroundColor: `${IC_COLOR[c.intent] || '#64748b'}12`,
-                        color: IC_COLOR[c.intent] || '#64748b',
-                        borderColor: `${IC_COLOR[c.intent] || '#64748b'}20`
+                        backgroundColor: `${IC_COLOR[displayIntent] || '#64748b'}12`,
+                        color: IC_COLOR[displayIntent] || '#64748b',
+                        borderColor: `${IC_COLOR[displayIntent] || '#64748b'}20`
                       }}
                     >
-                      {c.intent.replace(/_/g, ' ')}
+                      {displayIntent.replace(/_/g, ' ')}
                     </span>
                   )}
                   {layoutPrefs.showScore && (
                     <div className="flex items-center gap-1.5">
                       <div className="w-8 h-[3px] rounded-full bg-[var(--s3)] overflow-hidden">
-                        <div 
+                        <div
                           className={`h-full rounded-full ${
-                            c.score > 70 ? 'bg-[#10b981]' : c.score > 40 ? 'bg-[#f59e0b]' : 'bg-[#ef4444]'
+                            displayScore > 70 ? 'bg-[#10b981]' : displayScore > 40 ? 'bg-[#f59e0b]' : 'bg-[#ef4444]'
                           }`}
-                          style={{ width: `${c.score}%` }}
+                          style={{ width: `${displayScore}%` }}
                         />
                       </div>
                       <span className={`text-[11px] font-bold ${
-                        c.score > 70 ? 'text-[#10b981]' : c.score > 40 ? 'text-[#f59e0b]' : 'text-[#ef4444]'
+                        displayScore > 70 ? 'text-[#10b981]' : displayScore > 40 ? 'text-[#f59e0b]' : 'text-[#ef4444]'
                       }`}>
-                        {c.score}
+                        {displayScore}
                       </span>
                     </div>
                   )}
@@ -223,7 +250,8 @@ const ConversationList = forwardRef(({
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

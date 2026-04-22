@@ -497,8 +497,7 @@ export default function ConversationsPage() {
   const isAutoOn = aiAutoReply[active?.id] || false;
 
   function selectConv(c) {
-    setActive(c);
-    setMsgs([]);
+    openLiveConv(c);
     setShowCannedPicker(false);
   }
 
@@ -518,7 +517,7 @@ export default function ConversationsPage() {
     toast.success(`${type === 'image' ? '🖼 Image' : '📄 File'} sent (simulated)`);
   }
 
-  const filtered = [];
+  const filtered = Object.values(store.convs).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
   const activeTags   = tags[active?.id] || [];
   const currentAgent = activeLive?.assigneeName || assignedTo[active?.id] || 'Unassigned';
@@ -561,8 +560,8 @@ export default function ConversationsPage() {
           search={search} setSearch={setSearch}
           filters={filters} setFilters={setFilters}
           agents={agents}
-          liveConvs={liveConvs} filtered={filtered}
-          activeId={active?.id} activeLiveId={activeLive?.id}
+          liveConvs={[]} filtered={filtered}
+          activeId={activeLive?.id} activeLiveId={activeLive?.id}
           openLiveConv={openLiveConv} selectConv={selectConv}
           layoutPrefs={layoutPrefs} aiAutoReply={aiAutoReply}
           pendingHandoffs={handoffs}
