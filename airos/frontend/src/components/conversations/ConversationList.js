@@ -135,7 +135,7 @@ const ConversationList = forwardRef(({
         <div className="mb-4 flex items-center justify-between">
           <div>
             <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--inbox-text-muted)]">Inbox</p>
-            <h1 className="mt-1 text-[20px] font-semibold tracking-[-0.02em] text-[var(--inbox-text-primary)]">Conversations</h1>
+            <p className="mt-1 text-[20px] font-semibold tracking-[-0.02em] text-[var(--inbox-text-primary)]">Conversations</p>
           </div>
           <span className="rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-card)] px-3 py-1 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
             {filtered.length}

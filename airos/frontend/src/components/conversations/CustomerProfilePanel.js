@@ -12,7 +12,7 @@ function initials(name = '') {
 function Section({ title, children }) {
   return (
     <section className="rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-card)] p-4">
-      <h3 className="mb-3 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--inbox-text-muted)]">{title}</h3>
+      <p className="mb-3 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--inbox-text-muted)]">{title}</p>
       {children}
     </section>
   );

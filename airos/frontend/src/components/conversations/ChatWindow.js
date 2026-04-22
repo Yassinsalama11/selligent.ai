@@ -185,7 +185,7 @@ function EmptyChat() {
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-card)] text-[12px] font-bold text-[var(--inbox-text-secondary)]">
           IN
         </div>
-        <h2 className="mt-5 text-[20px] font-semibold tracking-[-0.02em] text-[var(--inbox-text-primary)]">Select a conversation</h2>
+        <p className="mt-5 text-[20px] font-semibold tracking-[-0.02em] text-[var(--inbox-text-primary)]">Select a conversation</p>
         <p className="mt-3 text-[14px] leading-6 text-[var(--inbox-text-secondary)]">
           Choose a thread from the inbox to view messages, manage ownership, and reply from a single workspace.
         </p>

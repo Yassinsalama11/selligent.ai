@@ -322,21 +322,28 @@ export default function ConversationsPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const narrowQuery = window.matchMedia('(max-width: 767px)');
-    const lightQuery = window.matchMedia('(prefers-color-scheme: light)');
 
     const syncNarrow = () => {
       setIsNarrow(narrowQuery.matches);
       if (!narrowQuery.matches) setMobilePanelOpen(false);
     };
-    const syncLight = () => setIsLightMode(lightQuery.matches);
+    const syncExplicitTheme = () => {
+      const storedTheme = localStorage.getItem('airos_theme') || localStorage.getItem('theme');
+      const root = document.documentElement;
+      setIsLightMode(
+        storedTheme === 'light'
+        || root.dataset.theme === 'light'
+        || root.classList.contains('light')
+      );
+    };
 
     syncNarrow();
-    syncLight();
+    syncExplicitTheme();
     narrowQuery.addEventListener?.('change', syncNarrow);
-    lightQuery.addEventListener?.('change', syncLight);
+    window.addEventListener('storage', syncExplicitTheme);
     return () => {
       narrowQuery.removeEventListener?.('change', syncNarrow);
-      lightQuery.removeEventListener?.('change', syncLight);
+      window.removeEventListener('storage', syncExplicitTheme);
     };
   }, []);
 
