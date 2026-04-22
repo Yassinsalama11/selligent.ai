@@ -1,7 +1,5 @@
-const Anthropic = require('@anthropic-ai/sdk');
 const { resolvePromptContent } = require('./promptRegistry');
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const { completeText } = require('./completionClient');
 
 /**
  * Detect intent, score lead, and suggest deal stage for an inbound message.
@@ -65,13 +63,7 @@ Active offers:
 ${offersCtx}
 New message: ${message}`;
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 300,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  const text = response.content[0].text.trim();
+  const text = await completeText({ prompt, maxTokens: 300 });
 
   // Strip markdown code fences if present
   const json = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');

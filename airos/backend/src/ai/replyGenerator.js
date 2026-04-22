@@ -1,9 +1,7 @@
-const Anthropic = require('@anthropic-ai/sdk');
 const { queryAdmin } = require('../db/pool');
 const { normalizeTenantSettings, buildCompanyContext } = require('../core/tenantSettings');
 const { resolvePromptContent } = require('./promptRegistry');
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const { completeText } = require('./completionClient');
 
 /**
  * Generate a ready-to-send reply suggestion for an agent.
@@ -98,13 +96,7 @@ Keep it short and effective — max 3 lines.
 If relevant, naturally mention an active offer or product price.
 Avoid making up policies, delivery times, or stock details that are not present above.`;
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 250,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  const suggestedReply = response.content[0].text.trim();
+  const suggestedReply = await completeText({ prompt, maxTokens: 250 });
   const confidence = Math.min((leadScore / 100) * 0.9 + 0.1, 1.0);
 
   // Save to ai_suggestions
