@@ -421,6 +421,11 @@ async function addToQueue(payload) {
     return;
   }
 
+  if (payload?.channel === 'livechat') {
+    await processMessage(payload);
+    return;
+  }
+
   const queue = getMessageQueue();
   if (!queue) {
     console.warn('[Worker] REDIS_URL not configured, processing inline');
