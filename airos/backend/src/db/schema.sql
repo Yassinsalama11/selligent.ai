@@ -74,6 +74,7 @@ CREATE TABLE conversations (
   customer_id UUID REFERENCES customers(id),
   channel VARCHAR(50) NOT NULL,
   status VARCHAR(50) DEFAULT 'open',        -- open | closed | snoozed
+  ai_mode VARCHAR(20) DEFAULT 'manual',      -- manual | auto
   assigned_to UUID REFERENCES users(id),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()

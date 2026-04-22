@@ -229,6 +229,7 @@ export default function ChatWindow({
         ) : messages.map((m) => {
           const isOut = m.direction === 'outbound' || (m.dir === 'out') || (m.sent_by === 'agent' || m.sent_by === 'ai');
           const isSending = m.status === 'sending';
+          const isFailed = m.status === 'failed';
           const isAI = m.sent_by === 'ai' || m.by === 'ai' || m.auto;
           const time = formatMessageTime(m);
           
@@ -244,7 +245,7 @@ export default function ChatWindow({
               )}
               <div className={`max-w-[min(72%,680px)] flex flex-col ${isOut ? 'items-end' : 'items-start'}`}>
                 <div 
-                  className={`${isOut ? 'bubble-out' : 'bubble-in'} shadow-lg transition-opacity duration-200 ${isSending ? 'opacity-60' : 'opacity-100'}`}
+                  className={`${isOut ? 'bubble-out' : 'bubble-in'} shadow-lg transition-opacity duration-200 ${isSending ? 'opacity-60' : 'opacity-100'} ${isFailed ? 'ring-1 ring-red-400/50' : ''}`}
                   style={{ 
                     borderRadius: bubbleRadius,
                     ...(isAI && isOut ? { border: '1px solid rgba(6,182,212,0.25)', background: 'rgba(6,182,212,0.1)' } : {})
@@ -256,7 +257,8 @@ export default function ChatWindow({
                   <p className={`text-[10.5px] text-slate-500 mt-1.5 flex items-center gap-1 ${isOut ? 'justify-end' : 'justify-start'}`}>
                     {time && <span>{time}</span>}
                     {isOut && isSending && <span className="text-slate-400">· sending…</span>}
-                    {isOut && !isSending && (isAI ? <span className="text-cyan-400">· 🤖 AI ✓</span> : <span>· Agent ✓</span>)}
+                    {isOut && isFailed && <span className="text-red-300">· failed</span>}
+                    {isOut && !isSending && !isFailed && (isAI ? <span className="text-cyan-400">· 🤖 AI ✓</span> : <span>· Agent ✓</span>)}
                   </p>
                 )}
               </div>

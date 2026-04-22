@@ -36,14 +36,6 @@ function getMessageQueue() {
 
 async function processMessage(payload, jobId = 'inline') {
   const { routeMessage }     = require('../core/messageRouter');
-  const { advanceDeal }      = require('../core/dealEngine');
-  const { detectIntent }     = require('../ai/intentDetector');
-  const { scoreLeadFromAI }  = require('../ai/leadScorer');
-  const { generateReply }    = require('../ai/replyGenerator');
-  const { executeTriggers }  = require('../core/triggerEngine');
-  const { getMessages }      = require('../db/queries/messages');
-  const { queryAdmin }       = require('../db/pool');
-  const { getIO }            = require('../channels/livechat/socket');
 
   console.log(`[Worker] Processing ${payload.channel} message`, jobId);
 
@@ -55,13 +47,101 @@ async function processMessage(payload, jobId = 'inline') {
     return;
   }
 
+  await processRoutedResult(result, jobId);
+}
+
+async function processSavedInboundMessage(payload, jobId = 'inline-saved') {
+  const { getOrCreateDeal } = require('../db/queries/deals');
+  const { decryptMessageRow } = require('../db/queries/messages');
+  const { queryAdmin } = require('../db/pool');
+
+  const tenantId = payload.tenant_id;
+  const conversationId = payload.conversation_id;
+  const customerId = payload.customer_id;
+  const messageId = payload.message_id;
+
+  if (!tenantId || !conversationId || !customerId || !messageId) {
+    console.warn('AI_SKIPPED_REASON', JSON.stringify({
+      reason: 'missing_saved_message_context',
+      tenantId,
+      conversationId,
+      customerId,
+      messageId,
+    }));
+    return;
+  }
+
+  const [conversation, customer, rawMessage, tenantRow, ticket] = await Promise.all([
+    queryAdmin('SELECT * FROM conversations WHERE tenant_id = $1 AND id = $2 LIMIT 1', [tenantId, conversationId])
+      .then((result) => result.rows[0] || null),
+    queryAdmin('SELECT * FROM customers WHERE tenant_id = $1 AND id = $2 LIMIT 1', [tenantId, customerId])
+      .then((result) => result.rows[0] || null),
+    queryAdmin('SELECT * FROM messages WHERE tenant_id = $1 AND id = $2 AND conversation_id = $3 LIMIT 1', [tenantId, messageId, conversationId])
+      .then((result) => result.rows[0] || null),
+    queryAdmin('SELECT * FROM tenants WHERE id = $1', [tenantId]).then((result) => result.rows[0] || null),
+    queryAdmin(
+      `SELECT id, priority, channel, assignee_id
+       FROM tickets
+       WHERE tenant_id = $1
+         AND conversation_id = $2
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [tenantId, conversationId]
+    ).then((result) => result.rows[0] || null),
+  ]);
+
+  if (!conversation || !customer || !rawMessage) {
+    console.warn('AI_SKIPPED_REASON', JSON.stringify({
+      reason: 'saved_message_context_not_found',
+      tenantId,
+      conversationId,
+      customerId,
+      messageId,
+    }));
+    return;
+  }
+
+  const savedMessage = await decryptMessageRow(tenantId, rawMessage);
+  const deal = await getOrCreateDeal(tenantId, conversation.id, customer.id);
+
+  await processRoutedResult({
+    unified: {
+      channel: conversation.channel,
+      message: {
+        type: savedMessage.type,
+        content: savedMessage.content,
+        media_url: savedMessage.media_url,
+      },
+    },
+    savedMessage,
+    conversation,
+    customer,
+    deal,
+    ticket,
+    credentials: payload.credentials,
+    moderation: null,
+    blocked: false,
+    tenant: tenantRow,
+  }, jobId);
+}
+
+async function processRoutedResult(result, jobId = 'inline') {
+  const { advanceDeal }      = require('../core/dealEngine');
+  const { detectIntent }     = require('../ai/intentDetector');
+  const { scoreLeadFromAI }  = require('../ai/leadScorer');
+  const { generateReply }    = require('../ai/replyGenerator');
+  const { executeTriggers }  = require('../core/triggerEngine');
+  const { getMessages }      = require('../db/queries/messages');
+  const { queryAdmin }       = require('../db/pool');
+  const { getIO }            = require('../channels/livechat/socket');
+
   const { unified, savedMessage, conversation, customer, deal, credentials } = result;
   const { tenant_id: tenantId } = savedMessage;
 
   // 2. Load context for AI
   const [history, tenantRow, products, offers, shipping] = await Promise.all([
     getMessages(tenantId, conversation.id, { limit: 10 }),
-    queryAdmin('SELECT * FROM tenants WHERE id = $1', [tenantId]).then(r => r.rows[0]),
+    result.tenant || queryAdmin('SELECT * FROM tenants WHERE id = $1', [tenantId]).then(r => r.rows[0]),
     queryAdmin(
       'SELECT name, price, sale_price, currency, stock_status FROM products WHERE tenant_id = $1 AND is_active = TRUE LIMIT 15',
       [tenantId]
@@ -133,6 +213,16 @@ async function processMessage(payload, jobId = 'inline') {
     console.error('[Worker] Reply generation failed:', err.message);
   }
 
+  await maybeSendAutoReply({
+    tenantId,
+    conversation,
+    customer,
+    savedMessage,
+    suggestion,
+    credentials,
+    jobId,
+  });
+
   // 7. Run tenant triggers against the analyzed message
   try {
     await executeTriggers({
@@ -169,7 +259,168 @@ async function processMessage(payload, jobId = 'inline') {
   );
 }
 
+async function maybeSendAutoReply({
+  tenantId,
+  conversation,
+  customer,
+  savedMessage,
+  suggestion,
+  credentials,
+  jobId,
+}) {
+  const { getPendingHandoff } = require('../db/queries/handoffs');
+  const { saveMessage } = require('../db/queries/messages');
+  const { getIO } = require('../channels/livechat/socket');
+
+  const logContext = {
+    tenantId,
+    conversationId: conversation?.id,
+    messageId: savedMessage?.id,
+    channel: conversation?.channel,
+    jobId,
+  };
+
+  if (savedMessage?.direction !== 'inbound' || savedMessage?.sent_by !== 'customer') {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'not_customer_inbound' }));
+    return;
+  }
+
+  if (conversation?.ai_mode !== 'auto') {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({
+      ...logContext,
+      reason: 'ai_mode_not_auto',
+      aiMode: conversation?.ai_mode || 'manual',
+    }));
+    return;
+  }
+
+  const handoff = await getPendingHandoff(tenantId, conversation.id);
+  if (handoff) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({
+      ...logContext,
+      reason: 'pending_handoff',
+      handoffId: handoff.id,
+    }));
+    return;
+  }
+
+  const text = String(suggestion?.suggested_reply || '').trim();
+  if (!text) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'empty_suggestion' }));
+    return;
+  }
+
+  console.log('AI_TRIGGERED', JSON.stringify(logContext));
+
+  let sendResult;
+  try {
+    sendResult = await sendAutoReplyToChannel({
+      channel: conversation.channel,
+      credentials,
+      customer,
+      text,
+    });
+  } catch (err) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({
+      ...logContext,
+      reason: 'send_failed',
+      error: err.message,
+    }));
+    return;
+  }
+
+  if (sendResult.status !== 'sent') {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({
+      ...logContext,
+      reason: sendResult.reason || 'send_not_supported',
+    }));
+    return;
+  }
+
+  const savedAiMessage = await saveMessage(tenantId, conversation.id, {
+    direction: 'outbound',
+    type: 'text',
+    content: text,
+    sent_by: 'ai',
+    metadata: {
+      ai_auto_reply: true,
+      suggestion_id: suggestion.id || null,
+      external_id: sendResult.externalId || null,
+    },
+  });
+
+  try {
+    const io = getIO();
+    io.to(`tenant:${tenantId}:conversations`).emit('message:new', {
+      message: savedAiMessage,
+      conversation,
+      customer,
+      ai_auto_reply: true,
+    });
+  } catch {
+    // Socket server is optional in tests and background workers.
+  }
+
+  console.log('AI_RESPONSE_GENERATED', JSON.stringify({
+    ...logContext,
+    responseMessageId: savedAiMessage.id,
+    externalId: sendResult.externalId || null,
+  }));
+}
+
+async function sendAutoReplyToChannel({ channel, credentials, customer, text }) {
+  if (channel === 'whatsapp') {
+    const { sendText } = require('../channels/whatsapp/sender');
+    if (!credentials?.phone_number_id || !credentials?.access_token || !customer?.phone) {
+      return { status: 'skipped', reason: 'missing_whatsapp_send_context' };
+    }
+    const response = await sendText(credentials.phone_number_id, credentials.access_token, customer.phone, text);
+    return { status: 'sent', externalId: response?.messages?.[0]?.id || null };
+  }
+
+  if (channel === 'messenger') {
+    const { sendText } = require('../channels/messenger/sender');
+    if (!credentials?.page_id || !credentials?.access_token || !customer?.channel_customer_id) {
+      return { status: 'skipped', reason: 'missing_messenger_send_context' };
+    }
+    const response = await sendText(credentials.page_id, credentials.access_token, customer.channel_customer_id, text);
+    return { status: 'sent', externalId: response?.message_id || null };
+  }
+
+  if (channel === 'instagram') {
+    const { sendText } = require('../channels/instagram/sender');
+    const senderId = credentials?.instagram_business_account_id || credentials?.ig_user_id || credentials?.page_id;
+    if (!senderId || !credentials?.access_token || !customer?.channel_customer_id) {
+      return { status: 'skipped', reason: 'missing_instagram_send_context' };
+    }
+    const response = await sendText(senderId, credentials.access_token, customer.channel_customer_id, text);
+    return { status: 'sent', externalId: response?.message_id || null };
+  }
+
+  if (channel === 'livechat') {
+    const { sendText } = require('../channels/livechat/sender');
+    if (customer?.channel_customer_id) {
+      sendText(customer.channel_customer_id, text, 'ai');
+    }
+    return { status: 'sent', externalId: null };
+  }
+
+  return { status: 'skipped', reason: `unsupported_channel_${channel || 'unknown'}` };
+}
+
+async function processQueuedPayload(payload, jobId = 'inline') {
+  if (payload?.already_saved) {
+    return processSavedInboundMessage(payload, jobId);
+  }
+  return processMessage(payload, jobId);
+}
+
 async function addToQueue(payload) {
+  if (payload?.already_saved) {
+    await processSavedInboundMessage(payload);
+    return;
+  }
+
   const queue = getMessageQueue();
   if (!queue) {
     console.warn('[Worker] REDIS_URL not configured, processing inline');
@@ -190,7 +441,7 @@ if (require.main === module) {
     process.exit(1);
   }
 
-  const worker = new Worker('messages', async (job) => processMessage(job.data, job.id), {
+  const worker = new Worker('messages', async (job) => processQueuedPayload(job.data, job.id), {
     connection: getQueueConnection(),
   });
 
@@ -199,4 +450,4 @@ if (require.main === module) {
   console.log('[Worker] Message processor running');
 }
 
-module.exports = { addToQueue, getMessageQueue };
+module.exports = { addToQueue, getMessageQueue, processMessage, processSavedInboundMessage };

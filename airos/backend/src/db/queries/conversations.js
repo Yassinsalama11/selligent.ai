@@ -198,4 +198,31 @@ async function assignConversation(tenantId, conversationId, userId, client) {
     : row;
 }
 
-module.exports = { getOrCreateConversation, listConversations, updateConversationStatus, assignConversation };
+async function updateConversationAiMode(tenantId, conversationId, aiMode, client) {
+  const mode = String(aiMode || '').toLowerCase();
+  if (!['auto', 'manual'].includes(mode)) {
+    const err = new Error('Invalid ai_mode');
+    err.status = 400;
+    throw err;
+  }
+
+  const res = client
+    ? await client.query(`
+    UPDATE conversations SET ai_mode = $1, updated_at = NOW()
+    WHERE id = $2 AND tenant_id = $3 RETURNING *
+  `, [mode, conversationId, tenantId])
+    : await queryAdmin(`
+    UPDATE conversations SET ai_mode = $1, updated_at = NOW()
+    WHERE id = $2 AND tenant_id = $3 RETURNING *
+  `, [mode, conversationId, tenantId]);
+
+  return res.rows[0];
+}
+
+module.exports = {
+  getOrCreateConversation,
+  listConversations,
+  updateConversationStatus,
+  assignConversation,
+  updateConversationAiMode,
+};
