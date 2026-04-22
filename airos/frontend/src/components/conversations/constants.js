@@ -14,7 +14,7 @@ export const CH_COLOR = {
 
 export const IC_COLOR = {
   ready_to_buy: '#10b981',
-  interested: '#6366f1',
+  interested: '#00E5FF',
   price_objection: '#f59e0b',
   inquiry: '#94a3b8',
   complaint: '#ef4444',

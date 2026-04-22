@@ -15,29 +15,28 @@ export default function AISuggestionBar({
   if (!suggestion && !aiTyping && !aiConfigured) return null;
 
   const score = suggestion?.score || suggestion?.conf * 100 || 0;
-  const scoreColor = score > 80 ? 'text-green-400' : score > 60 ? 'text-cyan-400' : 'text-amber-400';
-  const scoreBg = score > 80 ? 'bg-green-500/20' : score > 60 ? 'bg-cyan-500/20' : 'bg-amber-500/20';
+  const scoreLabel = score > 0 ? `${Math.round(score)}% confident` : 'confidence pending';
 
   return (
-    <div className={`mx-4 mb-2 bg-cyan-500/5 border rounded-[10px] p-2.5 transition-all duration-300 ${
-      suggestion ? 'border-cyan-500/30 shadow-lg shadow-cyan-500/5' : 'border-cyan-500/12'
+    <div className={`mx-4 mb-2 rounded-xl border bg-[var(--inbox-card)] p-3 transition ${
+      suggestion ? 'border-[#00E5FF]/30 shadow-[0_12px_32px_rgba(0,229,255,0.08)]' : 'border-[var(--inbox-border)]'
     }`}>
-      <div className={`flex items-center justify-between ${suggestion ? 'mb-2.5' : ''}`}>
-        <div className="flex items-center gap-2.5">
-          <span className="text-[12px] font-bold text-[#67e8f9] flex items-center gap-1.5">
+      <div className={`flex items-center justify-between gap-4 ${suggestion ? 'mb-3' : ''}`}>
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex items-center gap-2 text-[12px] font-semibold text-[var(--inbox-ai)]">
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--inbox-ai)] opacity-75"></span>
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--inbox-ai)]"></span>
             </span>
             AI Suggestion
           </span>
           {suggestion && (
-            <div className="flex items-center gap-2">
-              <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full ${scoreBg} border border-white/5`}>
-                <div className="w-1.5 h-1.5 rounded-full bg-current" style={{ color: score > 80 ? '#4ade80' : score > 60 ? '#22d3ee' : '#fbbf24' }} />
-                <span className={`text-[10px] font-bold ${scoreColor}`}>{Math.round(score)}% confident</span>
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex items-center gap-2 rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-2 py-1">
+                <div className="h-1.5 w-1.5 rounded-full bg-[var(--inbox-ai)]" />
+                <span className="text-[11px] font-semibold text-[var(--inbox-text-secondary)]">{scoreLabel}</span>
               </div>
-              <span className="text-[11px] text-[var(--t4)] font-medium bg-white/5 px-2 py-0.5 rounded-full">
+              <span className="truncate rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-2 py-1 text-[11px] font-medium text-[var(--inbox-text-muted)]">
                 {suggestion.intent?.replace(/_/g, ' ')}
               </span>
             </div>
@@ -45,32 +44,32 @@ export default function AISuggestionBar({
           {!suggestion && !aiTyping && aiConfigured && onTestAI && (
             <button
               onClick={onTestAI}
-              className="text-[10.5px] font-semibold px-2.5 py-0.5 rounded-md cursor-pointer bg-cyan-500/12 text-[#67e8f9] border border-cyan-500/25 hover:bg-cyan-500/20 transition-all active:scale-95"
+              className="cursor-pointer rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-3 py-1 text-[11px] font-semibold text-[var(--inbox-ai)] transition hover:bg-[var(--inbox-elevated)]"
             >
-              ⚡ Test AI
+              Test AI
             </button>
           )}
         </div>
         
         {suggestion && (
-          <div className="flex gap-1.5">
+          <div className="flex shrink-0 gap-2">
             <button 
               onClick={() => onUse(suggestion.text)}
-              className="text-[11px] font-semibold px-3 py-1 rounded-md cursor-pointer bg-cyan-500/15 text-[#67e8f9] border border-cyan-500/30 hover:bg-cyan-500/25 transition-colors active:scale-95"
+              className="cursor-pointer rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-3 py-1 text-[11px] font-semibold text-[var(--inbox-ai)] transition hover:bg-[var(--inbox-elevated)]"
             >
-              Use ↑
+              Use
             </button>
             <button 
               onClick={() => onSend(suggestion.text)}
-              className="text-[11px] px-3 py-1 rounded-md cursor-pointer bg-indigo-500 text-white border-none font-bold hover:bg-indigo-600 transition-all shadow-md shadow-indigo-500/20 active:scale-95"
+              className="cursor-pointer rounded-[10px] bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-3 py-1 text-[11px] font-semibold text-white shadow-[0_10px_24px_rgba(255,90,31,0.18)] transition"
             >
-              Send Now ↑
+              Send now
             </button>
             <button 
               onClick={onDismiss}
-              className="text-[12px] px-2 py-1 rounded-md cursor-pointer bg-transparent text-[var(--t4)] border border-[var(--b1)] hover:bg-[var(--s1)] transition-colors active:scale-95"
+              className="cursor-pointer rounded-[10px] border border-[var(--inbox-border)] bg-transparent px-2 py-1 text-[12px] text-[var(--inbox-text-muted)] transition hover:bg-[var(--inbox-surface)]"
             >
-              ✕
+              x
             </button>
           </div>
         )}
@@ -78,13 +77,13 @@ export default function AISuggestionBar({
 
       {suggestion ? (
         <div className="relative">
-          <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-cyan-500/30 rounded-full" />
-          <p className="text-[13px] text-[var(--t1)] leading-relaxed pl-3" dir="auto">
+          <div className="absolute bottom-0 left-0 top-0 w-0.5 rounded-full bg-[#00E5FF]/40" />
+          <p className="pl-3 text-[13px] leading-6 text-[var(--inbox-text-primary)]" dir="auto">
             {suggestion.text}
           </p>
         </div>
       ) : (
-        <p className="text-[12px] text-[var(--t4)] italic pl-1 flex items-center gap-2">
+        <p className="flex items-center gap-2 pl-1 text-[12px] text-[var(--inbox-text-secondary)]">
           {aiTyping ? (
             <>
               <span className="flex items-center gap-1">
@@ -97,7 +96,7 @@ export default function AISuggestionBar({
           ) : aiConfigured ? (
             'Waiting for customer message…'
           ) : (
-            <span className="text-amber-400/80">⚠ No AI key configured — go to Settings → AI Configuration</span>
+            <span className="text-[var(--inbox-text-secondary)]">AI configuration is unavailable.</span>
           )}
         </p>
       )}

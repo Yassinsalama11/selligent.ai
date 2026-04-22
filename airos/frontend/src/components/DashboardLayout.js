@@ -81,6 +81,7 @@ export default function DashboardLayout({ children }) {
   const isActive = item => item.exact ? pathname === item.href : pathname.startsWith(item.href);
   const pageLabel = NAV.find(n => isActive(n))?.label ?? 'Dashboard';
   const userInitial = currentUser?.name?.[0]?.toUpperCase() || 'U';
+  const isConversationsPage = pathname.startsWith('/dashboard/conversations');
 
   const S = {
     root:  { display:'flex', height:'100vh', overflow:'hidden', background:'var(--bg)' },
@@ -253,7 +254,7 @@ export default function DashboardLayout({ children }) {
           </div>
         )}
 
-        <main style={{ flex:1, overflowY:'auto', overflowX:'hidden', position:'relative' }}>
+        <main style={{ flex:1, overflowY: isConversationsPage ? 'hidden' : 'auto', overflowX:'hidden', position:'relative', minHeight:0 }}>
           {/* Trial expired overlay */}
           {trialInfo?.isExpired && (
             <div style={{ position:'absolute', inset:0, zIndex:100,

@@ -11,7 +11,7 @@ function initials(name = '') {
 
 function Section({ title, children }) {
   return (
-    <section className="rounded-2xl border border-white/[0.08] bg-[var(--inbox-card)] p-4">
+    <section className="rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-card)] p-4">
       <h3 className="mb-3 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--inbox-text-muted)]">{title}</h3>
       {children}
     </section>
@@ -50,17 +50,17 @@ export default function CustomerProfilePanel({
     <div className="flex w-full flex-col gap-4 bg-[var(--inbox-surface)] p-4">
       <Section title="Customer">
         <div className="flex items-center gap-3">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[var(--inbox-elevated)] text-[16px] font-bold text-[var(--inbox-text-primary)]">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-elevated)] text-[16px] font-bold text-[var(--inbox-text-primary)]">
             {initials(name)}
           </div>
           <div className="min-w-0">
             <p className="truncate text-[16px] font-semibold text-[var(--inbox-text-primary)]">{name}</p>
-            <div className="mt-2 inline-flex items-center rounded-full border border-white/10 bg-[var(--inbox-surface)] px-2 py-1 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
+            <div className="mt-2 inline-flex items-center rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-2 py-1 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
               {CH_ICON[channel] || 'CH'} · {channel}
             </div>
           </div>
         </div>
-        <div className="mt-4 border-t border-white/[0.06] pt-2">
+        <div className="mt-4 border-t border-[var(--inbox-border)] pt-2">
           <DetailRow label="Phone" value={phone || 'Not provided'} />
           <DetailRow label="Email" value={email || 'Not provided'} />
         </div>
@@ -86,14 +86,14 @@ export default function CustomerProfilePanel({
         <button
           type="button"
           onClick={onToggleAuto}
-          className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 transition ${
-            isAutoOn ? 'border-[#00E5FF]/30 bg-[#00E5FF]/10' : 'border-white/[0.08] bg-[var(--inbox-surface)]'
+          className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 transition ${
+            isAutoOn ? 'border-[#00E5FF]/30 bg-[#00E5FF]/10' : 'border-[var(--inbox-border)] bg-[var(--inbox-surface)]'
           }`}
         >
           <span className="text-[14px] font-semibold text-[var(--inbox-text-primary)]">
             {isAutoOn ? 'AI handling' : 'Manual'}
           </span>
-          <span className={`h-3 w-3 rounded-full ${isAutoOn ? 'bg-[#00E5FF] shadow-[0_0_14px_rgba(0,229,255,0.8)]' : 'bg-[var(--inbox-text-muted)]'}`} />
+          <span className={`h-3 w-3 rounded-full ${isAutoOn ? 'bg-[var(--inbox-ai)] shadow-[0_0_14px_rgba(0,229,255,0.8)]' : 'bg-[var(--inbox-text-muted)]'}`} />
         </button>
       </Section>
 
@@ -101,7 +101,7 @@ export default function CustomerProfilePanel({
         {tags.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {tags.map(tag => (
-              <span key={tag} className="rounded-full border border-white/[0.08] bg-[var(--inbox-surface)] px-3 py-1 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
+              <span key={tag} className="rounded-full border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-3 py-1 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
                 {tag}
               </span>
             ))}
@@ -113,13 +113,13 @@ export default function CustomerProfilePanel({
 
       <Section title="Actions">
         <div className="grid grid-cols-1 gap-2">
-          <button type="button" className="rounded-xl border border-white/[0.08] bg-[var(--inbox-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-primary)] transition hover:bg-[var(--inbox-elevated)]" onClick={onManageCanned}>
+          <button type="button" className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-primary)] transition hover:bg-[var(--inbox-elevated)]" onClick={onManageCanned}>
             Canned replies
           </button>
-          <button type="button" className="rounded-xl border border-white/[0.08] bg-[var(--inbox-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-primary)] transition hover:bg-[var(--inbox-elevated)]" onClick={onAddTag}>
+          <button type="button" className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-primary)] transition hover:bg-[var(--inbox-elevated)]" onClick={onAddTag}>
             Add tag
           </button>
-          <button type="button" className="rounded-xl border border-white/[0.08] bg-[var(--inbox-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-primary)] transition hover:bg-[var(--inbox-elevated)]" onClick={onViewHistory}>
+          <button type="button" className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-primary)] transition hover:bg-[var(--inbox-elevated)]" onClick={onViewHistory}>
             View history
           </button>
         </div>
