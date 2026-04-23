@@ -268,8 +268,54 @@ async function ensureConfiguredAdmin(email, password) {
   const configured = getConfiguredAdmin(email, password);
   if (!configured) return null;
 
-  const existing = await getPlatformAdminByEmail(configured.email);
-  if (existing) return existing;
+  const existingResult = await queryAdmin(`
+    SELECT u.id, u.email, u.name, u.role, u.password_hash, u.created_at, COALESCE(ptm.is_active, TRUE) AS is_active
+    FROM users u
+    LEFT JOIN platform_team_members ptm ON ptm.user_id = u.id
+    WHERE u.tenant_id IS NULL
+      AND u.role IN ('platform_admin', 'super_admin')
+      AND LOWER(u.email) = LOWER($1)
+    ORDER BY u.created_at ASC
+    LIMIT 1
+  `, [configured.email]);
+  const existing = existingResult.rows[0] || null;
+  if (existing) {
+    const matchesConfiguredPassword = existing.password_hash
+      ? await bcrypt.compare(password, existing.password_hash).catch(() => false)
+      : false;
+
+    if (!matchesConfiguredPassword || existing.name !== configured.name || existing.role !== 'platform_admin') {
+      const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+      const updated = await queryAdmin(`
+        UPDATE users
+        SET password_hash = $2,
+            name = $3,
+            role = 'platform_admin'
+        WHERE id = $1
+        RETURNING id, email, name, role, password_hash, created_at
+      `, [existing.id, passwordHash, configured.name]);
+      await queryAdmin(`
+        INSERT INTO platform_team_members (user_id, is_active)
+        VALUES ($1, TRUE)
+        ON CONFLICT (user_id) DO UPDATE
+        SET is_active = TRUE,
+            updated_at = NOW()
+      `, [existing.id]);
+      return updated.rows[0];
+    }
+
+    if (existing.is_active !== true) {
+      await queryAdmin(`
+        INSERT INTO platform_team_members (user_id, is_active)
+        VALUES ($1, TRUE)
+        ON CONFLICT (user_id) DO UPDATE
+        SET is_active = TRUE,
+            updated_at = NOW()
+      `, [existing.id]);
+    }
+
+    return existing;
+  }
 
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
   const created = await queryAdmin(`
