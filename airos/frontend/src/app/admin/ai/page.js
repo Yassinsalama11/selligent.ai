@@ -10,6 +10,7 @@ export default function AdminAiPage() {
   const [config, setConfig] = useState(null);
   const [providerStatus, setProviderStatus] = useState(null);
   const [tenantUsage, setTenantUsage] = useState([]);
+  const [availableModels, setAvailableModels] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -19,6 +20,7 @@ export default function AdminAiPage() {
         setConfig(data?.config || null);
         setProviderStatus(data?.providerStatus || null);
         setTenantUsage(Array.isArray(data?.tenantUsage) ? data.tenantUsage : []);
+        setAvailableModels(Array.isArray(data?.availableModels) ? data.availableModels : []);
       })
       .catch((err) => {
         if (!cancelled) toast.error(err.message || 'Could not load AI control plane');
@@ -95,6 +97,7 @@ export default function AdminAiPage() {
   };
 
   const setField = (field, value) => setConfig((current) => ({ ...current, [field]: value }));
+  const modelOptions = availableModels.length ? availableModels : ['gpt-5.4-mini', 'gpt-5.4'];
 
   return (
     <div style={{ padding:'28px', display:'flex', flexDirection:'column', gap:20 }}>
@@ -126,11 +129,16 @@ export default function AdminAiPage() {
             </label>
             <label style={labelStyle}>
               <span style={labelText}>Active model</span>
-              <input value={form.activeModel} onChange={(e) => setField('activeModel', e.target.value)} style={inputStyle} />
+              <select value={form.activeModel} onChange={(e) => setField('activeModel', e.target.value)} style={inputStyle}>
+                {modelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
+              </select>
             </label>
             <label style={labelStyle}>
               <span style={labelText}>Fallback model</span>
-              <input value={form.fallbackModel || ''} onChange={(e) => setField('fallbackModel', e.target.value)} style={inputStyle} />
+              <select value={form.fallbackModel || ''} onChange={(e) => setField('fallbackModel', e.target.value)} style={inputStyle}>
+                <option value="">None</option>
+                {modelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
+              </select>
             </label>
             <label style={labelStyle}>
               <span style={labelText}>Temperature</span>
@@ -143,8 +151,28 @@ export default function AdminAiPage() {
           </div>
 
           <label style={{ ...labelStyle, marginTop:12 }}>
-            <span style={labelText}>Enabled models (one per line)</span>
-            <textarea rows={5} value={form.enabledModelsText} onChange={(e) => setField('enabledModelsText', e.target.value)} style={{ ...inputStyle, resize:'vertical', minHeight:120 }} />
+            <span style={labelText}>Enabled models</span>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(2,minmax(0,1fr))', gap:8 }}>
+              {modelOptions.map((model) => {
+                const enabled = String(form.enabledModelsText || '').split('\n').includes(model);
+                return (
+                  <label key={model} style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', borderRadius:10, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={(event) => {
+                        const current = String(form.enabledModelsText || '').split('\n').map((item) => item.trim()).filter(Boolean);
+                        const next = event.target.checked
+                          ? [...new Set([...current, model])]
+                          : current.filter((item) => item !== model);
+                        setField('enabledModelsText', next.join('\n'));
+                      }}
+                    />
+                    <span style={{ fontSize:12.5, color:'var(--t2)' }}>{model}</span>
+                  </label>
+                );
+              })}
+            </div>
           </label>
 
           <div style={{ display:'grid', gridTemplateColumns:'repeat(2,minmax(0,1fr))', gap:12, marginTop:12 }}>
@@ -168,7 +196,9 @@ export default function AdminAiPage() {
             ].map(([label, field]) => (
               <label key={field} style={labelStyle}>
                 <span style={labelText}>{label}</span>
-                <input value={form[field]} onChange={(e) => setField(field, e.target.value)} style={inputStyle} />
+                <select value={form[field]} onChange={(e) => setField(field, e.target.value)} style={inputStyle}>
+                  {modelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
+                </select>
               </label>
             ))}
           </div>

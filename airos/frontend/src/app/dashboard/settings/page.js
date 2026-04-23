@@ -407,7 +407,7 @@ export default function SettingsPage() {
   /* ── General: Operators ── */
   const [operators, setOperators] = useState(INIT_OPERATORS);
   const [inviteModal, setInviteModal] = useState(false);
-  const [inviteForm, setInviteForm]   = useState({ name:'', email:'', role:'agent', dept:'Sales' });
+  const [inviteForm, setInviteForm]   = useState({ name:'', email:'', role:'agent', dept:'Sales', password:'' });
 
   /* ── General: Departments ── */
   const [depts, setDepts]           = useState(INIT_DEPTS);
@@ -1005,12 +1005,14 @@ export default function SettingsPage() {
 
   async function saveOp() {
     if (!inviteForm.name || !inviteForm.email) { toast.error('Fill all fields'); return; }
+    if (inviteForm.password && inviteForm.password.length < 8) { toast.error('Operator password must be at least 8 characters'); return; }
 
     try {
       const response = await api.post('/api/auth/invite', {
         name: inviteForm.name,
         email: inviteForm.email,
         role: inviteForm.role,
+        password: inviteForm.password,
       });
 
       if (response?.user) {
@@ -1029,7 +1031,10 @@ export default function SettingsPage() {
 
       await save('Operator invited');
       setInviteModal(false);
-      setInviteForm({ name:'', email:'', role:'agent', dept:'Sales' });
+      if (response?.tempPassword) {
+        toast.success(`Operator invited. Temporary password: ${response.tempPassword}`);
+      }
+      setInviteForm({ name:'', email:'', role:'agent', dept:'Sales', password:'' });
     } catch (err) {
       toast.error(err.message || 'Could not invite operator');
     }
@@ -1081,6 +1086,22 @@ export default function SettingsPage() {
       toast.success('Operator role updated');
     } catch (err) {
       toast.error(err.message || 'Could not update operator role');
+    }
+  }
+
+  async function resetOperatorPassword(operatorId) {
+    const nextPassword = window.prompt('Enter a new password for this operator (minimum 8 characters).');
+    if (!nextPassword) return;
+    if (nextPassword.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
+
+    try {
+      await api.patch(`/api/auth/team/${operatorId}`, { password: nextPassword });
+      toast.success('Operator password updated');
+    } catch (err) {
+      toast.error(err.message || 'Could not update operator password');
     }
   }
 
@@ -1545,6 +1566,11 @@ export default function SettingsPage() {
                   <p style={{ fontSize:12, color:'var(--t4)' }}>{op.email} · {op.dept}</p>
                 </div>
                 <div style={{ display:'flex', gap:6 }}>
+                  <button onClick={()=>resetOperatorPassword(op.id)}
+                    style={{ fontSize:12, padding:'4px 10px', borderRadius:8, cursor:'pointer', fontWeight:600,
+                      background:'rgba(6,182,212,0.08)', color:'#67e8f9', border:'1px solid rgba(6,182,212,0.16)' }}>
+                    Reset password
+                  </button>
                   <select className="input" style={{ fontSize:12, padding:'4px 8px', width:120 }}
                     value={op.dept || ''}
                     onChange={e => updateOperatorDept(op.id, e.target.value)}>
@@ -3165,7 +3191,7 @@ export default function SettingsPage() {
       {/* ── Invite Operator Modal ── */}
       <Modal open={inviteModal} onClose={()=>setInviteModal(false)} title="Invite Operator" width={440}>
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          {[{ k:'name', label:'Full Name', ph:'Ahmed Mohamed', type:'text' },{ k:'email', label:'Email', ph:'agent@store.com', type:'email' }].map(f=>(
+          {[{ k:'name', label:'Full Name', ph:'Ahmed Mohamed', type:'text' },{ k:'email', label:'Email', ph:'agent@store.com', type:'email' },{ k:'password', label:'Password', ph:'Minimum 8 characters', type:'password' }].map(f=>(
             <Field key={f.k} label={f.label}>
               <input className="input" type={f.type} placeholder={f.ph} style={{ fontSize:13 }}
                 value={inviteForm[f.k]} onChange={e=>setInviteForm(x=>({...x,[f.k]:e.target.value}))} />

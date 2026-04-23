@@ -168,7 +168,12 @@ router.post('/invite', authMiddleware, requireOwnerRole, async (req, res, next) 
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const tempPassword = Math.random().toString(36).slice(-10);
+    const requestedPassword = String(req.body?.password || '').trim();
+    if (requestedPassword && requestedPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    const tempPassword = requestedPassword || Math.random().toString(36).slice(-10);
     const passwordHash = await bcrypt.hash(tempPassword, SALT_ROUNDS);
 
     const result = await queryAdmin(`
@@ -194,6 +199,12 @@ router.patch('/team/:id', authMiddleware, requireOwnerRole, async (req, res, nex
     const updates = {};
     if (req.body.name) updates.name = req.body.name;
     if (req.body.role) updates.role = req.body.role;
+    if (req.body.password) {
+      if (String(req.body.password).length < 8) {
+        return res.status(400).json({ error: 'Password must be at least 8 characters' });
+      }
+      updates.password_hash = await bcrypt.hash(String(req.body.password), SALT_ROUNDS);
+    }
 
     const fields = Object.keys(updates);
     if (!fields.length) {
@@ -215,7 +226,7 @@ router.patch('/team/:id', authMiddleware, requireOwnerRole, async (req, res, nex
     `, [req.params.id, tenant_id, ...values]);
 
     if (!result.rows[0]) return res.status(404).json({ error: 'User not found' });
-    res.json({ user: sanitize(result.rows[0]) });
+    res.json({ user: sanitize(result.rows[0]), passwordUpdated: Boolean(req.body.password) });
   } catch (err) {
     next(err);
   }

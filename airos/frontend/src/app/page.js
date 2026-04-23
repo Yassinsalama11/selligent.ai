@@ -311,13 +311,27 @@ function Pricing() {
   const [pricing, setPricing] = useState({ plans: fallbackPlans, promoBanner: null, offers: [] });
 
   useEffect(() => {
-    try {
-      const locale = Intl.DateTimeFormat().resolvedOptions().locale || 'en-US';
-      const region = locale.split('-')[1] || 'US';
-      setCountry(region.toUpperCase());
-    } catch {
-      setCountry('US');
-    }
+    let cancelled = false;
+
+    fetch(`${getApiBase()}/api/stripe/location`)
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (cancelled || !data?.country) return;
+        setCountry(String(data.country).trim().toUpperCase());
+      })
+      .catch(() => {
+        try {
+          const locale = Intl.DateTimeFormat().resolvedOptions().locale || navigator.language || 'en-EU';
+          const region = locale.split('-')[1] || 'EU';
+          if (!cancelled) setCountry(region.toUpperCase());
+        } catch {
+          if (!cancelled) setCountry('EU');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {

@@ -69,6 +69,24 @@ export default function SignupPage() {
 
   useEffect(() => {
     let cancelled = false;
+    if (planCountry && planCountry !== 'EU') return undefined;
+
+    fetch(`${API_BASE}/api/stripe/location`)
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => {
+        if (!cancelled && payload?.country) {
+          setPlanCountry(String(payload.country).trim().toUpperCase());
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [planCountry]);
+
+  useEffect(() => {
+    let cancelled = false;
     fetch(`${API_BASE}/api/stripe/plans?country=${encodeURIComponent(planCountry)}&seats=${encodeURIComponent(planSeats)}`)
       .then((response) => response.ok ? response.json() : null)
       .then((payload) => {

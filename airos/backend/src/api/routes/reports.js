@@ -1,5 +1,12 @@
 const express = require('express');
-const { getRevenueReport, getConversionReport, getAIPerformanceReport, getAgentReport, getChannelReport } = require('../../db/queries/reports');
+const {
+  getRevenueReport,
+  getConversionReport,
+  getAIPerformanceReport,
+  getAgentReport,
+  getChannelReport,
+  getOverviewReport,
+} = require('../../db/queries/reports');
 const { requireRole } = require('../middleware/rbac');
 
 const router = express.Router();
@@ -36,6 +43,13 @@ router.get('/agents', requireReadRole, async (req, res, next) => {
 router.get('/channels', requireReadRole, async (req, res, next) => {
   try {
     const data = await getChannelReport(req.user.tenant_id, req.query);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.get('/summary', requireReadRole, async (req, res, next) => {
+  try {
+    const data = await getOverviewReport(req.user.tenant_id, req.query);
     res.json(data);
   } catch (err) { next(err); }
 });

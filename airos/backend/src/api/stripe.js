@@ -16,6 +16,28 @@ function normalizeSeats(value) {
   return Math.min(seats, 500);
 }
 
+function detectCountry(req) {
+  const fromHeader = [
+    req.headers['cf-ipcountry'],
+    req.headers['x-vercel-ip-country'],
+    req.headers['x-country-code'],
+    req.headers['x-geo-country'],
+  ]
+    .map((value) => String(value || '').trim().toUpperCase())
+    .find(Boolean);
+
+  if (fromHeader) return normalizeCountry(fromHeader);
+
+  const acceptLanguage = String(req.headers['accept-language'] || '').trim();
+  const localeCountry = acceptLanguage
+    .split(',')
+    .map((entry) => entry.split(';')[0].trim())
+    .find((entry) => entry.includes('-'))
+    ?.split('-')[1];
+
+  return normalizeCountry(localeCountry || 'EU');
+}
+
 async function getSelectedPlan(planKey) {
   const plans = await listPlatformPlans({ visibleOnly: false });
   const normalized = String(planKey || '').trim().toLowerCase();
@@ -132,6 +154,15 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 router.get('/plans', async (req, res) => {
   const payload = await buildPublicPricingPayload(req.query.country, req.query.seats);
   res.json(payload);
+});
+
+router.get('/location', async (req, res) => {
+  const country = detectCountry(req);
+  const payload = await buildPublicPricingPayload(country, req.query.seats || 1);
+  res.json({
+    country,
+    currency: payload.plans[0]?.currency || 'EUR',
+  });
 });
 
 module.exports = router;

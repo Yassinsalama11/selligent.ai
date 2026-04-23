@@ -2,6 +2,62 @@ const { queryAdmin } = require('../db/pool');
 const { getKnowledgeChunks } = require('../ingest/ingestionJob');
 const { completeText } = require('./completionClient');
 
+function buildKnowledgeBaseFromProfile(profile = {}, tenant = {}) {
+  return {
+    company: {
+      name: profile.businessName || tenant.name || '',
+      category: profile.businessCategory || '',
+      model: profile.businessModel || '',
+      vertical: profile.vertical || '',
+      tone: profile.tone || '',
+      language: profile.primaryLanguage || '',
+      dialect: profile.primaryDialect || '',
+      supportStyle: profile.supportStyle || '',
+      locations: Array.isArray(profile.locations) ? profile.locations : [],
+      openingHours: profile.openingHours || '',
+      website: tenant.settings?.company?.website || '',
+      email: tenant.email || '',
+    },
+    offerings: Array.isArray(profile.offerings) ? profile.offerings : [],
+    policies: Array.isArray(profile.policies) ? profile.policies : [],
+    faqs: Array.isArray(profile.faqs)
+      ? profile.faqs
+      : (Array.isArray(profile.faqCandidates)
+        ? profile.faqCandidates.map((entry) => ({ question: entry, answer: '' }))
+        : []),
+    knowledge: Array.isArray(profile.knowledge) ? profile.knowledge : [],
+    leadQualificationHints: Array.isArray(profile.leadQualificationHints) ? profile.leadQualificationHints : [],
+    customerIntentPatterns: Array.isArray(profile.customerIntentPatterns) ? profile.customerIntentPatterns : [],
+    brandVoiceNotes: profile.brandVoiceNotes || '',
+  };
+}
+
+function buildFallbackProfile(tenant = {}) {
+  const company = tenant.settings?.company || {};
+  return {
+    businessName: company.name || tenant.name || '',
+    businessCategory: company.industry || 'Commerce',
+    businessModel: 'online sales',
+    vertical: 'ecommerce',
+    offerings: [],
+    policies: [],
+    tone: 'professional and helpful',
+    primaryLanguage: company.language || 'arabic',
+    primaryDialect: 'ar',
+    supportStyle: 'helpful and concise',
+    leadQualificationHints: [],
+    customerIntentPatterns: [],
+    productServiceTypes: [],
+    agentName: tenant.settings?.aiConfig?.agentName || 'Chator Assistant',
+    openingHours: '',
+    locations: company.address ? [company.address] : [],
+    faqCandidates: [],
+    faqs: [],
+    knowledge: [],
+    brandVoiceNotes: company.description || '',
+  };
+}
+
 function heuristicProfile(tenant = {}, chunks = []) {
   const combined = chunks.map((chunk) => chunk.content).join('\n').slice(0, 8000);
   const language = /[\u0600-\u06ff]/.test(combined) ? 'arabic' : 'english';
@@ -38,6 +94,8 @@ function heuristicProfile(tenant = {}, chunks = []) {
     openingHours: '',
     locations: [],
     faqCandidates,
+    faqs: faqCandidates.map((entry) => ({ question: entry, answer: '' })),
+    knowledge: [],
     brandVoiceNotes: 'Generated from crawled website content and tenant metadata.',
   };
 }
@@ -144,6 +202,10 @@ async function getTenantProfile(tenantId) {
 }
 
 async function saveTenantProfile(tenantId, profile, status = 'reviewed') {
+  const tenant = await queryAdmin(
+    'SELECT id, name, email, settings FROM tenants WHERE id = $1 LIMIT 1',
+    [tenantId]
+  ).then((result) => result.rows[0] || null);
   const result = await queryAdmin(
     `INSERT INTO tenant_profiles (tenant_id, profile, status, reviewed_at)
      VALUES ($1, $2, $3, NOW())
@@ -155,11 +217,67 @@ async function saveTenantProfile(tenantId, profile, status = 'reviewed') {
      RETURNING *`,
     [tenantId, JSON.stringify(profile || {}), status]
   );
+
+  if (tenant) {
+    await queryAdmin(
+      'UPDATE tenants SET knowledge_base = $1 WHERE id = $2',
+      [JSON.stringify(buildKnowledgeBaseFromProfile(profile || {}, tenant)), tenantId]
+    );
+  }
+
   return result.rows[0];
+}
+
+async function ensureTenantBusinessProfile(tenantId, tenant = null) {
+  const existing = await getTenantProfile(tenantId);
+  if (existing?.profile && Object.keys(existing.profile).length > 0) return existing;
+
+  const tenantRow = tenant || await queryAdmin(
+    'SELECT id, name, email, settings FROM tenants WHERE id = $1 LIMIT 1',
+    [tenantId]
+  ).then((result) => result.rows[0] || null);
+  if (!tenantRow) return null;
+
+  const fallbackProfile = buildFallbackProfile(tenantRow);
+  return saveTenantProfile(tenantId, fallbackProfile, 'draft');
+}
+
+async function getTenantBusinessContext(tenantId, tenant = null) {
+  const ensured = await ensureTenantBusinessProfile(tenantId, tenant);
+  const tenantRow = tenant || await queryAdmin(
+    'SELECT id, name, email, settings, knowledge_base FROM tenants WHERE id = $1 LIMIT 1',
+    [tenantId]
+  ).then((result) => result.rows[0] || null);
+
+  const profile = ensured?.profile || {};
+  const existingKnowledge = tenantRow?.knowledge_base && typeof tenantRow.knowledge_base === 'object'
+    ? tenantRow.knowledge_base
+    : {};
+  const profileKnowledge = buildKnowledgeBaseFromProfile(profile, tenantRow || {});
+
+  return {
+    profile,
+    knowledgeBase: {
+      ...existingKnowledge,
+      business_profile: profile,
+      company: {
+        ...(existingKnowledge.company || {}),
+        ...(profileKnowledge.company || {}),
+      },
+      offerings: profileKnowledge.offerings,
+      policies: profileKnowledge.policies,
+      faqs: profileKnowledge.faqs,
+      knowledge: profileKnowledge.knowledge,
+      brandVoiceNotes: profileKnowledge.brandVoiceNotes,
+    },
+  };
 }
 
 module.exports = {
   analyzeBusinessProfile,
+  buildKnowledgeBaseFromProfile,
+  ensureTenantBusinessProfile,
+  getTenantBusinessContext,
   getTenantProfile,
   saveTenantProfile,
   heuristicProfile,

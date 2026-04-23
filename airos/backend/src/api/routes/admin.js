@@ -19,6 +19,7 @@ const {
 const { logAuditEvent } = require('../../db/queries/audit');
 const { getPlatformAiStatus } = require('../../ai/completionClient');
 const {
+  VALID_CATALOG_PLATFORMS,
   buildPublicPricingPayload,
   createPlatformOffer,
   ensurePlatformControlSchema,
@@ -29,6 +30,7 @@ const {
   updatePlatformOffer,
   upsertPlatformPlan,
 } = require('../../db/queries/platform');
+const { getPlatformConfig } = require('../../ai/completionClient');
 
 const router = express.Router();
 const SALT_ROUNDS = 12;
@@ -382,6 +384,28 @@ async function enableTotp(userId) {
 
 function formatEuro(value) {
   return Math.max(0, Number(value || 0));
+}
+
+function getSystemAvailableModels(config = null) {
+  const base = [
+    'gpt-5.4-mini',
+    'gpt-5.4',
+    'gpt-4o-mini',
+    'gpt-4o',
+    'claude-haiku-4-5-20251001',
+    'claude-sonnet-4-20250514',
+    'claude-sonnet-4-6',
+  ];
+  const configured = config
+    ? [
+      config.activeModel,
+      config.fallbackModel,
+      ...(Array.isArray(config.enabledModels) ? config.enabledModels : []),
+      ...Object.values(config.defaultModelByPlan || {}),
+    ]
+    : [];
+
+  return [...new Set([...base, ...configured].filter(Boolean))];
 }
 
 function buildClientPayload(row, planCatalog = []) {
@@ -835,6 +859,7 @@ router.get('/ai-control', adminAuthMiddleware, async (req, res, next) => {
           anthropicApiKey: maskSecret(config.providerCredentials?.anthropicApiKey || process.env.PLATFORM_ANTHROPIC_API_KEY || ''),
         },
       },
+      availableModels: getSystemAvailableModels(config),
       providerStatus: await getPlatformAiStatus(),
       tenantUsage,
     });
@@ -852,6 +877,75 @@ router.patch('/ai-control', adminAuthMiddleware, async (req, res, next) => {
       fallback_model: config.fallbackModel,
     });
     return res.json({ config });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/ai-agents', adminAuthMiddleware, async (req, res, next) => {
+  try {
+    const [clients, aiConfig] = await Promise.all([
+      fetchClients({ limit: 500 }),
+      getPlatformAiConfig(),
+    ]);
+
+    const result = await queryAdmin(`
+      SELECT
+        t.id AS tenant_id,
+        t.name AS company_name,
+        t.created_at,
+        t.settings,
+        COALESCE(conv_stats.messages_handled, 0)::int AS messages_handled,
+        COALESCE(conv_stats.conversations_handled, 0)::int AS conversations_handled,
+        COALESCE(conv_stats.ai_mode, 'manual') AS ai_mode
+      FROM tenants t
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(m.*) FILTER (WHERE m.sent_by = 'ai') AS messages_handled,
+          COUNT(DISTINCT c.id) FILTER (WHERE EXISTS (
+            SELECT 1
+            FROM messages ai_m
+            WHERE ai_m.conversation_id = c.id AND ai_m.sent_by = 'ai'
+          )) AS conversations_handled,
+          COALESCE(MAX(c.ai_mode), 'manual') AS ai_mode
+        FROM conversations c
+        LEFT JOIN messages m ON m.conversation_id = c.id
+        WHERE c.tenant_id = t.id
+      ) AS conv_stats ON TRUE
+      ORDER BY t.created_at DESC
+    `);
+
+    const clientByTenant = Object.fromEntries(clients.map((client) => [client.id, client]));
+    const agents = result.rows.map((row) => {
+      const settings = row.settings || {};
+      const company = settings.company || {};
+      const aiCfg = settings.aiConfig || {};
+      const client = clientByTenant[row.tenant_id] || {};
+      return {
+        tenantId: row.tenant_id,
+        agentName: aiCfg.agentName || client.agentName || 'Chator Assistant',
+        companyName: company.name || row.company_name,
+        agentType: aiCfg.autoReply ? 'autonomous' : 'copilot',
+        usageStats: {
+          conversations: Number(client.conversationsCount || row.conversations_handled || 0),
+          messages: Number(client.messagesCount || row.messages_handled || 0),
+        },
+        messagesHandled: Number(row.messages_handled || 0),
+        aiMode: row.ai_mode || 'manual',
+        createdAt: row.created_at,
+      };
+    });
+
+    return res.json({
+      chator: {
+        name: aiConfig.chator?.name || 'Chator',
+        provider: aiConfig.provider,
+        activeModel: aiConfig.activeModel,
+        fallbackModel: aiConfig.fallbackModel,
+        hierarchyMode: aiConfig.chator?.hierarchyMode || 'platform-defaults',
+      },
+      tenants: agents,
+    });
   } catch (err) {
     return next(err);
   }

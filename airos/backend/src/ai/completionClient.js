@@ -216,5 +216,6 @@ async function getPlatformAiStatus() {
 module.exports = {
   completeText,
   completeTextWithMetadata,
+  getPlatformConfig,
   getPlatformAiStatus,
 };

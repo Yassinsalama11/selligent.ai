@@ -88,7 +88,8 @@ export default function ReportsPage() {
 
   const { data, error, loading, reload } = usePollingResource(async () => {
     const query = buildRangeQuery(range);
-    const [revenue, conversion, aiPerformance, agents, channels] = await Promise.all([
+    const [summary, revenue, conversion, aiPerformance, agents, channels] = await Promise.all([
+      api.get(`/api/reports/summary${query}`),
       api.get(`/api/reports/revenue${query}`),
       api.get(`/api/reports/conversion${query}`),
       api.get(`/api/reports/ai-performance${query}`),
@@ -97,6 +98,7 @@ export default function ReportsPage() {
     ]);
 
     return {
+      summary: summary || {},
       revenue: Array.isArray(revenue) ? revenue : [],
       conversion: conversion || {},
       aiPerformance: aiPerformance || {},
@@ -104,6 +106,7 @@ export default function ReportsPage() {
       channels: Array.isArray(channels) ? channels : [],
     };
   }, [range], { intervalMs: 60000, initialData: {
+    summary: {},
     revenue: [],
     conversion: {},
     aiPerformance: {},
@@ -235,6 +238,15 @@ export default function ReportsPage() {
           </button>
         ))}
       </div>
+
+      {!loading && (
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:14 }}>
+          <SummaryCard label="Conversations" value={Number(data?.summary?.conversations || 0)} tone="#6366f1" />
+          <SummaryCard label="Messages" value={Number(data?.summary?.messages || 0)} tone="#06b6d4" />
+          <SummaryCard label="Avg response" value={`${Number(data?.summary?.avgResponseTimeSeconds || 0).toFixed(0)}s`} tone="#10b981" />
+          <SummaryCard label="Conversion rate" value={`${Number(data?.summary?.conversionRate || 0).toFixed(1)}%`} tone="#f59e0b" />
+        </div>
+      )}
 
       {loading ? <LoadingGrid /> : null}
 
@@ -394,6 +406,15 @@ export default function ReportsPage() {
           )}
         </Card>
       )}
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, tone }) {
+  return (
+    <div className="card-sm" style={{ display:'flex', flexDirection:'column', gap:6 }}>
+      <span style={{ fontSize:12, color:'var(--t4)' }}>{label}</span>
+      <span style={{ fontSize:24, fontWeight:900, color:tone }}>{typeof value === 'number' ? value.toLocaleString() : value}</span>
     </div>
   );
 }

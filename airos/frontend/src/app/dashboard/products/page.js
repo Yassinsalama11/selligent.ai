@@ -1,6 +1,6 @@
 'use client';
 
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 
 import { api, getApiBase } from '@/lib/api';
@@ -22,7 +22,35 @@ const sourceMeta = {
 };
 
 const SYNCED_SOURCES = ['woocommerce', 'shopify', 'salla', 'zid', 'api'];
-const WOO_PLUGIN_AVAILABLE = false;
+const PLATFORM_FIELDS = {
+  woocommerce: ['storeUrl', 'consumerKey', 'consumerSecret'],
+  shopify: ['storeDomain', 'accessToken'],
+  salla: ['storeLabel', 'accessToken'],
+  zid: ['storeLabel', 'storeId', 'authorizationToken', 'accessToken'],
+};
+const PLATFORM_STEPS = {
+  woocommerce: [
+    'Install the WooCommerce connector in WordPress.',
+    'Paste the API key / tenant id or use the manual store credentials below.',
+    'Enable create, update, and delete product webhooks.',
+    'Run a manual sync once to backfill the full catalog.',
+  ],
+  shopify: [
+    'Install the Shopify app and save the tenant credentials inside the app settings.',
+    'Register the product and discount webhooks against the ChatorAI webhook URL.',
+    'Run a manual sync once to backfill existing products.',
+  ],
+  salla: [
+    'Authorize ChatorAI with your Salla app access token.',
+    'Subscribe product webhooks in Salla using the generated webhook URL and basic auth secret.',
+    'Run a manual sync to import the current catalog.',
+  ],
+  zid: [
+    'Connect Zid using your authorization token, access token, and store id.',
+    'Register product.create / product.update / product.delete webhooks with the generated webhook URL.',
+    'Run a manual sync to backfill catalog data and categories.',
+  ],
+};
 
 function getSourceMeta(source) {
   return sourceMeta[source] || { label: source || 'Unknown', color: '#94a3b8', icon: '📦' };
@@ -57,8 +85,29 @@ export default function ProductsPage() {
     category: '',
     url: '',
   });
+  const [integrations, setIntegrations] = useState([]);
+  const [integrationForms, setIntegrationForms] = useState({
+    woocommerce: { storeUrl:'', consumerKey:'', consumerSecret:'' },
+    shopify: { storeDomain:'', accessToken:'' },
+    salla: { storeLabel:'', accessToken:'' },
+    zid: { storeLabel:'', storeId:'', authorizationToken:'', accessToken:'' },
+  });
+  const [busyPlatform, setBusyPlatform] = useState('');
   const deferredSearch = useDeferredValue(search);
   const webhookUrl = `${getApiBase()}/v1/catalog/products/sync`;
+
+  async function loadIntegrations() {
+    try {
+      const rows = await api.get('/v1/catalog/integrations');
+      setIntegrations(Array.isArray(rows) ? rows : []);
+    } catch (err) {
+      toast.error(err.message || 'Could not load integrations');
+    }
+  }
+
+  useEffect(() => {
+    loadIntegrations();
+  }, []);
 
   const filteredProducts = useMemo(() => (
     (data || []).filter((product) => {
@@ -141,6 +190,50 @@ export default function ProductsPage() {
       toast.error(err.message || 'Could not add product');
     } finally {
       setSavingManual(false);
+    }
+  }
+
+  const integrationByPlatform = useMemo(() => (
+    Object.fromEntries((integrations || []).map((integration) => [integration.platform, integration]))
+  ), [integrations]);
+
+  async function connectPlatform(platform) {
+    setBusyPlatform(platform);
+    try {
+      await api.post(`/v1/catalog/integrations/${platform}/connect`, integrationForms[platform]);
+      await loadIntegrations();
+      toast.success(`${getSourceMeta(platform).label} connected`);
+    } catch (err) {
+      toast.error(err.message || 'Could not save integration');
+    } finally {
+      setBusyPlatform('');
+    }
+  }
+
+  async function syncPlatform(platform) {
+    setBusyPlatform(platform);
+    try {
+      const result = await api.post(`/v1/catalog/integrations/${platform}/sync`, {});
+      await loadIntegrations();
+      await reload();
+      toast.success(`${getSourceMeta(platform).label}: ${result.synced || 0} products synced`);
+    } catch (err) {
+      toast.error(err.message || 'Manual sync failed');
+    } finally {
+      setBusyPlatform('');
+    }
+  }
+
+  async function disconnectPlatform(platform) {
+    setBusyPlatform(platform);
+    try {
+      await api.delete(`/v1/catalog/integrations/${platform}`);
+      await loadIntegrations();
+      toast.success(`${getSourceMeta(platform).label} disconnected`);
+    } catch (err) {
+      toast.error(err.message || 'Could not disconnect integration');
+    } finally {
+      setBusyPlatform('');
     }
   }
 
@@ -247,35 +340,65 @@ export default function ProductsPage() {
       </form>
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(320px,1fr))', gap:14 }}>
-        <section className="card" style={{ display:'flex', flexDirection:'column', gap:12 }}>
-          <div>
-            <h2 style={{ fontSize:16, fontWeight:900, color:'var(--t1)', marginBottom:6 }}>WooCommerce onboarding</h2>
-            <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.7 }}>
-              Install the ChatorAI catalog connector, activate it in WordPress, then connect your store with the tenant API credentials from your integration settings.
-            </p>
-          </div>
-          <ol style={{ margin:0, paddingLeft:18, color:'var(--t2)', fontSize:13, lineHeight:1.8 }}>
-            <li>{WOO_PLUGIN_AVAILABLE ? 'Download the WooCommerce plugin package.' : 'Plugin package is not yet published. Use the API/webhook path below until the package is released.'}</li>
-            <li>Install and activate it in WordPress Plugins.</li>
-            <li>Paste the webhook URL and API key in the plugin settings.</li>
-            <li>Run first sync, then enable automatic product update webhooks.</li>
-          </ol>
-          {WOO_PLUGIN_AVAILABLE ? (
-            <button className="btn btn-primary" type="button" onClick={() => window.open('/downloads/chatorai-woocommerce-plugin.zip', '_blank')}>
-              Download plugin
-            </button>
-          ) : (
-            <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.18)', color:'#fcd34d', fontSize:12.5, lineHeight:1.7 }}>
-              WooCommerce plugin download is not available in this build. The API/webhook integration below is the supported path today.
-            </div>
-          )}
-        </section>
+        {['woocommerce', 'shopify', 'salla', 'zid'].map((platform) => {
+          const integration = integrationByPlatform[platform];
+          const meta = getSourceMeta(platform);
+          const form = integrationForms[platform];
+          return (
+            <section key={platform} className="card" style={{ display:'flex', flexDirection:'column', gap:12 }}>
+              <div>
+                <h2 style={{ fontSize:16, fontWeight:900, color:'var(--t1)', marginBottom:6 }}>{meta.label}</h2>
+                <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.7 }}>
+                  Real-time webhook sync plus optional manual pull sync for catalog backfill.
+                </p>
+              </div>
+              <ol style={{ margin:0, paddingLeft:18, color:'var(--t2)', fontSize:13, lineHeight:1.8 }}>
+                {PLATFORM_STEPS[platform].map((step) => <li key={step}>{step}</li>)}
+              </ol>
+              <div style={{ display:'grid', gap:10 }}>
+                {PLATFORM_FIELDS[platform].map((field) => (
+                  <input
+                    key={field}
+                    className="input"
+                    placeholder={field}
+                    value={form[field] || ''}
+                    onChange={(event) => setIntegrationForms((current) => ({
+                      ...current,
+                      [platform]: { ...current[platform], [field]: event.target.value },
+                    }))}
+                  />
+                ))}
+              </div>
+              {integration && (
+                <div style={{ padding:'12px 14px', borderRadius:12, background:'var(--bg3)', border:'1px solid var(--b1)', fontSize:12.5, color:'var(--t3)', lineHeight:1.8 }}>
+                  <div><strong>Status:</strong> {integration.status} · {integration.syncStatus}</div>
+                  <div><strong>Webhook:</strong> {integration.webhookUrl}</div>
+                  <div><strong>Username:</strong> {integration.webhookUsername}</div>
+                  <div><strong>Secret:</strong> {integration.webhookSecret}</div>
+                  <div><strong>API key:</strong> {integration.apiKey}</div>
+                  <div><strong>Products synced:</strong> {integration.sourceProducts || 0}</div>
+                </div>
+              )}
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                <button className="btn btn-primary btn-sm" type="button" onClick={() => connectPlatform(platform)} disabled={busyPlatform === platform}>
+                  {busyPlatform === platform ? 'Saving…' : integration ? 'Update connection' : 'Connect store'}
+                </button>
+                <button className="btn btn-ghost btn-sm" type="button" onClick={() => syncPlatform(platform)} disabled={busyPlatform === platform || !integration}>
+                  Manual sync
+                </button>
+                <button className="btn btn-ghost btn-sm" type="button" onClick={() => disconnectPlatform(platform)} disabled={busyPlatform === platform || !integration}>
+                  Disconnect
+                </button>
+              </div>
+            </section>
+          );
+        })}
 
         <section className="card" style={{ display:'flex', flexDirection:'column', gap:12 }}>
           <div>
             <h2 style={{ fontSize:16, fontWeight:900, color:'var(--t1)', marginBottom:6 }}>API / webhook sync</h2>
             <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.7 }}>
-              Use this endpoint from WooCommerce, Shopify middleware, Salla, Zid, or custom stores. Send create/update events with tenant API credentials.
+              Unified payload for create/update/delete events across plugins and custom middleware.
             </p>
           </div>
           <div style={{ padding:12, borderRadius:12, background:'var(--bg3)', border:'1px solid var(--b1)', fontSize:12, color:'var(--t2)', overflowX:'auto' }}>

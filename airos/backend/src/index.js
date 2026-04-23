@@ -52,6 +52,7 @@ const { initTelemetry, requestTracer, getMetricsSnapshot, renderPrometheusMetric
 const { logger } = require('./core/logger');
 const { pool } = require('./db/pool');
 const { getRedisClient } = require('./db/redis');
+const { ensureRuntimeSchema } = require('./db/runtimeSchema');
 
 const telemetry = initTelemetry();
 
@@ -249,41 +250,57 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3001;
-if (process.env.ENABLE_REPORT_SCHEDULER !== '0' && process.env.DATABASE_URL) {
-  startReportScheduler();
-  if (startRetentionScheduler) startRetentionScheduler();
 
-  // Weekly correction miner (2-C2) — runs every Sunday at 02:00 UTC
-  const MINER_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
-  setTimeout(function fireMiner() {
-    runMiner()
-      .then(({ exported, skipped }) =>
-        logger.info('[CorrectionMiner] weekly export done', { exported, skipped }),
-      )
-      .catch((err) => logger.error('[CorrectionMiner] failed', { error: err.message }))
-      .finally(() => setTimeout(fireMiner, MINER_INTERVAL_MS));
-  }, MINER_INTERVAL_MS);
+async function bootstrap() {
+  if (process.env.DATABASE_URL || process.env.DATABASE_URL_ADMIN) {
+    await ensureRuntimeSchema();
+  }
 
-  // Nightly Platform Brain anonymization pipeline (3-C4)
-  const BRAIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
-  setTimeout(function fireBrain() {
-    runAnonymizationPipeline()
-      .then(({ tenantsProcessed, signalsEmitted }) =>
-        logger.info('[PlatformBrain] nightly pipeline done', { tenantsProcessed, signalsEmitted }),
-      )
-      .catch((err) => logger.error('[PlatformBrain] pipeline failed', { error: err.message }))
-      .finally(() => setTimeout(fireBrain, BRAIN_INTERVAL_MS));
-  }, BRAIN_INTERVAL_MS);
-} else if (process.env.ENABLE_REPORT_SCHEDULER !== '0') {
-  logger.warn('[ReportScheduler] skipped because DATABASE_URL is not configured');
-}
-server.listen(PORT, () => {
-  logger.info('ChatOrAI backend started', {
-    port: PORT,
-    environment: process.env.NODE_ENV || 'development',
-    requestIdTracing: true,
-    telemetry,
+  if (process.env.ENABLE_REPORT_SCHEDULER !== '0' && process.env.DATABASE_URL) {
+    startReportScheduler();
+    if (startRetentionScheduler) startRetentionScheduler();
+
+    // Weekly correction miner (2-C2) — runs every Sunday at 02:00 UTC
+    const MINER_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+    setTimeout(function fireMiner() {
+      runMiner()
+        .then(({ exported, skipped }) =>
+          logger.info('[CorrectionMiner] weekly export done', { exported, skipped }),
+        )
+        .catch((err) => logger.error('[CorrectionMiner] failed', { error: err.message }))
+        .finally(() => setTimeout(fireMiner, MINER_INTERVAL_MS));
+    }, MINER_INTERVAL_MS);
+
+    // Nightly Platform Brain anonymization pipeline (3-C4)
+    const BRAIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+    setTimeout(function fireBrain() {
+      runAnonymizationPipeline()
+        .then(({ tenantsProcessed, signalsEmitted }) =>
+          logger.info('[PlatformBrain] nightly pipeline done', { tenantsProcessed, signalsEmitted }),
+        )
+        .catch((err) => logger.error('[PlatformBrain] pipeline failed', { error: err.message }))
+        .finally(() => setTimeout(fireBrain, BRAIN_INTERVAL_MS));
+    }, BRAIN_INTERVAL_MS);
+  } else if (process.env.ENABLE_REPORT_SCHEDULER !== '0') {
+    logger.warn('[ReportScheduler] skipped because DATABASE_URL is not configured');
+  }
+
+  server.listen(PORT, () => {
+    logger.info('ChatOrAI backend started', {
+      port: PORT,
+      environment: process.env.NODE_ENV || 'development',
+      requestIdTracing: true,
+      telemetry,
+    });
   });
+}
+
+bootstrap().catch((err) => {
+  logger.error('Backend bootstrap failed', {
+    error: err.message,
+    stack: err.stack,
+  });
+  process.exit(1);
 });
 
 module.exports = { app, server };

@@ -8,6 +8,8 @@ import { api } from '@/lib/api';
 function blankProfile() {
   return {
     businessName: '',
+    businessCategory: '',
+    businessModel: '',
     vertical: '',
     tone: '',
     primaryLanguage: '',
@@ -15,6 +17,10 @@ function blankProfile() {
     offerings: [],
     locations: [],
     faqCandidates: [],
+    faqs: [],
+    knowledge: [],
+    policies: [],
+    supportStyle: '',
     brandVoiceNotes: '',
   };
 }
@@ -99,6 +105,7 @@ export default function BusinessProfilePage() {
 
       <div style={{ padding:'12px 14px', borderRadius:12, background:'var(--s1)', border:'1px solid var(--b1)', color:'var(--t3)', fontSize:12 }}>
         Status: <strong style={{ color:status === 'reviewed' ? '#34d399' : '#fbbf24', textTransform:'capitalize' }}>{status}</strong>
+        <span style={{ marginLeft:10, color:'var(--t4)' }}>This profile is injected into AI context on every reply.</span>
       </div>
 
       <section style={{ padding:'22px', borderRadius:18, background:'var(--bg2)', border:'1px solid var(--b1)' }}>
@@ -109,10 +116,13 @@ export default function BusinessProfilePage() {
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
               {[
                 ['businessName', 'Business name'],
+                ['businessCategory', 'Business category'],
+                ['businessModel', 'Business model'],
                 ['vertical', 'Vertical'],
                 ['tone', 'Tone'],
                 ['primaryLanguage', 'Language'],
                 ['primaryDialect', 'Dialect'],
+                ['supportStyle', 'Support style'],
               ].map(([key, label]) => (
                 <label key={key} style={{ display:'flex', flexDirection:'column', gap:6, fontSize:12, fontWeight:700, color:'var(--t4)' }}>
                   {label}
@@ -131,6 +141,19 @@ export default function BusinessProfilePage() {
             <label style={{ display:'flex', flexDirection:'column', gap:6, fontSize:12, fontWeight:700, color:'var(--t4)' }}>
               FAQ candidates
               <textarea className="input" rows={5} value={toLines(profile.faqCandidates)} onChange={(event) => update('faqCandidates', fromLines(event.target.value))} />
+            </label>
+            <label style={{ display:'flex', flexDirection:'column', gap:6, fontSize:12, fontWeight:700, color:'var(--t4)' }}>
+              FAQs
+              <textarea className="input" rows={6} value={toLines((profile.faqs || []).map((entry) => `${entry.question || ''} | ${entry.answer || ''}`))}
+                onChange={(event) => update('faqs', fromLines(event.target.value).map((line) => {
+                  const [question, answer] = line.split('|').map((item) => item.trim());
+                  return { question, answer };
+                }))} />
+            </label>
+            <label style={{ display:'flex', flexDirection:'column', gap:6, fontSize:12, fontWeight:700, color:'var(--t4)' }}>
+              Knowledge base notes
+              <textarea className="input" rows={6} value={toLines((profile.knowledge || []).map((entry) => entry.content || entry))}
+                onChange={(event) => update('knowledge', fromLines(event.target.value).map((content) => ({ content })))} />
             </label>
             <label style={{ display:'flex', flexDirection:'column', gap:6, fontSize:12, fontWeight:700, color:'var(--t4)' }}>
               Brand voice notes

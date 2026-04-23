@@ -5,8 +5,25 @@ const {
   upsertProducts,
   getActiveProducts,
   deleteCatalogProduct,
+  deleteCatalogProductByExternalId,
 } = require('../../db/queries/products');
 const { queryAdmin } = require('../../db/pool');
+const {
+  disconnectCatalogIntegration,
+  getCatalogIntegration,
+  getCatalogIntegrationById,
+  listCatalogIntegrations,
+  markCatalogSyncResult,
+  markCatalogSyncStarted,
+  sanitizeIntegration,
+  upsertCatalogIntegration,
+  VALID_CATALOG_PLATFORMS,
+} = require('../../db/queries/catalogIntegrations');
+const {
+  normalizeWebhookEvent,
+  parseBasicAuth,
+  syncPlatformProducts,
+} = require('../../catalog/platformSync');
 
 const VALID_CATALOG_SOURCES = new Set(['manual', 'woocommerce', 'shopify', 'salla', 'zid', 'api']);
 
@@ -84,6 +101,13 @@ function createCatalogHandlers(deps = {}) {
       }
       return next(err);
     }
+  }
+
+  function requireCatalogUser(req, res, next) {
+    if (req.catalog_actor?.type !== 'user') {
+      return res.status(403).json({ error: 'User authentication required' });
+    }
+    return next();
   }
 
   async function syncCatalog(req, res, next) {
@@ -215,14 +239,132 @@ function createCatalogHandlers(deps = {}) {
     }
   }
 
+  async function listIntegrations(req, res, next) {
+    try {
+      const integrations = await listCatalogIntegrations(req.tenant_id);
+      const origin = `${req.protocol}://${req.get('host')}`;
+      return res.json(integrations.map((integration) => ({
+        ...integration,
+        webhookUrl: integration.webhookUrl
+          ? `${origin}${integration.webhookUrl}`
+          : '',
+      })));
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async function connectIntegration(req, res, next) {
+    try {
+      const platform = String(req.params.platform || '').trim().toLowerCase();
+      if (!VALID_CATALOG_PLATFORMS.has(platform)) {
+        return res.status(400).json({ error: 'Unsupported platform' });
+      }
+
+      const integration = await upsertCatalogIntegration(req.tenant_id, platform, req.body || {});
+      const origin = `${req.protocol}://${req.get('host')}`;
+      return res.status(201).json({
+        integration: {
+          ...integration,
+          webhookUrl: integration.webhookUrl
+            ? `${origin}${integration.webhookUrl}`
+            : '',
+        },
+      });
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async function syncIntegration(req, res, next) {
+    try {
+      const platform = String(req.params.platform || '').trim().toLowerCase();
+      const integration = await getCatalogIntegration(req.tenant_id, platform);
+      if (!integration) return res.status(404).json({ error: 'Integration not found' });
+
+      await markCatalogSyncStarted(integration.id);
+      const products = await syncPlatformProducts(integration);
+      const synced = await upsertProductsFn(req.tenant_id, products);
+      await markCatalogSyncResult(integration.id, { syncStatus: 'synced' });
+
+      return res.json({
+        synced: synced.length,
+        integration: sanitizeIntegration({
+          ...integration,
+          last_sync_at: new Date().toISOString(),
+          sync_status: 'synced',
+        }),
+      });
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async function disconnectIntegration(req, res, next) {
+    try {
+      const deleted = await disconnectCatalogIntegration(req.tenant_id, req.params.platform);
+      if (!deleted) return res.status(404).json({ error: 'Integration not found' });
+      return res.json({ ok: true });
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async function receiveWebhook(req, res, next) {
+    try {
+      const integration = await getCatalogIntegrationById(req.params.integrationId);
+      if (!integration) return res.status(404).json({ error: 'Integration not found' });
+
+      const credentials = parseBasicAuth(req.headers.authorization || '');
+      const config = integration.config && typeof integration.config === 'object' ? integration.config : {};
+      const expectedUsername = config.webhook_username || 'plugin';
+      const expectedPassword = config.webhook_secret || '';
+
+      if (!credentials || credentials.username !== expectedUsername || credentials.password !== expectedPassword) {
+        return res.status(401).json({ error: 'Invalid webhook credentials' });
+      }
+
+      const normalized = normalizeWebhookEvent(integration.type, req.body || {});
+
+      if (normalized.action === 'delete') {
+        if (!normalized.externalId) {
+          return res.status(400).json({ error: 'Webhook delete event did not include a product id' });
+        }
+        await deleteCatalogProductByExternalId(
+          integration.tenant_id,
+          normalized.externalId,
+          integration.type,
+          {
+            actorType: 'integration',
+            actorId: integration.id,
+            metadata: { via: 'webhook' },
+          }
+        );
+      } else {
+        await upsertProductsFn(integration.tenant_id, normalized.products || []);
+      }
+
+      await markCatalogSyncResult(integration.id, { syncStatus: 'synced' });
+      return res.json({ ok: true });
+    } catch (err) {
+      return next(err);
+    }
+  }
+
   return {
     catalogAuth,
+    requireCatalogUser,
     syncCatalog,
     syncProducts,
     syncShipping,
     syncOffers,
     listProducts,
     removeProduct,
+    listIntegrations,
+    connectIntegration,
+    syncIntegration,
+    disconnectIntegration,
+    receiveWebhook,
   };
 }
 
@@ -230,12 +372,17 @@ function createCatalogRouter(deps = {}) {
   const router = express.Router();
   const handlers = createCatalogHandlers(deps);
 
+  router.post('/webhooks/:integrationId', express.json({ limit: '4mb' }), handlers.receiveWebhook);
   router.post('/sync', handlers.catalogAuth, handlers.syncCatalog);
   router.post('/products/sync', handlers.catalogAuth, handlers.syncProducts);
   router.post('/shipping/sync', handlers.catalogAuth, handlers.syncShipping);
   router.post('/offers/sync', handlers.catalogAuth, handlers.syncOffers);
   router.get('/products', handlers.catalogAuth, handlers.listProducts);
   router.delete('/products/:id', handlers.catalogAuth, handlers.removeProduct);
+  router.get('/integrations', handlers.catalogAuth, handlers.requireCatalogUser, handlers.listIntegrations);
+  router.post('/integrations/:platform/connect', handlers.catalogAuth, handlers.requireCatalogUser, handlers.connectIntegration);
+  router.post('/integrations/:platform/sync', handlers.catalogAuth, handlers.requireCatalogUser, handlers.syncIntegration);
+  router.delete('/integrations/:platform', handlers.catalogAuth, handlers.requireCatalogUser, handlers.disconnectIntegration);
 
   return router;
 }
