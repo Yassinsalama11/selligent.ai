@@ -119,6 +119,12 @@ async function listTickets(tenantId, filters = {}, client) {
     clauses.push(`t.assignee_id = $${params.length}`);
   }
 
+  const conversationId = filters.conversation_id || filters.conversationId;
+  if (conversationId) {
+    params.push(String(conversationId));
+    clauses.push(`t.conversation_id = $${params.length}`);
+  }
+
   const { limit, offset } = normalizePagination(filters);
   params.push(limit);
   params.push(offset);

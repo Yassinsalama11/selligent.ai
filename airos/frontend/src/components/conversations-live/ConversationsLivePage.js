@@ -77,6 +77,7 @@ function normalizeConversation(row = {}) {
     leadScore: leadScoreValue == null ? null : Number(leadScoreValue),
     assignedTo: row.assigned_to || row.assignedTo || null,
     assignee: row.assignee_name || row.assigneeName || 'Unassigned',
+    customerId: row.customer_id || row.customerId || row.customer?.id || null,
     lastMessage: row.last_message || row.lastMessage || 'No messages yet',
     timestamp: formatTime(updatedAt),
     sortTimestamp: updatedAt || '',
@@ -159,6 +160,9 @@ function normalizeMessage(message = {}, fallbackConversationId = '') {
   const parsedContent = parseJsonLike(message.content);
   const mediaUrl = extractMediaUrl(message, parsedContent);
   const type = inferMessageType(message, mediaUrl, parsedContent);
+  const metadata = message.metadata && typeof message.metadata === 'object'
+    ? message.metadata
+    : parseJsonLike(message.metadata) || {};
   const content = parsedContent && mediaUrl
     ? String(parsedContent.caption || parsedContent.text || '')
     : String(message.content ?? message.text ?? '');
@@ -172,6 +176,9 @@ function normalizeMessage(message = {}, fallbackConversationId = '') {
     timestamp: messageTimestamp(message) || '',
     type,
     mediaUrl,
+    fileName: message.file_name || message.fileName || metadata.file_name || metadata.fileName || '',
+    mimeType: message.mime_type || message.mimeType || metadata.mime_type || metadata.mimeType || '',
+    size: message.size || metadata.size || null,
     status: message.status,
   };
 }
@@ -215,6 +222,12 @@ export default function ConversationsLivePage() {
   const [closing, setClosing] = useState(false);
   const [handoff, setHandoff] = useState(null);
   const [handoffBusy, setHandoffBusy] = useState(false);
+  const [tickets, setTickets] = useState([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
+  const [ticketBusy, setTicketBusy] = useState(false);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const [cannedReplies, setCannedReplies] = useState([]);
+  const [winning, setWinning] = useState(false);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const messageBottomRef = useRef(null);
@@ -232,6 +245,31 @@ export default function ConversationsLivePage() {
     } catch {
       setCurrentUser(null);
     }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCannedReplies() {
+      try {
+        const settings = await api.get('/api/settings');
+        if (cancelled) return;
+        const replies = [
+          ...(Array.isArray(settings?.waTemplates) ? settings.waTemplates : []),
+          ...(Array.isArray(settings?.emailTpls) ? settings.emailTpls : []),
+        ].map((entry) => ({
+          id: entry.id || entry.name || entry.title,
+          title: entry.name || entry.title || 'Saved reply',
+          text: entry.body || entry.content || entry.text || '',
+        })).filter((entry) => entry.text);
+        setCannedReplies(replies);
+      } catch {
+        if (!cancelled) setCannedReplies([]);
+      }
+    }
+    loadCannedReplies();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -350,6 +388,32 @@ export default function ConversationsLivePage() {
     }
 
     loadMessages();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeConversationId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTickets() {
+      if (!activeConversationId) {
+        setTickets([]);
+        setTicketsLoading(false);
+        return;
+      }
+      setTicketsLoading(true);
+      try {
+        const data = await api.get(`/api/conversations/${encodeURIComponent(activeConversationId)}/tickets`);
+        if (!cancelled) setTickets(Array.isArray(data) ? data : []);
+      } catch {
+        if (!cancelled) setTickets([]);
+      } finally {
+        if (!cancelled) setTicketsLoading(false);
+      }
+    }
+
+    loadTickets();
     return () => {
       cancelled = true;
     };
@@ -576,6 +640,21 @@ export default function ConversationsLivePage() {
     }
   }
 
+  async function markConversationWon() {
+    if (!activeConversation || winning) return;
+    setWinning(true);
+    try {
+      await api.post(`/api/conversations/${encodeURIComponent(activeConversation.id)}/won`, {});
+      setConversations((current) => current.map((conversation) => (
+        conversation.id === activeConversation.id
+          ? { ...conversation, status: 'won', intent: conversation.intent || 'ready_to_buy' }
+          : conversation
+      )));
+    } finally {
+      setWinning(false);
+    }
+  }
+
   function insertCannedReply(text) {
     if (!text) return;
     setComposerValue((current) => current ? `${current}\n${text}` : text);
@@ -586,9 +665,126 @@ export default function ConversationsLivePage() {
     else fileInputRef.current?.click();
   }
 
-  function handleUnsupportedAttachment(event) {
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleAttachmentSelected(event) {
+    const file = event.target.files?.[0];
     event.target.value = '';
-    window.alert('Attachment upload is not connected yet. Incoming image messages are supported in the inbox.');
+    if (!file || !activeConversationId || attachmentUploading) return;
+
+    setAttachmentUploading(true);
+    try {
+      const data = await readFileAsDataUrl(file);
+      const uploaded = await api.post('/api/uploads', {
+        file_name: file.name,
+        mime_type: file.type || 'application/octet-stream',
+        size: file.size,
+        data,
+      });
+      await sendAttachmentMessage(uploaded);
+    } finally {
+      setAttachmentUploading(false);
+    }
+  }
+
+  async function sendAttachmentMessage(uploaded) {
+    if (!activeConversationId || !uploaded?.url) return;
+    const type = uploaded.type || (uploaded.mime_type?.startsWith('image/') ? 'image' : 'file');
+    const tempId = `tmp-${activeConversationId}-${Date.now()}`;
+    const optimisticMessage = normalizeMessage({
+      id: tempId,
+      conversationId: activeConversationId,
+      direction: 'outbound',
+      sent_by: 'agent',
+      type,
+      content: uploaded.file_name || (type === 'image' ? 'Image attachment' : 'File attachment'),
+      media_url: uploaded.url,
+      file_name: uploaded.file_name,
+      mime_type: uploaded.mime_type,
+      size: uploaded.size,
+      timestamp: new Date().toISOString(),
+      status: 'sending',
+    }, activeConversationId);
+
+    setMessages((current) => [...current, optimisticMessage]);
+    requestAnimationFrame(() => messageBottomRef.current?.scrollIntoView({ block: 'end' }));
+
+    try {
+      const response = await api.post(`/api/conversations/${encodeURIComponent(activeConversationId)}/messages`, {
+        content: uploaded.file_name,
+        type,
+        media_url: uploaded.url,
+        file_name: uploaded.file_name,
+        mime_type: uploaded.mime_type,
+        size: uploaded.size,
+      });
+      const confirmed = normalizeMessage(response?.message || response, activeConversationId);
+      setMessages((current) => upsertMessage(current.filter((message) => message.id !== tempId), confirmed));
+    } catch {
+      setMessages((current) => current.map((message) => (
+        message.id === tempId ? { ...message, status: 'failed' } : message
+      )));
+    }
+  }
+
+  async function addTag(tag) {
+    const clean = String(tag || '').trim();
+    if (!activeConversation || !clean) return;
+    const nextTags = [...new Set([...(activeConversation.tags || []), clean])];
+    setConversations((current) => current.map((conversation) => (
+      conversation.id === activeConversation.id ? { ...conversation, tags: nextTags } : conversation
+    )));
+    try {
+      const response = await api.patch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/tags`, { tags: nextTags });
+      const savedTags = Array.isArray(response?.tags) ? response.tags : nextTags;
+      setConversations((current) => current.map((conversation) => (
+        conversation.id === activeConversation.id ? { ...conversation, tags: savedTags } : conversation
+      )));
+    } catch {
+      setConversations((current) => current.map((conversation) => (
+        conversation.id === activeConversation.id
+          ? { ...conversation, tags: activeConversation.tags || [] }
+          : conversation
+      )));
+    }
+  }
+
+  async function removeTag(tag) {
+    if (!activeConversation) return;
+    const nextTags = (activeConversation.tags || []).filter((entry) => entry !== tag);
+    setConversations((current) => current.map((conversation) => (
+      conversation.id === activeConversation.id ? { ...conversation, tags: nextTags } : conversation
+    )));
+    try {
+      await api.patch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/tags`, { tags: nextTags });
+    } catch {
+      setConversations((current) => current.map((conversation) => (
+        conversation.id === activeConversation.id
+          ? { ...conversation, tags: activeConversation.tags || [] }
+          : conversation
+      )));
+    }
+  }
+
+  async function createConversationTicket() {
+    if (!activeConversation || ticketBusy) return;
+    setTicketBusy(true);
+    try {
+      const ticket = await api.post(`/api/conversations/${encodeURIComponent(activeConversation.id)}/tickets`, {
+        title: `Follow up with ${activeConversation.name}`,
+        priority: 'medium',
+      });
+      setTickets((current) => [ticket, ...current.filter((entry) => entry.id !== ticket.id)]);
+    } finally {
+      setTicketBusy(false);
+    }
   }
 
   async function handleManualSend() {
@@ -636,8 +832,8 @@ export default function ConversationsLivePage() {
 
   return (
     <div className={`${styles.dashboardShell} ${theme === 'light' ? styles.light : styles.dark}`}>
-      <input ref={fileInputRef} type="file" hidden onChange={handleUnsupportedAttachment} />
-      <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={handleUnsupportedAttachment} />
+      <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={handleAttachmentSelected} />
+      <input ref={fileInputRef} type="file" hidden onChange={handleAttachmentSelected} />
       <PrototypeConversationList
         conversations={visibleConversations}
         filters={filters}
@@ -667,8 +863,10 @@ export default function ConversationsLivePage() {
               onTakeOver={takeOverConversation}
               onAssign={() => setAssignOpen(true)}
               onClose={closeConversation}
+              onWon={markConversationWon}
               assignDisabled={assigning || !canAssign}
               closeDisabled={closing || activeConversation.status === 'closed'}
+              wonDisabled={winning}
             />
             <PrototypeAIStateBar
               conversation={activeConversation}
@@ -690,7 +888,7 @@ export default function ConversationsLivePage() {
               onSend={handleManualSend}
               sending={sending}
               onTakeOver={takeOverConversation}
-              cannedReplies={[]}
+              cannedReplies={cannedReplies}
               onInsertCanned={insertCannedReply}
               onAttach={handleAttach}
               onInternalNote={() => window.alert('Internal notes are not supported by the current backend.')}
@@ -705,6 +903,12 @@ export default function ConversationsLivePage() {
             onDeclineHandoff={() => resolveHandoff('decline')}
             onCancelHandoff={() => resolveHandoff('cancel')}
             handoffBusy={handoffBusy}
+            tickets={tickets}
+            ticketsLoading={ticketsLoading}
+            onCreateTicket={createConversationTicket}
+            ticketBusy={ticketBusy}
+            onAddTag={addTag}
+            onRemoveTag={removeTag}
           />
           <PrototypeContextDrawerMobile
             open={contextOpen}
@@ -717,6 +921,12 @@ export default function ConversationsLivePage() {
             onDeclineHandoff={() => resolveHandoff('decline')}
             onCancelHandoff={() => resolveHandoff('cancel')}
             handoffBusy={handoffBusy}
+            tickets={tickets}
+            ticketsLoading={ticketsLoading}
+            onCreateTicket={createConversationTicket}
+            ticketBusy={ticketBusy}
+            onAddTag={addTag}
+            onRemoveTag={removeTag}
           />
         </>
       ) : (

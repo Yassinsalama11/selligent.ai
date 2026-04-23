@@ -12,9 +12,9 @@ import {
 } from '@/components/dashboard/ResourceState';
 
 const STAGES = [
-  { id: 'new_lead', label: 'New Leads', color: '#6366f1', bg: 'rgba(99,102,241,0.1)' },
-  { id: 'engaged', label: 'Engaged', color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)' },
-  { id: 'negotiation', label: 'Negotiation', color: '#06b6d4', bg: 'rgba(6,182,212,0.1)' },
+  { id: 'new_lead', label: 'New Leads', color: '#ff7a18', bg: 'rgba(255,90,31,0.14)' },
+  { id: 'engaged', label: 'Engaged', color: '#00e5ff', bg: 'rgba(0,229,255,0.1)' },
+  { id: 'negotiation', label: 'Negotiation', color: '#f59e0b', bg: 'rgba(245,158,11,0.14)' },
   { id: 'closing', label: 'Closing', color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
   { id: 'won', label: 'Won', color: '#22c55e', bg: 'rgba(34,197,94,0.08)' },
   { id: 'lost', label: 'Lost', color: '#f97316', bg: 'rgba(249,115,22,0.08)' },
@@ -111,6 +111,15 @@ export default function DealsPage() {
   }, [], { intervalMs: 30000, initialData: [] });
 
   const [movingDealId, setMovingDealId] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [manualLead, setManualLead] = useState({
+    customer_name: '',
+    customer_phone: '',
+    customer_email: '',
+    estimated_value: '',
+    currency: 'USD',
+    notes: '',
+  });
 
   const groupedDeals = useMemo(() => {
     const groups = Object.fromEntries(STAGES.map((stage) => [stage.id, []]));
@@ -164,6 +173,33 @@ export default function DealsPage() {
     }
   }
 
+  async function createManualLead(event) {
+    event.preventDefault();
+    if (!manualLead.customer_name.trim()) {
+      toast.error('Customer name is required');
+      return;
+    }
+
+    setCreating(true);
+    try {
+      const created = await api.post('/api/deals', {
+        ...manualLead,
+        channel: 'manual',
+        stage: 'new_lead',
+        intent: 'manual',
+        lead_score: 0,
+        estimated_value: Number(manualLead.estimated_value || 0),
+      });
+      setData((current) => [{ ...created, customer_name: created.customer_name || manualLead.customer_name, channel: created.channel || 'manual' }, ...(current || [])]);
+      setManualLead({ customer_name: '', customer_phone: '', customer_email: '', estimated_value: '', currency: 'USD', notes: '' });
+      toast.success('Manual lead added');
+    } catch (err) {
+      toast.error(err.message || 'Could not create lead');
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <div style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: 20, height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
@@ -186,13 +222,42 @@ export default function DealsPage() {
         />
       )}
 
+      <form
+        onSubmit={createManualLead}
+        className="card"
+        style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:12, alignItems:'end' }}
+      >
+        <div style={{ gridColumn:'1 / -1' }}>
+          <div style={{ fontSize:15, fontWeight:800, color:'var(--t1)' }}>Add manual lead</div>
+          <div style={{ fontSize:12.5, color:'var(--t4)', marginTop:4 }}>
+            Create a real pipeline opportunity when a lead starts outside a conversation.
+          </div>
+        </div>
+        <input className="input" placeholder="Customer name" value={manualLead.customer_name}
+          onChange={(event) => setManualLead((current) => ({ ...current, customer_name:event.target.value }))} />
+        <input className="input" placeholder="Phone" value={manualLead.customer_phone}
+          onChange={(event) => setManualLead((current) => ({ ...current, customer_phone:event.target.value }))} />
+        <input className="input" placeholder="Email" value={manualLead.customer_email}
+          onChange={(event) => setManualLead((current) => ({ ...current, customer_email:event.target.value }))} />
+        <input className="input" placeholder="Value" type="number" min="0" step="0.01" value={manualLead.estimated_value}
+          onChange={(event) => setManualLead((current) => ({ ...current, estimated_value:event.target.value }))} />
+        <input className="input" placeholder="Currency" value={manualLead.currency}
+          onChange={(event) => setManualLead((current) => ({ ...current, currency:event.target.value.toUpperCase() }))} />
+        <textarea className="input" placeholder="Notes" value={manualLead.notes}
+          onChange={(event) => setManualLead((current) => ({ ...current, notes:event.target.value }))}
+          style={{ gridColumn:'1 / -1', minHeight:70, resize:'vertical' }} />
+        <button className="btn btn-primary" type="submit" disabled={creating} style={{ justifySelf:'start' }}>
+          {creating ? 'Adding…' : 'Add lead'}
+        </button>
+      </form>
+
       {loading ? (
         <LoadingGrid />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 14 }}>
           <div className="card-sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>Active deals</span>
-            <span style={{ fontSize: 24, fontWeight: 900, color: '#6366f1' }}>{totals.count}</span>
+            <span style={{ fontSize: 24, fontWeight: 900, color: '#ff7a18' }}>{totals.count}</span>
           </div>
           <div className="card-sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>Pipeline value</span>

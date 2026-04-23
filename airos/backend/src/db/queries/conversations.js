@@ -104,7 +104,7 @@ async function listConversations(tenantId, {
 
   const res = client
     ? await client.query(`
-    SELECT c.*, cu.name AS customer_name, cu.phone AS customer_phone, cu.avatar_url,
+    SELECT c.*, cu.id AS customer_id, cu.name AS customer_name, cu.phone AS customer_phone, cu.avatar_url, cu.tags,
            cu.preferences->>'email' AS customer_email,
            u.name AS assignee_name,
            t.priority,
@@ -118,7 +118,7 @@ async function listConversations(tenantId, {
     LIMIT $${i++} OFFSET $${i}
   `, params)
     : await queryAdmin(`
-    SELECT c.*, cu.name AS customer_name, cu.phone AS customer_phone, cu.avatar_url,
+    SELECT c.*, cu.id AS customer_id, cu.name AS customer_name, cu.phone AS customer_phone, cu.avatar_url, cu.tags,
            cu.preferences->>'email' AS customer_email,
            u.name AS assignee_name,
            t.priority,
@@ -179,7 +179,7 @@ async function assignConversation(tenantId, conversationId, userId, client) {
   if (!res.rows[0]) return null;
 
   const enriched = await db.query(`
-    SELECT c.*, cu.name AS customer_name, cu.phone AS customer_phone, cu.avatar_url,
+    SELECT c.*, cu.id AS customer_id, cu.name AS customer_name, cu.phone AS customer_phone, cu.avatar_url, cu.tags,
            cu.preferences->>'email' AS customer_email,
            u.name AS assignee_name,
            t.priority,

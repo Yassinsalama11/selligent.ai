@@ -34,6 +34,8 @@ const evalRoutes = require('./api/routes/eval');
 const correctionsRoutes = require('./api/routes/corrections');
 const memoryRoutes = require('./api/routes/memory');
 const brainRoutes = require('./api/routes/brain');
+const uploadRoutes = require('./api/routes/uploads');
+const { getUploadRoot } = require('./api/routes/uploads');
 
 // Boot action registry (must require before routes)
 require('./actions');
@@ -70,11 +72,17 @@ app.use(cors({
 // Must be registered before the global JSON parser so Meta webhook POSTs
 // retain the exact bytes required for HMAC verification.
 app.post('/webhooks/*', express.raw({ type: '*/*', limit: '10mb' }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '16mb' }));
 
 // Request tracing (adds request_id, tenant_id, latency tracking)
 app.use(requestTracer);
 app.use(morgan('dev'));
+app.use('/uploads', express.static(getUploadRoot(), {
+  fallthrough: false,
+  setHeaders(res) {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  },
+}));
 
 // Health check with dependency status
 app.get('/health', async (req, res) => {
@@ -195,6 +203,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/deals', dealsRoutes);
 app.use('/api/conversations', conversationsRoutes);
 app.use('/api/conversations/:id/handoff', handoffsRoutes);
+app.use('/api/uploads', uploadRoutes);
 app.use('/api/tickets', ticketsRoutes);
 app.use('/api/routing-rules', routingRulesRoutes);
 app.use('/api/products', productsRoutes);

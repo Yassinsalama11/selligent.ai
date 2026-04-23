@@ -321,7 +321,7 @@ export function PrototypeConversationItem({ conversation, active, onSelect }) {
   );
 }
 
-export function PrototypeChatHeader({ conversation, onBack, onOpenContext, onTakeOver, onAssign, onClose, assignDisabled = false, closeDisabled = false }) {
+export function PrototypeChatHeader({ conversation, onBack, onOpenContext, onTakeOver, onAssign, onClose, onWon, assignDisabled = false, closeDisabled = false, wonDisabled = false }) {
   return (
     <header className={styles.chatHeader}>
       <button className={styles.mobileBack} onClick={onBack}>Back</button>
@@ -341,6 +341,7 @@ export function PrototypeChatHeader({ conversation, onBack, onOpenContext, onTak
       </div>
       <div className={styles.headerActions}>
         <button type="button" onClick={onAssign} disabled={!onAssign || assignDisabled}>Assign</button>
+        <button type="button" onClick={onWon} disabled={!onWon || wonDisabled}>Won</button>
         <button type="button" onClick={onClose} disabled={!onClose || closeDisabled}>Close</button>
         <button className={styles.primaryAction} onClick={onTakeOver}>Take Over</button>
         <button className={styles.contextButton} onClick={onOpenContext}>Context</button>
@@ -424,7 +425,8 @@ export function PrototypeMessageBubble({ message, previous }) {
   const isOutbound = message.direction === 'outbound';
   const isAi = message.sent_by === 'ai';
   const isSystem = message.direction === 'system';
-  const isImage = message.type === 'image' || Boolean(message.mediaUrl);
+  const isImage = message.type === 'image' || (Boolean(message.mediaUrl) && /^image\//i.test(message.mimeType || ''));
+  const isFile = message.type === 'file';
   const canPreviewImage = typeof message.mediaUrl === 'string' && /^(https?:|data:image\/|blob:)/i.test(message.mediaUrl);
   const author = messageAuthorLabel(message);
   const time = formatMessageTime(message.timestamp);
@@ -438,17 +440,27 @@ export function PrototypeMessageBubble({ message, previous }) {
       {!isOutbound && <div className={styles.messageAvatar}>{author.slice(0, 1)}</div>}
       <div className={`${styles.bubbleStack} ${isOutbound ? styles.outboundStack : ''}`}>
         {!grouped && <span className={styles.messageAuthor}>{author}</span>}
-        <div className={`${styles.messageBubble} ${isOutbound ? styles.outboundBubble : styles.inboundBubble} ${isImage ? styles.mediaBubble : ''}`}>
+        <div className={`${styles.messageBubble} ${isOutbound ? styles.outboundBubble : styles.inboundBubble} ${(isImage || isFile) ? styles.mediaBubble : ''}`}>
           {isAi && <span className={styles.aiLabel}>AI</span>}
           {canPreviewImage && (
             <a href={message.mediaUrl} target="_blank" rel="noreferrer" className={styles.imageAttachment}>
               <img src={message.mediaUrl} alt={message.content || 'Image attachment'} loading="lazy" />
             </a>
           )}
-          {message.mediaUrl && !canPreviewImage && (
-            <div className={styles.attachmentPlaceholder}>
-              Image attachment received
-            </div>
+          {isFile && message.mediaUrl && (
+            <a href={message.mediaUrl} target="_blank" rel="noreferrer" className={styles.fileAttachment}>
+              <span className={styles.fileIcon}>FILE</span>
+              <span>
+                <strong>{message.fileName || message.content || 'Attachment'}</strong>
+                <small>{message.mimeType || 'Download file'}</small>
+              </span>
+              <b>Download</b>
+            </a>
+          )}
+          {message.mediaUrl && !canPreviewImage && !isFile && (
+            <a href={message.mediaUrl} target="_blank" rel="noreferrer" className={styles.attachmentPlaceholder}>
+              Open attachment
+            </a>
           )}
           {message.content && <p>{message.content}</p>}
           {!message.content && !message.mediaUrl && <p>Unsupported message</p>}
@@ -592,8 +604,24 @@ export function PrototypeAISuggestionBar({ suggestion, aiMode }) {
   );
 }
 
-export function PrototypeCustomerPanel({ conversation, handoff, currentUser, onRequestHandoff, onAcceptHandoff, onDeclineHandoff, onCancelHandoff, handoffBusy = false }) {
+export function PrototypeCustomerPanel({
+  conversation,
+  handoff,
+  currentUser,
+  onRequestHandoff,
+  onAcceptHandoff,
+  onDeclineHandoff,
+  onCancelHandoff,
+  handoffBusy = false,
+  tickets = [],
+  ticketsLoading = false,
+  onCreateTicket,
+  ticketBusy = false,
+  onAddTag,
+  onRemoveTag,
+}) {
   const hasLeadScore = Number.isFinite(Number(conversation.leadScore)) && Number(conversation.leadScore) > 0;
+  const [tagInput, setTagInput] = useState('');
 
   return (
     <aside className={styles.customerPanel}>
@@ -636,9 +664,43 @@ export function PrototypeCustomerPanel({ conversation, handoff, currentUser, onR
         <PanelTitle title="Tags" />
         <div className={styles.tagWrap}>
           {conversation.tags.length > 0
-            ? conversation.tags.map((tag) => <span key={tag}>{tag}</span>)
+            ? conversation.tags.map((tag) => (
+              <span key={tag}>
+                {tag}
+                {onRemoveTag && <button type="button" onClick={() => onRemoveTag(tag)}>×</button>}
+              </span>
+            ))
             : <span>No tags</span>}
         </div>
+        {onAddTag && (
+          <form
+            className={styles.inlinePanelForm}
+            onSubmit={(event) => {
+              event.preventDefault();
+              onAddTag(tagInput);
+              setTagInput('');
+            }}
+          >
+            <input value={tagInput} onChange={(event) => setTagInput(event.target.value)} placeholder="Add tag" />
+            <button type="submit">Add</button>
+          </form>
+        )}
+      </div>
+      <div className={styles.panelCard}>
+        <PanelTitle title="Tickets" value={ticketsLoading ? 'Loading' : tickets.length ? `${tickets.length}` : 'None'} />
+        <div className={styles.ticketList}>
+          {tickets.length > 0 ? tickets.map((ticket) => (
+            <div key={ticket.id} className={styles.ticketItem}>
+              <strong>{ticket.ticket_code || ticket.title}</strong>
+              <span>{ticket.status} · {ticket.priority}</span>
+            </div>
+          )) : <p className={styles.emptyPanelText}>No tickets linked to this conversation.</p>}
+        </div>
+        {onCreateTicket && (
+          <button className={styles.primaryAction} onClick={onCreateTicket} disabled={ticketBusy}>
+            {ticketBusy ? 'Creating...' : 'Create ticket'}
+          </button>
+        )}
       </div>
       <PrototypeHandoffCard
         conversation={conversation}

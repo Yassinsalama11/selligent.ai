@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { getApiBase } from '@/lib/api';
 
 /* ── helpers ──────────────────────────────────────────────────────────────── */
 function Orbs() {
@@ -300,11 +301,57 @@ function Channels() {
 
 /* ── Pricing ──────────────────────────────────────────────────────────────── */
 function Pricing() {
-  const plans = [
-    { name: 'Starter',    price: 49,  plan: 'starter',    desc: 'For small stores starting out',      features: ['1 channel', '500 conversations/mo', 'AI intent detection', 'Basic reports', '1 agent seat'], popular: false },
-    { name: 'Pro',        price: 149, plan: 'pro',        desc: 'For growing eCommerce brands',        features: ['All 4 channels', '5,000 conversations/mo', 'AI replies + lead scoring', 'Full reports suite', '5 agent seats', 'WooCommerce & Shopify sync'], popular: true },
-    { name: 'Enterprise', price: 299, plan: 'enterprise', desc: 'For high-volume operations',          features: ['All 4 channels', 'Unlimited conversations', 'Full AI engine', 'Advanced analytics', 'Unlimited agents', 'Priority support', 'Custom AI tone'], popular: false },
+  const fallbackPlans = {
+    starter: { name: 'Starter', seatPrice: 19, total: 19, currency: 'USD', seats: 1, includedSeats: 1, configured: false },
+    pro: { name: 'Pro', seatPrice: 39, total: 117, currency: 'USD', seats: 3, includedSeats: 3, configured: false },
+    enterprise: { name: 'Enterprise', seatPrice: 79, total: 790, currency: 'USD', seats: 10, includedSeats: 10, configured: false },
+  };
+  const [seats, setSeats] = useState(3);
+  const [country, setCountry] = useState('US');
+  const [plans, setPlans] = useState(fallbackPlans);
+
+  useEffect(() => {
+    try {
+      const locale = Intl.DateTimeFormat().resolvedOptions().locale || 'en-US';
+      const region = locale.split('-')[1] || 'US';
+      setCountry(region.toUpperCase());
+    } catch {
+      setCountry('US');
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${getApiBase()}/api/stripe/plans?country=${encodeURIComponent(country)}&seats=${encodeURIComponent(seats)}`)
+      .then((response) => response.ok ? response.json() : fallbackPlans)
+      .then((data) => {
+        if (!cancelled) setPlans(data || fallbackPlans);
+      })
+      .catch(() => {
+        if (!cancelled) setPlans(fallbackPlans);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [country, seats]);
+
+  const planCards = [
+    { key: 'starter', desc: 'For small stores starting out', features: ['1 channel', 'AI included', 'Basic reports', 'Seat-based billing'], popular: false },
+    { key: 'pro', desc: 'For growing eCommerce brands', features: ['All core channels', 'AI replies + lead scoring', 'Full reports suite', 'Commerce catalog sync'], popular: true },
+    { key: 'enterprise', desc: 'For high-volume operations', features: ['Advanced AI controls', 'Priority support', 'Custom onboarding', 'Higher usage limits'], popular: false },
   ];
+
+  function formatPlanMoney(plan, amount) {
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: plan.currency || 'USD',
+        maximumFractionDigits: 0,
+      }).format(Number(amount || 0));
+    } catch {
+      return `${plan.currency || 'USD'} ${Number(amount || 0).toLocaleString()}`;
+    }
+  }
 
   return (
     <section id="pricing" style={{ padding: '100px 32px', maxWidth: 1200, margin: '0 auto' }}>
@@ -313,53 +360,70 @@ function Pricing() {
         <h2 style={{ fontSize: 'clamp(36px,4vw,56px)', fontWeight: 900, letterSpacing: '-0.04em' }}>
           Simple, <span className="gt">transparent pricing</span>
         </h2>
-        <p style={{ fontSize: 14, color: 'var(--t4)', marginTop: 12 }}>All prices in EUR · 7-day free trial · No credit card needed</p>
+        <p style={{ fontSize: 14, color: 'var(--t4)', marginTop: 12 }}>Local currency · price per user · AI included in every paid plan</p>
+        <div style={{ margin:'24px auto 0', display:'inline-flex', alignItems:'center', gap:12, padding:10, borderRadius:16, background:'var(--bg3)', border:'1px solid var(--border)' }}>
+          <span style={{ fontSize:13, color:'var(--t3)', fontWeight:700 }}>Seats</span>
+          <input
+            type="number"
+            min="1"
+            max="500"
+            value={seats}
+            onChange={(event) => setSeats(Math.max(1, Number.parseInt(event.target.value || '1', 10)))}
+            style={{ width:76, border:'1px solid var(--border)', borderRadius:10, padding:'8px 10px', background:'transparent', color:'var(--t1)', fontWeight:800 }}
+          />
+          <span style={{ fontSize:12, color:'var(--t4)' }}>Detected region: {country}</span>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 24 }}>
-        {plans.map((p,i) => (
-          <div key={i} style={{
+        {planCards.map((card) => {
+          const p = plans[card.key] || fallbackPlans[card.key];
+          return (
+          <div key={card.key} style={{
             borderRadius: 24, padding: 36, display: 'flex', flexDirection: 'column', position: 'relative',
-            background: p.popular
-              ? 'linear-gradient(160deg, rgba(99,102,241,0.15) 0%, rgba(139,92,246,0.1) 100%)'
+            background: card.popular
+              ? 'linear-gradient(160deg, rgba(255,90,31,0.13) 0%, rgba(0,229,255,0.07) 100%)'
               : 'var(--bg3)',
-            border: p.popular ? '1.5px solid rgba(99,102,241,0.45)' : '1px solid var(--border)',
-            boxShadow: p.popular ? '0 0 60px rgba(99,102,241,0.12), 0 0 0 1px rgba(99,102,241,0.08)' : 'none',
+            border: card.popular ? '1.5px solid rgba(255,90,31,0.38)' : '1px solid var(--border)',
+            boxShadow: card.popular ? '0 0 60px rgba(255,90,31,0.12), 0 0 0 1px rgba(0,229,255,0.08)' : 'none',
           }}>
-            {p.popular && (
-              <div style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '5px 16px', borderRadius: 99, whiteSpace: 'nowrap', letterSpacing: '0.06em' }}>
+            {card.popular && (
+              <div style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', background: 'linear-gradient(135deg,#ff7a18,#ff3d00)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '5px 16px', borderRadius: 99, whiteSpace: 'nowrap', letterSpacing: '0.06em' }}>
                 MOST POPULAR
               </div>
             )}
 
             <div style={{ marginBottom: 28 }}>
               <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>{p.name}</div>
-              <div style={{ fontSize: 13, color: 'var(--t4)', marginBottom: 20 }}>{p.desc}</div>
+              <div style={{ fontSize: 13, color: 'var(--t4)', marginBottom: 20 }}>{card.desc}</div>
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4 }}>
-                <span style={{ fontSize: 52, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1, fontFamily: 'Space Grotesk' }}>€{p.price}</span>
-                <span style={{ fontSize: 14, color: 'var(--t4)', marginBottom: 6 }}>/month</span>
+                <span style={{ fontSize: 52, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1, fontFamily: 'Space Grotesk' }}>{formatPlanMoney(p, p.seatPrice)}</span>
+                <span style={{ fontSize: 14, color: 'var(--t4)', marginBottom: 6 }}>/user/mo</span>
+              </div>
+              <div style={{ marginTop:10, fontSize:13, color:'var(--t3)' }}>
+                {p.seats} seats total: <strong style={{ color:'var(--t1)' }}>{formatPlanMoney(p, p.total)}/mo</strong>
               </div>
             </div>
 
             <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12, flex: 1, marginBottom: 28 }}>
-              {p.features.map(f => (
+              {card.features.map(f => (
                 <li key={f} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: 'var(--t2)' }}>
                   <span style={{ color: '#34d399', fontSize: 16, flexShrink: 0 }}>✓</span> {f}
                 </li>
               ))}
             </ul>
 
-            <Link href={`/signup?plan=${p.plan}`}
-              className={`btn ${p.popular ? 'btn-primary' : 'btn-ghost'}`}
+            <Link href={`/signup?plan=${card.key}&seats=${seats}&country=${country}`}
+              className={`btn ${card.popular ? 'btn-primary' : 'btn-ghost'}`}
               style={{ textAlign: 'center', width: '100%' }}>
               Start Free Trial →
             </Link>
           </div>
-        ))}
+        );})}
       </div>
 
       <p style={{ textAlign: 'center', marginTop: 32, fontSize: 13, color: 'var(--t4)' }}>
-        No credit card required to start · Upgrade or cancel anytime · Invoices in EUR
+        No credit card required to start · Upgrade or cancel anytime · Seat count is enforced after purchase
       </p>
     </section>
   );

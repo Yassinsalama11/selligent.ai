@@ -26,6 +26,10 @@ async function getOrCreateDeal(tenantId, conversationId, customerId, client) {
 
 async function createDeal(tenantId, {
   customer_id,
+  customer_name,
+  customer_phone,
+  customer_email,
+  channel = 'manual',
   conversation_id = null,
   stage = 'new_lead',
   intent = 'manual',
@@ -35,14 +39,40 @@ async function createDeal(tenantId, {
   currency = 'USD',
   notes = '',
 } = {}, client) {
-  if (!customer_id) throw new Error('customer_id is required');
+  let resolvedCustomerId = customer_id;
+  const db = client || { query: queryAdmin };
+
+  if (!resolvedCustomerId) {
+    const name = String(customer_name || '').trim();
+    if (!name) throw new Error('customer_id or customer_name is required');
+    const channelKey = String(channel || 'manual').trim() || 'manual';
+    const channelCustomerId = String(customer_phone || customer_email || `manual:${name.toLowerCase()}`).trim();
+    const upserted = await db.query(`
+      INSERT INTO customers (tenant_id, channel_customer_id, channel, name, phone, preferences)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (tenant_id, channel_customer_id, channel)
+      DO UPDATE SET
+        name = COALESCE(EXCLUDED.name, customers.name),
+        phone = COALESCE(EXCLUDED.phone, customers.phone),
+        preferences = customers.preferences || EXCLUDED.preferences
+      RETURNING id
+    `, [
+      tenantId,
+      channelCustomerId,
+      channelKey,
+      name,
+      customer_phone || null,
+      JSON.stringify(customer_email ? { email: customer_email } : {}),
+    ]);
+    resolvedCustomerId = upserted.rows[0].id;
+  }
 
   const customer = client ? await client.query(
     'SELECT id FROM customers WHERE id = $1 AND tenant_id = $2 LIMIT 1',
-    [customer_id, tenantId]
+    [resolvedCustomerId, tenantId]
   ) : await queryAdmin(
     'SELECT id FROM customers WHERE id = $1 AND tenant_id = $2 LIMIT 1',
-    [customer_id, tenantId]
+    [resolvedCustomerId, tenantId]
   );
   if (!customer.rows[0]) {
     const err = new Error('Customer not found');
@@ -53,10 +83,10 @@ async function createDeal(tenantId, {
   if (conversation_id) {
     const conversation = client ? await client.query(
       'SELECT id FROM conversations WHERE id = $1 AND tenant_id = $2 AND customer_id = $3 LIMIT 1',
-      [conversation_id, tenantId, customer_id]
+      [conversation_id, tenantId, resolvedCustomerId]
     ) : await queryAdmin(
       'SELECT id FROM conversations WHERE id = $1 AND tenant_id = $2 AND customer_id = $3 LIMIT 1',
-      [conversation_id, tenantId, customer_id]
+      [conversation_id, tenantId, resolvedCustomerId]
     );
     if (!conversation.rows[0]) conversation_id = null;
   }
@@ -71,7 +101,7 @@ async function createDeal(tenantId, {
   `, [
     tenantId,
     conversation_id,
-    customer_id,
+    resolvedCustomerId,
     stage,
     intent,
     lead_score,
@@ -89,7 +119,7 @@ async function createDeal(tenantId, {
   `, [
     tenantId,
     conversation_id,
-    customer_id,
+    resolvedCustomerId,
     stage,
     intent,
     lead_score,

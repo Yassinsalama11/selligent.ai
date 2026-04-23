@@ -9,6 +9,8 @@ const { getMessages, saveMessage } = require('../../db/queries/messages');
 const { requireRole } = require('../middleware/rbac');
 const { decryptCredentials } = require('../../core/tenantManager');
 const { emitToTenantConversations } = require('../../channels/livechat/socket');
+const { createTicket, listTickets } = require('../../db/queries/tickets');
+const { getOrCreateDeal, closeDeal } = require('../../db/queries/deals');
 
 const router = express.Router();
 const requireReadRole = requireRole('owner', 'admin', 'agent');
@@ -47,6 +49,7 @@ async function loadConversationContext(req, conversationId) {
            cu.phone AS customer_phone,
            cu.channel_customer_id,
            cu.avatar_url,
+           cu.tags,
            cu.preferences->>'email' AS customer_email,
            u.name AS assignee_name,
            t.priority
@@ -127,6 +130,52 @@ async function sendChannelText({ conversation, credentials, text }) {
   throw err;
 }
 
+async function sendChannelMedia({ conversation, credentials, type, mediaUrl, caption }) {
+  if (type !== 'image') return null;
+  const channel = conversation.channel;
+
+  if (channel === 'whatsapp') {
+    const { sendImage } = require('../../channels/whatsapp/sender');
+    const to = conversation.customer_phone || conversation.channel_customer_id;
+    if (!credentials?.phone_number_id || !credentials?.access_token || !to) {
+      const err = new Error('WhatsApp send context is incomplete');
+      err.status = 400;
+      throw err;
+    }
+    const response = await sendImage(credentials.phone_number_id, credentials.access_token, to, mediaUrl, caption);
+    return response?.messages?.[0]?.id || null;
+  }
+
+  if (channel === 'messenger') {
+    const { sendImage } = require('../../channels/messenger/sender');
+    if (!credentials?.page_id || !credentials?.access_token || !conversation.channel_customer_id) {
+      const err = new Error('Messenger send context is incomplete');
+      err.status = 400;
+      throw err;
+    }
+    const response = await sendImage(credentials.page_id, credentials.access_token, conversation.channel_customer_id, mediaUrl);
+    return response?.message_id || null;
+  }
+
+  if (channel === 'instagram') {
+    const { sendImage } = require('../../channels/instagram/sender');
+    const senderId = credentials?.instagram_business_account_id || credentials?.ig_user_id || credentials?.page_id;
+    if (!senderId || !credentials?.access_token || !conversation.channel_customer_id) {
+      const err = new Error('Instagram send context is incomplete');
+      err.status = 400;
+      throw err;
+    }
+    const response = await sendImage(senderId, credentials.access_token, conversation.channel_customer_id, mediaUrl);
+    return response?.message_id || null;
+  }
+
+  if (channel === 'livechat') return null;
+
+  const err = new Error(`Channel ${channel} does not support media replies`);
+  err.status = 400;
+  throw err;
+}
+
 router.get('/', requireReadRole, async (req, res, next) => {
   try {
     const convs = await listConversations(req.user.tenant_id, {
@@ -151,21 +200,30 @@ router.get('/:id/messages', requireReadRole, async (req, res, next) => {
 router.post('/:id/messages', requireWriteRole, async (req, res, next) => {
   try {
     const text = String(req.body?.content ?? req.body?.message ?? '').trim();
-    if (!text) return res.status(400).json({ error: 'Message content is required' });
+    const messageType = String(req.body?.type || req.body?.message_type || (req.body?.media_url ? 'image' : 'text')).toLowerCase();
+    const mediaUrl = req.body?.media_url || req.body?.mediaUrl || null;
+    const isAttachment = ['image', 'file'].includes(messageType);
+    if (!text && !mediaUrl) return res.status(400).json({ error: 'Message content or media_url is required' });
 
     const conversation = await loadConversationContext(req, req.params.id);
     if (!conversation) return res.status(404).json({ error: 'Not found' });
 
     const credentials = await loadChannelCredentials(req, conversation.channel);
-    const externalId = await sendChannelText({ conversation, credentials, text });
+    const externalId = isAttachment
+      ? await sendChannelMedia({ conversation, credentials, type: messageType, mediaUrl, caption: text })
+      : await sendChannelText({ conversation, credentials, text });
     const saved = await saveMessage(req.user.tenant_id, conversation.id, {
       direction: 'outbound',
-      type: 'text',
-      content: text,
+      type: messageType,
+      content: text || req.body?.file_name || req.body?.fileName || (messageType === 'image' ? 'Image attachment' : 'File attachment'),
+      media_url: mediaUrl,
       sent_by: 'agent',
       metadata: {
         external_id: externalId,
         user_id: req.user.id,
+        file_name: req.body?.file_name || req.body?.fileName || null,
+        mime_type: req.body?.mime_type || req.body?.mimeType || null,
+        size: req.body?.size || null,
       },
     }, req.db);
 
@@ -224,6 +282,66 @@ router.patch('/:id/assign', requireOwnerRole, async (req, res, next) => {
     );
     if (!conv) return res.status(404).json({ error: 'Not found' });
     res.json(conv);
+  } catch (err) { next(err); }
+});
+
+router.get('/:id/tickets', requireReadRole, async (req, res, next) => {
+  try {
+    const allowed = await canAccessConversation(req, req.params.id);
+    if (!allowed) return res.status(404).json({ error: 'Not found' });
+    const tickets = await listTickets(req.user.tenant_id, { conversation_id: req.params.id, limit: 20 }, req.db);
+    res.json(tickets);
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/tickets', requireWriteRole, async (req, res, next) => {
+  try {
+    const conversation = await loadConversationContext(req, req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'Not found' });
+    const ticket = await createTicket(req.user.tenant_id, {
+      title: req.body?.title || `Conversation with ${conversation.customer_name || 'customer'}`,
+      description: req.body?.description || conversation.last_message || '',
+      priority: req.body?.priority || 'medium',
+      category: req.body?.category || 'Conversation',
+      status: req.body?.status || 'open',
+      channel: conversation.channel,
+      source: 'conversation',
+      conversation_id: conversation.id,
+      customer_id: conversation.customer_id,
+      customer_name: conversation.customer_name,
+      assignee_id: conversation.assigned_to || null,
+    }, req.db);
+    res.status(201).json(ticket);
+  } catch (err) { next(err); }
+});
+
+router.patch('/:id/tags', requireWriteRole, async (req, res, next) => {
+  try {
+    const conversation = await loadConversationContext(req, req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'Not found' });
+    const tags = Array.isArray(req.body?.tags)
+      ? req.body.tags.map((tag) => String(tag).trim()).filter(Boolean)
+      : [];
+    const uniqueTags = [...new Set(tags)].slice(0, 25);
+    const result = await req.db.query(`
+      UPDATE customers
+      SET tags = $1,
+          preferences = COALESCE(preferences, '{}'::jsonb)
+      WHERE tenant_id = $2 AND id = $3
+      RETURNING id, tags
+    `, [JSON.stringify(uniqueTags), req.user.tenant_id, conversation.customer_id]);
+    if (!result.rows[0]) return res.status(404).json({ error: 'Customer not found' });
+    res.json({ tags: result.rows[0].tags || uniqueTags });
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/won', requireWriteRole, async (req, res, next) => {
+  try {
+    const conversation = await loadConversationContext(req, req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'Not found' });
+    const deal = await getOrCreateDeal(req.user.tenant_id, conversation.id, conversation.customer_id, req.db);
+    const updated = await closeDeal(req.user.tenant_id, deal.id, 'won');
+    res.json({ deal: updated });
   } catch (err) { next(err); }
 });
 

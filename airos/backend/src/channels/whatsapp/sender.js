@@ -19,6 +19,19 @@ async function sendText(phoneNumberId, token, to, text) {
   });
 }
 
+async function sendImage(phoneNumberId, token, to, imageUrl, caption = '') {
+  return _post(`${BASE_URL}/${phoneNumberId}/messages`, token, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'image',
+    image: {
+      link: imageUrl,
+      ...(caption ? { caption } : {}),
+    },
+  });
+}
+
 /**
  * Send a template message (e.g. for initiating a conversation).
  */
@@ -81,4 +94,4 @@ function _post(url, token, body) {
   });
 }
 
-module.exports = { sendText, sendTemplate, markRead };
+module.exports = { sendText, sendImage, sendTemplate, markRead };

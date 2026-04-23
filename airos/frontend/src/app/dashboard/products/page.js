@@ -3,7 +3,7 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 
-import { api } from '@/lib/api';
+import { api, getApiBase } from '@/lib/api';
 import { usePollingResource } from '@/lib/usePollingResource';
 import {
   EmptyState,
@@ -57,6 +57,7 @@ export default function ProductsPage() {
     url: '',
   });
   const deferredSearch = useDeferredValue(search);
+  const webhookUrl = `${getApiBase()}/v1/catalog/products/sync`;
 
   const filteredProducts = useMemo(() => (
     (data || []).filter((product) => {
@@ -243,6 +244,62 @@ export default function ProductsPage() {
           {savingManual ? 'Adding…' : 'Add product'}
         </button>
       </form>
+
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(320px,1fr))', gap:14 }}>
+        <section className="card" style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          <div>
+            <h2 style={{ fontSize:16, fontWeight:900, color:'var(--t1)', marginBottom:6 }}>WooCommerce onboarding</h2>
+            <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.7 }}>
+              Install the ChatorAI catalog connector, activate it in WordPress, then connect your store with the tenant API credentials from your integration settings.
+            </p>
+          </div>
+          <ol style={{ margin:0, paddingLeft:18, color:'var(--t2)', fontSize:13, lineHeight:1.8 }}>
+            <li>Download the WooCommerce plugin package.</li>
+            <li>Install and activate it in WordPress Plugins.</li>
+            <li>Paste the webhook URL and API key in the plugin settings.</li>
+            <li>Run first sync, then enable automatic product update webhooks.</li>
+          </ol>
+          <button className="btn btn-primary" type="button" onClick={() => window.open('/downloads/chatorai-woocommerce-plugin.zip', '_blank')}>
+            Download plugin
+          </button>
+        </section>
+
+        <section className="card" style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          <div>
+            <h2 style={{ fontSize:16, fontWeight:900, color:'var(--t1)', marginBottom:6 }}>API / webhook sync</h2>
+            <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.7 }}>
+              Use this endpoint from WooCommerce, Shopify middleware, Salla, Zid, or custom stores. Send create/update events with tenant API credentials.
+            </p>
+          </div>
+          <div style={{ padding:12, borderRadius:12, background:'var(--bg3)', border:'1px solid var(--b1)', fontSize:12, color:'var(--t2)', overflowX:'auto' }}>
+            <strong>POST</strong> {webhookUrl}
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, fontSize:12.5, color:'var(--t3)' }}>
+            <span><b style={{ color:'var(--t1)' }}>Auth:</b> `Authorization: Bearer JWT` or `x-api-key` + `x-tenant-id`</span>
+            <span><b style={{ color:'var(--t1)' }}>Behavior:</b> create/update by `external_id + source`</span>
+          </div>
+          <pre style={{ margin:0, padding:12, borderRadius:12, background:'#050816', color:'#d1d5db', fontSize:11.5, lineHeight:1.6, overflowX:'auto' }}>{`{
+  "products": [{
+    "external_id": "sku-1001",
+    "source": "woocommerce",
+    "name": "Product title",
+    "description": "Full product description",
+    "price": 49.99,
+    "currency": "USD",
+    "images": ["https://store.com/image.jpg"],
+    "variants": [{"name":"Size","value":"L"}],
+    "stock_status": "in_stock",
+    "stock_quantity": 25,
+    "sku": "SKU-1001",
+    "categories": ["Shoes"],
+    "metadata": {"url":"https://store.com/product"}
+  }]
+}`}</pre>
+          <p style={{ margin:0, fontSize:12.5, color:'var(--t4)', lineHeight:1.7 }}>
+            Success returns <code>{'{ "synced": 1 }'}</code>. Retry 4xx only after correcting payload/auth. Retry 5xx with exponential backoff.
+          </p>
+        </section>
+      </div>
 
       {!loading && filteredProducts.length === 0 ? (
         <EmptyState
