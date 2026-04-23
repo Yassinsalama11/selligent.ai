@@ -279,10 +279,6 @@ export function PrototypeConversationList({
           </button>
         ))}
       </div>
-      <div className={styles.advancedBar}>
-        <span>Priority: Hot</span>
-        <span>Assigned: Any</span>
-      </div>
       <div className={styles.conversationScroller}>
         {list.length === 0 && (
           <div className={styles.emptyListState}>{emptyLabel}</div>
@@ -325,7 +321,7 @@ export function PrototypeConversationItem({ conversation, active, onSelect }) {
   );
 }
 
-export function PrototypeChatHeader({ conversation, onBack, onOpenContext, onTakeOver }) {
+export function PrototypeChatHeader({ conversation, onBack, onOpenContext, onTakeOver, onAssign, onClose, assignDisabled = false, closeDisabled = false }) {
   return (
     <header className={styles.chatHeader}>
       <button className={styles.mobileBack} onClick={onBack}>Back</button>
@@ -344,8 +340,8 @@ export function PrototypeChatHeader({ conversation, onBack, onOpenContext, onTak
         {conversation.aiAvailable === false ? 'AI unavailable' : conversation.aiMode === 'auto' ? 'AI handling' : conversation.aiMode === 'waiting' ? 'Waiting for teammate' : 'Manual mode'}
       </div>
       <div className={styles.headerActions}>
-        <button>Assign</button>
-        <button>Close</button>
+        <button type="button" onClick={onAssign} disabled={!onAssign || assignDisabled}>Assign</button>
+        <button type="button" onClick={onClose} disabled={!onClose || closeDisabled}>Close</button>
         <button className={styles.primaryAction} onClick={onTakeOver}>Take Over</button>
         <button className={styles.contextButton} onClick={onOpenContext}>Context</button>
       </div>
@@ -428,6 +424,8 @@ export function PrototypeMessageBubble({ message, previous }) {
   const isOutbound = message.direction === 'outbound';
   const isAi = message.sent_by === 'ai';
   const isSystem = message.direction === 'system';
+  const isImage = message.type === 'image' || Boolean(message.mediaUrl);
+  const canPreviewImage = typeof message.mediaUrl === 'string' && /^(https?:|data:image\/|blob:)/i.test(message.mediaUrl);
   const author = messageAuthorLabel(message);
   const time = formatMessageTime(message.timestamp);
 
@@ -440,9 +438,20 @@ export function PrototypeMessageBubble({ message, previous }) {
       {!isOutbound && <div className={styles.messageAvatar}>{author.slice(0, 1)}</div>}
       <div className={`${styles.bubbleStack} ${isOutbound ? styles.outboundStack : ''}`}>
         {!grouped && <span className={styles.messageAuthor}>{author}</span>}
-        <div className={`${styles.messageBubble} ${isOutbound ? styles.outboundBubble : styles.inboundBubble}`}>
+        <div className={`${styles.messageBubble} ${isOutbound ? styles.outboundBubble : styles.inboundBubble} ${isImage ? styles.mediaBubble : ''}`}>
           {isAi && <span className={styles.aiLabel}>AI</span>}
-          <p>{message.content}</p>
+          {canPreviewImage && (
+            <a href={message.mediaUrl} target="_blank" rel="noreferrer" className={styles.imageAttachment}>
+              <img src={message.mediaUrl} alt={message.content || 'Image attachment'} loading="lazy" />
+            </a>
+          )}
+          {message.mediaUrl && !canPreviewImage && (
+            <div className={styles.attachmentPlaceholder}>
+              Image attachment received
+            </div>
+          )}
+          {message.content && <p>{message.content}</p>}
+          {!message.content && !message.mediaUrl && <p>Unsupported message</p>}
         </div>
         <div className={styles.messageMetaRow}>
           {time && <span className={styles.messageTime}>{time}</span>}
@@ -455,7 +464,21 @@ export function PrototypeMessageBubble({ message, previous }) {
   );
 }
 
-export function PrototypeComposer({ conversation, value, onChange, onSend, sending = false, onTakeOver }) {
+export function PrototypeComposer({
+  conversation,
+  value,
+  onChange,
+  onSend,
+  sending = false,
+  onTakeOver,
+  cannedReplies = [],
+  onInsertCanned,
+  onAttach,
+  onInternalNote,
+}) {
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [cannedOpen, setCannedOpen] = useState(false);
+
   if (conversation.aiMode === 'auto' && conversation.aiAvailable !== false) {
     return (
       <footer className={styles.composerTakeover}>
@@ -481,9 +504,42 @@ export function PrototypeComposer({ conversation, value, onChange, onSend, sendi
   return (
     <footer className={styles.composer}>
       <div className={styles.composerToolbar}>
-        <span>Canned replies</span>
-        <span>Attach</span>
-        <span>Internal note</span>
+        <div className={styles.toolbarMenuWrap}>
+          <button type="button" onClick={() => setCannedOpen((open) => !open)}>
+            Canned replies
+          </button>
+          {cannedOpen && (
+            <div className={styles.toolbarMenu}>
+              {cannedReplies.length === 0 ? (
+                <span>No canned replies configured</span>
+              ) : cannedReplies.map((reply) => (
+                <button
+                  key={reply.id || reply.title || reply.text}
+                  type="button"
+                  onClick={() => {
+                    onInsertCanned?.(reply.text || reply.body || reply.content || '');
+                    setCannedOpen(false);
+                  }}
+                >
+                  <strong>{reply.title || reply.name || 'Saved reply'}</strong>
+                  <small>{reply.text || reply.body || reply.content}</small>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className={styles.toolbarMenuWrap}>
+          <button type="button" onClick={() => setAttachOpen((open) => !open)}>
+            Attach
+          </button>
+          {attachOpen && (
+            <div className={styles.toolbarMenu}>
+              <button type="button" onClick={() => { onAttach?.('file'); setAttachOpen(false); }}>Upload file</button>
+              <button type="button" onClick={() => { onAttach?.('image'); setAttachOpen(false); }}>Upload image</button>
+            </div>
+          )}
+        </div>
+        <button type="button" onClick={onInternalNote}>Internal note</button>
       </div>
       <form className={styles.composerInputRow} onSubmit={handleSubmit}>
         <textarea
@@ -537,6 +593,8 @@ export function PrototypeAISuggestionBar({ suggestion, aiMode }) {
 }
 
 export function PrototypeCustomerPanel({ conversation, handoff, currentUser, onRequestHandoff, onAcceptHandoff, onDeclineHandoff, onCancelHandoff, handoffBusy = false }) {
+  const hasLeadScore = Number.isFinite(Number(conversation.leadScore)) && Number(conversation.leadScore) > 0;
+
   return (
     <aside className={styles.customerPanel}>
       <div className={styles.panelCard}>
@@ -553,10 +611,14 @@ export function PrototypeCustomerPanel({ conversation, handoff, currentUser, onR
         </div>
       </div>
       <div className={styles.panelCard}>
-        <PanelTitle title="Lead score" value={conversation.leadScore ? `${conversation.leadScore}/100` : 'Not scored'} />
-        <div className={styles.progressTrack}>
-          <span style={{ width: `${conversation.leadScore}%` }} />
-        </div>
+        <PanelTitle title="Lead score" value={hasLeadScore ? `${conversation.leadScore}/100` : 'Not scored yet'} />
+        {hasLeadScore ? (
+          <div className={styles.progressTrack}>
+            <span style={{ width: `${Math.max(0, Math.min(100, Number(conversation.leadScore)))}%` }} />
+          </div>
+        ) : (
+          <p className={styles.emptyPanelText}>No lead score has been calculated for this customer.</p>
+        )}
         <div className={styles.metricGrid}>
           <Metric label="Pipeline value" value={conversation.value || 'Not available'} />
           <Metric label="Sentiment" value={conversation.sentiment || 'Not available'} />

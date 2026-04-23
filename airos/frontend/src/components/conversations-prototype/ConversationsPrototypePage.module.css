@@ -30,6 +30,35 @@
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+.dashboardShell {
+  --inbox-main: #050816;
+  --inbox-surface: #0b1220;
+  --inbox-card: #111827;
+  --inbox-elevated: #1a2235;
+  --text-primary: #ffffff;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --primary: #ff5a1f;
+  --primary-start: #ff7a18;
+  --primary-end: #ff3d00;
+  --ai: #00e5ff;
+  --orange-soft: rgba(255, 90, 31, 0.1);
+  --orange-line: rgba(255, 90, 31, 0.24);
+  --ai-soft: rgba(0, 229, 255, 0.1);
+  --ai-line: rgba(0, 229, 255, 0.2);
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 42% 8%, rgba(0, 229, 255, 0.08), transparent 28%),
+    linear-gradient(135deg, var(--inbox-main), #07111f 56%, var(--inbox-main));
+  color: var(--text-primary);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
 .light {
   --inbox-main: #f8fafc;
   --inbox-surface: #ffffff;
@@ -624,6 +653,11 @@
   padding: 0 12px;
 }
 
+.headerActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .primaryAction,
 .sendButton {
   border: 0 !important;
@@ -822,6 +856,40 @@
   line-height: 1.52;
 }
 
+.mediaBubble {
+  width: min(420px, 100%);
+}
+
+.imageAttachment {
+  display: block;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.imageAttachment + p {
+  margin-top: 10px;
+}
+
+.imageAttachment img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: cover;
+}
+
+.attachmentPlaceholder {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.12);
+  color: inherit;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .inboundBubble {
   color: var(--text-primary);
   background:
@@ -974,6 +1042,70 @@
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 800;
+}
+
+.composerToolbar button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.composerToolbar button:hover {
+  color: var(--text-primary);
+}
+
+.toolbarMenuWrap {
+  position: relative;
+}
+
+.toolbarMenu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  z-index: 20;
+  width: 240px;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--inbox-surface);
+  box-shadow: 0 22px 58px rgba(0, 0, 0, 0.28);
+}
+
+.toolbarMenu button,
+.toolbarMenu span {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  border-radius: 10px;
+  text-align: left;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.toolbarMenu button:hover {
+  background: var(--inbox-card);
+  color: var(--text-primary);
+}
+
+.toolbarMenu strong,
+.toolbarMenu small {
+  display: block;
+}
+
+.toolbarMenu strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.toolbarMenu small {
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composerInputRow {
@@ -1217,6 +1349,100 @@
   line-height: 1.5;
 }
 
+.emptyPanelText {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.liveModalLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.54);
+  backdrop-filter: blur(10px);
+}
+
+.liveModal {
+  width: min(440px, 100%);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  background: var(--inbox-surface);
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.34);
+}
+
+.liveModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.liveModalHeader strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.liveModalHeader button,
+.agentOption,
+.modalSecondary {
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--inbox-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.liveModalHeader button {
+  width: 32px;
+  height: 32px;
+}
+
+.liveModalBody {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+}
+
+.agentOption {
+  padding: 12px;
+  text-align: left;
+}
+
+.agentOption:hover,
+.modalSecondary:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.agentOption span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.modalActions {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 16px;
+}
+
+.modalActions button {
+  flex: 1;
+  height: 40px;
+}
+
+.modalSecondary {
+  padding: 0 14px;
+}
+
 .drawerLayer {
   display: none;
 }
@@ -1283,7 +1509,8 @@
 }
 
 @media (max-width: 860px) {
-  .shell {
+  .shell,
+  .dashboardShell {
     position: relative;
   }
 

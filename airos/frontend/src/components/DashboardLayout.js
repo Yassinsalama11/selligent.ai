@@ -89,7 +89,7 @@ export default function DashboardLayout({ children }) {
       width: collapsed ? 62 : 'var(--sidebar-w)',
       flexShrink: 0, transition: 'width 0.22s ease',
       display:'flex', flexDirection:'column',
-      background:'var(--bg2)', borderRight:'1px solid var(--b1)',
+      background:'linear-gradient(180deg, rgba(11,18,32,0.98), rgba(5,8,22,0.98))', borderRight:'1px solid var(--b1)',
       overflow:'hidden',
     },
     logoRow: {
@@ -103,7 +103,7 @@ export default function DashboardLayout({ children }) {
     topbar: {
       height:'var(--topbar-h)', display:'flex', alignItems:'center', justifyContent:'space-between',
       padding:'0 24px', borderBottom:'1px solid var(--b1)', flexShrink:0,
-      background:'rgba(7,7,16,0.85)', backdropFilter:'blur(20px)',
+      background:'rgba(11,18,32,0.86)', backdropFilter:'blur(20px)',
     },
   };
 
@@ -116,7 +116,7 @@ export default function DashboardLayout({ children }) {
           {collapsed ? (
             <div style={{ width:38, height:38, borderRadius:10, flexShrink:0,
               display:'flex', alignItems:'center', justifyContent:'center',
-              background:'linear-gradient(135deg,#4f46e5,#06b6d4)', color:'#fff',
+              background:'linear-gradient(135deg,#ff7a18,#ff3d00)', color:'#fff',
               fontWeight:800, fontSize:15, letterSpacing:'-0.03em' }}>
               C
             </div>
@@ -143,7 +143,7 @@ export default function DashboardLayout({ children }) {
                 <>
                   <span style={{ flex:1, whiteSpace:'nowrap' }}>{item.label}</span>
                   {isActive(item) && (
-                    <span style={{ width:6, height:6, borderRadius:'50%', background:'#818cf8', flexShrink:0 }} />
+                    <span style={{ width:6, height:6, borderRadius:'50%', background:'#ff5a1f', flexShrink:0 }} />
                   )}
                 </>
               )}
@@ -156,10 +156,10 @@ export default function DashboardLayout({ children }) {
           {/* User card */}
           {!collapsed && currentUser?.name && (
             <div style={{ padding:'10px 12px', borderRadius:10, marginBottom:4,
-              background:'rgba(99,102,241,0.06)', border:'1px solid rgba(99,102,241,0.15)' }}>
+              background:'rgba(255,90,31,0.06)', border:'1px solid rgba(255,90,31,0.16)' }}>
               <div style={{ display:'flex', alignItems:'center', gap:9 }}>
                 <div style={{ width:30, height:30, borderRadius:'50%', flexShrink:0,
-                  background:'linear-gradient(135deg,#6366f1,#8b5cf6)',
+                  background:'linear-gradient(135deg,#ff7a18,#ff3d00)',
                   display:'flex', alignItems:'center', justifyContent:'center',
                   color:'#fff', fontWeight:700, fontSize:12 }}>
                   {userInitial}
@@ -211,10 +211,10 @@ export default function DashboardLayout({ children }) {
               cursor:'pointer', position:'relative', fontSize:15 }}>
               🔔
               <span style={{ position:'absolute', top:7, right:7, width:7, height:7, borderRadius:'50%',
-                background:'var(--indigo)', border:'1.5px solid var(--bg2)' }} />
+                background:'#ff5a1f', border:'1.5px solid var(--bg2)' }} />
             </button>
             <div style={{ width:34, height:34, borderRadius:'50%',
-              background:'linear-gradient(135deg,#6366f1,#8b5cf6)',
+              background:'linear-gradient(135deg,#ff7a18,#ff3d00)',
               display:'flex', alignItems:'center', justifyContent:'center',
               color:'#fff', fontWeight:700, fontSize:13, cursor:'pointer', flexShrink:0 }}>
               {userInitial}
@@ -223,12 +223,12 @@ export default function DashboardLayout({ children }) {
         </header>
 
         {demo && (
-          <div style={{ background:'rgba(99,102,241,0.08)', borderBottom:'1px solid rgba(99,102,241,0.18)',
+          <div style={{ background:'rgba(255,90,31,0.08)', borderBottom:'1px solid rgba(255,90,31,0.18)',
             padding:'8px 24px', display:'flex', alignItems:'center', justifyContent:'space-between',
             flexShrink:0, fontSize:13 }}>
-            <span style={{ color:'#a5b4fc' }}>
+            <span style={{ color:'#ffb48a' }}>
               🚀 <strong>Demo mode</strong> — exploring with sample data.{' '}
-              <Link href="/signup" style={{ color:'#c4b5fd', textDecoration:'underline', fontWeight:600 }}>
+              <Link href="/signup" style={{ color:'#ffd0b8', textDecoration:'underline', fontWeight:600 }}>
                 Create a free account
               </Link>{' '}
               to connect real channels.
@@ -277,7 +277,7 @@ export default function DashboardLayout({ children }) {
                     <button key={p.plan} onClick={() => handleUpgrade(p.plan)} disabled={!!upgradeLoading}
                       style={{ padding:'14px 20px', borderRadius:12, border:'none', cursor:'pointer',
                         display:'flex', alignItems:'center', justifyContent:'space-between',
-                        background: p.popular ? '#6366f1' : 'rgba(255,255,255,0.06)',
+                        background: p.popular ? '#ff5a1f' : 'rgba(255,255,255,0.06)',
                         opacity: upgradeLoading === p.plan ? 0.7 : 1,
                         border: p.popular ? 'none' : '1px solid rgba(255,255,255,0.1)' }}>
                       <span style={{ fontWeight:700, color: p.popular ? '#fff' : 'var(--t1)', fontSize:14 }}>
@@ -292,7 +292,7 @@ export default function DashboardLayout({ children }) {
                 </div>
                 <p style={{ marginTop:20, fontSize:12, color:'var(--t4)' }}>
                   Need help?{' '}
-                  <a href="mailto:support@chatorai.com" style={{ color:'#818cf8' }}>Contact support</a>
+                  <a href="mailto:support@chatorai.com" style={{ color:'#ffb48a' }}>Contact support</a>
                 </p>
               </div>
             </div>

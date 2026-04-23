@@ -8,6 +8,7 @@ const { queryAdmin } = require('../../db/pool');
 const { normalizeTenantSettings, buildCompanyContext, isBlockedSpammer } = require('../../core/tenantSettings');
 const { addToQueue } = require('../../workers/messageProcessor');
 const { verifyMetaSignature } = require('../verify');
+const { normalizeMessenger } = require('./normalizer');
 
 /* ── Fetch real customer name from Meta Graph API ───────────────────────────── */
 async function fetchFbName(userId, token) {
@@ -70,7 +71,8 @@ router.post('/messenger', async (req, res) => {
 
 async function processMessengerMessage(msg, pageId) {
   const senderId = msg.sender.id;
-  const text     = msg.message?.text || '';
+  const normalized = normalizeMessenger('pending', msg);
+  const text     = normalized.message.content || '';
   const msgId    = msg.message?.mid || `fb_${Date.now()}`;
   const tenantMatch = pageId ? await getTenantByPageId(pageId, 'messenger') : null;
   const tenantId = tenantMatch?.tenant_id;
@@ -108,10 +110,11 @@ async function processMessengerMessage(msg, pageId) {
 
   const savedMsg = await saveMessage(tenantId, conv.id, {
     direction: 'inbound',
-    type: 'text',
+    type: normalized.message.type,
     content: text,
+    media_url: normalized.message.media_url,
     sent_by: 'customer',
-    metadata: { fb_message_id: msgId, timestamp: new Date(msg.timestamp || Date.now()).toISOString() },
+    metadata: { fb_message_id: msgId, timestamp: normalized.message.timestamp },
   });
 
   try {

@@ -10,9 +10,7 @@ import {
   PrototypeContextDrawerMobile,
   PrototypeConversationList,
   PrototypeCustomerPanel,
-  PrototypeLayoutShell,
   PrototypeMessageList,
-  PrototypeSidebarNav,
 } from '@/components/conversations-prototype/ConversationsPrototypePage';
 import styles from '@/components/conversations-prototype/ConversationsPrototypePage.module.css';
 
@@ -64,6 +62,7 @@ function normalizeConversation(row = {}) {
   const channel = formatChannel(row.channel);
   const updatedAt = row.updated_at || row.updatedAt || row.created_at || row.createdAt;
   const aiMode = row.ai_mode || row.aiMode || 'manual';
+  const leadScoreValue = row.lead_score ?? row.leadScore;
 
   return {
     id: String(row.id),
@@ -75,7 +74,8 @@ function normalizeConversation(row = {}) {
     intent: row.intent || row.priority || 'Not detected',
     aiMode,
     aiAvailable: row.ai_available ?? row.aiAvailable ?? row.ai_configured ?? row.aiConfigured ?? null,
-    leadScore: Number(row.lead_score || row.leadScore || 0),
+    leadScore: leadScoreValue == null ? null : Number(leadScoreValue),
+    assignedTo: row.assigned_to || row.assignedTo || null,
     assignee: row.assignee_name || row.assigneeName || 'Unassigned',
     lastMessage: row.last_message || row.lastMessage || 'No messages yet',
     timestamp: formatTime(updatedAt),
@@ -94,12 +94,14 @@ function normalizeConversation(row = {}) {
 function mergeConversation(existing = {}, incoming = {}, normalizedMessage = null) {
   const normalizedIncoming = incoming?.id ? normalizeConversation(incoming) : null;
   const sortTimestamp = normalizedMessage?.timestamp || incoming?.updated_at || incoming?.updatedAt || incoming?.created_at || existing.sortTimestamp || '';
+  const messagePreview = normalizedMessage?.content
+    || (normalizedMessage?.type === 'image' ? 'Image attachment' : '');
 
   return {
     ...existing,
     ...(normalizedIncoming || {}),
     id: String(normalizedIncoming?.id || existing.id || normalizedMessage?.conversationId || ''),
-    lastMessage: normalizedMessage?.content || normalizedIncoming?.lastMessage || existing.lastMessage || 'No messages yet',
+    lastMessage: messagePreview || normalizedIncoming?.lastMessage || existing.lastMessage || 'No messages yet',
     timestamp: sortTimestamp ? formatTime(sortTimestamp) || existing.timestamp || '' : existing.timestamp || '',
     sortTimestamp,
     unread: existing.unread || 0,
@@ -110,19 +112,67 @@ function messageTimestamp(message = {}) {
   return message.timestamp || message.created_at || message.createdAt || message.sent_at || message.updated_at || message.updatedAt || '';
 }
 
+function parseJsonLike(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function extractMediaUrl(message = {}, parsedContent = null) {
+  const metadata = message.metadata && typeof message.metadata === 'object'
+    ? message.metadata
+    : parseJsonLike(message.metadata);
+  const firstAttachment = Array.isArray(message.attachments) ? message.attachments[0] : null;
+  return message.media_url
+    || message.mediaUrl
+    || message.url
+    || message.image_url
+    || message.imageUrl
+    || metadata?.media_url
+    || metadata?.mediaUrl
+    || metadata?.url
+    || metadata?.attachment?.payload?.url
+    || firstAttachment?.url
+    || firstAttachment?.payload?.url
+    || parsedContent?.media_url
+    || parsedContent?.mediaUrl
+    || parsedContent?.url
+    || null;
+}
+
+function inferMessageType(message = {}, mediaUrl = null, parsedContent = null) {
+  const type = String(message.type || message.message_type || message.messageType || parsedContent?.type || '').toLowerCase();
+  if (type) return type;
+  if (mediaUrl) return 'image';
+  return 'text';
+}
+
 function normalizeMessage(message = {}, fallbackConversationId = '') {
   const sentBy = message.sent_by || message.sentBy || message.by || (message.auto ? 'ai' : message.direction === 'outbound' ? 'agent' : 'customer');
   const direction = message.direction
     || (message.dir === 'out' ? 'outbound' : message.dir === 'in' ? 'inbound' : '')
     || (['agent', 'ai'].includes(sentBy) ? 'outbound' : 'inbound');
 
+  const parsedContent = parseJsonLike(message.content);
+  const mediaUrl = extractMediaUrl(message, parsedContent);
+  const type = inferMessageType(message, mediaUrl, parsedContent);
+  const content = parsedContent && mediaUrl
+    ? String(parsedContent.caption || parsedContent.text || '')
+    : String(message.content ?? message.text ?? '');
+
   return {
     id: String(message.id || `${fallbackConversationId}-${messageTimestamp(message) || Date.now()}`),
     conversationId: String(message.conversationId || message.conversation_id || fallbackConversationId || ''),
     direction: direction === 'out' ? 'outbound' : direction === 'in' ? 'inbound' : direction,
     sent_by: sentBy,
-    content: String(message.content ?? message.text ?? ''),
+    content,
     timestamp: messageTimestamp(message) || '',
+    type,
+    mediaUrl,
+    status: message.status,
   };
 }
 
@@ -145,7 +195,7 @@ function isNearBottom(element) {
 }
 
 export default function ConversationsLivePage() {
-  const [theme, setTheme] = useState('dark');
+  const [theme] = useState('dark');
   const [filter, setFilter] = useState('All');
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [conversations, setConversations] = useState([]);
@@ -159,8 +209,14 @@ export default function ConversationsLivePage() {
   const [aiModeUpdating, setAiModeUpdating] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [handoff, setHandoff] = useState(null);
   const [handoffBusy, setHandoffBusy] = useState(false);
+  const fileInputRef = useRef(null);
+  const imageInputRef = useRef(null);
   const messageBottomRef = useRef(null);
   const messageListRef = useRef(null);
   const activeConversationIdRef = useRef(activeConversationId);
@@ -176,6 +232,26 @@ export default function ConversationsLivePage() {
     } catch {
       setCurrentUser(null);
     }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTeam() {
+      try {
+        const data = await api.get('/api/auth/team');
+        if (!cancelled && Array.isArray(data)) {
+          setTeamMembers(data.filter((member) => ['owner', 'admin', 'agent'].includes(member.role)));
+        }
+      } catch {
+        if (!cancelled) setTeamMembers([]);
+      }
+    }
+
+    loadTeam();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -229,6 +305,7 @@ export default function ConversationsLivePage() {
   const activeConversation = useMemo(() => (
     conversations.find((conversation) => conversation.id === activeConversationId) || null
   ), [activeConversationId, conversations]);
+  const canAssign = ['owner', 'admin'].includes(currentUser?.role);
 
   const emptyLabel = loading
     ? 'Loading conversations...'
@@ -440,6 +517,80 @@ export default function ConversationsLivePage() {
     }
   }
 
+  async function assignConversation(member) {
+    if (!activeConversation || assigning) return;
+    const previous = activeConversation;
+    const nextAssignee = member?.id || null;
+    const nextName = member?.name || member?.email || 'Unassigned';
+    setAssigning(true);
+    setAssignOpen(false);
+    setConversations((current) => current.map((conversation) => (
+      conversation.id === activeConversation.id
+        ? { ...conversation, assignedTo: nextAssignee, assignee: nextName }
+        : conversation
+    )));
+    try {
+      const updated = await api.patch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/assign`, {
+        user_id: nextAssignee,
+      });
+      const normalized = normalizeConversation(updated);
+      setConversations((current) => current.map((conversation) => (
+        conversation.id === normalized.id ? { ...conversation, ...normalized } : conversation
+      )));
+    } catch {
+      setConversations((current) => current.map((conversation) => (
+        conversation.id === previous.id ? { ...conversation, assignedTo: previous.assignedTo, assignee: previous.assignee } : conversation
+      )));
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  async function closeConversation() {
+    if (!activeConversation || closing) return;
+    const previousStatus = activeConversation.status;
+    setClosing(true);
+    setConversations((current) => current.map((conversation) => (
+      conversation.id === activeConversation.id ? { ...conversation, status: 'closed' } : conversation
+    )));
+    try {
+      const updated = await api.patch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/status`, {
+        status: 'closed',
+      });
+      setConversations((current) => current.map((conversation) => (
+        conversation.id === activeConversation.id
+          ? {
+            ...conversation,
+            status: updated?.status || 'closed',
+            sortTimestamp: updated?.updated_at || conversation.sortTimestamp,
+            timestamp: updated?.updated_at ? formatTime(updated.updated_at) : conversation.timestamp,
+          }
+          : conversation
+      )));
+    } catch {
+      setConversations((current) => current.map((conversation) => (
+        conversation.id === activeConversation.id ? { ...conversation, status: previousStatus } : conversation
+      )));
+    } finally {
+      setClosing(false);
+    }
+  }
+
+  function insertCannedReply(text) {
+    if (!text) return;
+    setComposerValue((current) => current ? `${current}\n${text}` : text);
+  }
+
+  function handleAttach(type) {
+    if (type === 'image') imageInputRef.current?.click();
+    else fileInputRef.current?.click();
+  }
+
+  function handleUnsupportedAttachment(event) {
+    event.target.value = '';
+    window.alert('Attachment upload is not connected yet. Incoming image messages are supported in the inbox.');
+  }
+
   async function handleManualSend() {
     const content = composerValue.trim();
     if (!activeConversationId || !content || sending) return;
@@ -484,8 +635,9 @@ export default function ConversationsLivePage() {
   }
 
   return (
-    <PrototypeLayoutShell theme={theme}>
-      <PrototypeSidebarNav theme={theme} onThemeChange={setTheme} />
+    <div className={`${styles.dashboardShell} ${theme === 'light' ? styles.light : styles.dark}`}>
+      <input ref={fileInputRef} type="file" hidden onChange={handleUnsupportedAttachment} />
+      <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={handleUnsupportedAttachment} />
       <PrototypeConversationList
         conversations={visibleConversations}
         filters={filters}
@@ -513,6 +665,10 @@ export default function ConversationsLivePage() {
               }}
               onOpenContext={() => setContextOpen(true)}
               onTakeOver={takeOverConversation}
+              onAssign={() => setAssignOpen(true)}
+              onClose={closeConversation}
+              assignDisabled={assigning || !canAssign}
+              closeDisabled={closing || activeConversation.status === 'closed'}
             />
             <PrototypeAIStateBar
               conversation={activeConversation}
@@ -534,6 +690,10 @@ export default function ConversationsLivePage() {
               onSend={handleManualSend}
               sending={sending}
               onTakeOver={takeOverConversation}
+              cannedReplies={[]}
+              onInsertCanned={insertCannedReply}
+              onAttach={handleAttach}
+              onInternalNote={() => window.alert('Internal notes are not supported by the current backend.')}
             />
           </section>
           <PrototypeCustomerPanel
@@ -564,12 +724,36 @@ export default function ConversationsLivePage() {
           <div className={styles.liveReadOnlyCard}>
             <strong>Select a conversation</strong>
             <p>
-              The live list is connected. Choose a conversation to update the header,
-              AI state, and customer panel. Messages are not loaded in this phase.
+              Choose a conversation to view messages, manage AI mode, assignment,
+              handoff, and customer context.
             </p>
           </div>
         </section>
       )}
-    </PrototypeLayoutShell>
+      {assignOpen && (
+        <div className={styles.liveModalLayer} role="dialog" aria-modal="true">
+          <div className={styles.liveModal}>
+            <div className={styles.liveModalHeader}>
+              <strong>Assign conversation</strong>
+              <button type="button" onClick={() => setAssignOpen(false)}>×</button>
+            </div>
+            <div className={styles.liveModalBody}>
+              <button type="button" className={styles.agentOption} onClick={() => assignConversation(null)}>
+                Unassigned
+                <span>Remove the current owner.</span>
+              </button>
+              {teamMembers.length === 0 ? (
+                <div className={styles.emptyListState}>No team members available.</div>
+              ) : teamMembers.map((member) => (
+                <button key={member.id} type="button" className={styles.agentOption} onClick={() => assignConversation(member)}>
+                  {member.name || member.email}
+                  <span>{member.role} · {member.email}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

@@ -8,6 +8,7 @@ const { queryAdmin } = require('../../db/pool');
 const { normalizeTenantSettings, buildCompanyContext, isBlockedSpammer } = require('../../core/tenantSettings');
 const { addToQueue } = require('../../workers/messageProcessor');
 const { verifyMetaSignature } = require('../verify');
+const { normalizeInstagram } = require('./normalizer');
 
 /* ── Fetch real customer name from Meta Graph API ───────────────────────────── */
 async function fetchIgName(userId, token) {
@@ -114,7 +115,8 @@ function getInstagramMessages(entry) {
 
 async function processInstagramMessage(msg, entryId) {
   const senderId = msg.sender.id;
-  const text     = msg.message?.text || '';
+  const normalized = normalizeInstagram('pending', msg);
+  const text     = normalized.message.content || '';
   const msgId    = msg.message?.mid || `ig_${Date.now()}`;
   const pageId   = msg.recipient?.id || entryId;
   const tenantMatch = pageId ? await getTenantByPageId(pageId, 'instagram') : null;
@@ -154,10 +156,11 @@ async function processInstagramMessage(msg, entryId) {
 
   const savedMsg = await saveMessage(tenantId, conv.id, {
     direction: 'inbound',
-    type: 'text',
+    type: normalized.message.type,
     content: text,
+    media_url: normalized.message.media_url,
     sent_by: 'customer',
-    metadata: { ig_message_id: msgId, timestamp: new Date((msg.timestamp || Date.now()) * 1000).toISOString() },
+    metadata: { ig_message_id: msgId, timestamp: normalized.message.timestamp },
   });
 
   try {

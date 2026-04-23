@@ -1,5 +1,14 @@
 const { v4: uuidv4 } = require('uuid');
 
+function normalizeTimestamp(value) {
+  if (!value) return new Date().toISOString();
+  const numeric = Number(value);
+  const date = Number.isFinite(numeric)
+    ? new Date(numeric < 1000000000000 ? numeric * 1000 : numeric)
+    : new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+}
+
 /**
  * Normalize a raw Instagram Messaging webhook event
  * into the AIROS unified message format.
@@ -23,6 +32,8 @@ function normalizeInstagram(tenantId, rawEvent) {
     }
   }
 
+  const timestamp = normalizeTimestamp(rawEvent.timestamp);
+
   return {
     id: uuidv4(),
     tenant_id: tenantId,
@@ -38,9 +49,7 @@ function normalizeInstagram(tenantId, rawEvent) {
       type: msgType,
       content,
       media_url: mediaUrl,
-      timestamp: rawEvent.timestamp
-        ? new Date(rawEvent.timestamp).toISOString()
-        : new Date().toISOString(),
+      timestamp,
     },
     meta: {
       conversation_id: null,
