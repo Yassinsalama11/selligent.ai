@@ -425,14 +425,31 @@ export function PrototypeMessageBubble({ message, previous }) {
   const isOutbound = message.direction === 'outbound';
   const isAi = message.sent_by === 'ai';
   const isSystem = message.direction === 'system';
+  const isInternalNote = message.type === 'internal_note';
   const isImage = message.type === 'image' || (Boolean(message.mediaUrl) && /^image\//i.test(message.mimeType || ''));
-  const isFile = message.type === 'file';
+  const isFile = ['file', 'document', 'video', 'voice'].includes(message.type);
   const canPreviewImage = typeof message.mediaUrl === 'string' && /^(https?:|data:image\/|blob:)/i.test(message.mediaUrl);
   const author = messageAuthorLabel(message);
   const time = formatMessageTime(message.timestamp);
 
   if (isSystem) {
     return <div className={styles.systemEvent}>{message.content}</div>;
+  }
+
+  if (isInternalNote) {
+    return (
+      <div className={styles.internalNoteRow}>
+        <div className={styles.internalNoteCard}>
+          <span className={styles.internalNoteLabel}>Internal note</span>
+          {message.content && <p>{message.content}</p>}
+          <div className={styles.messageMetaRow}>
+            {time && <span className={styles.messageTime}>{time}</span>}
+            {message.status === 'sending' && <span className={styles.sendingState}>Saving</span>}
+            {message.status === 'failed' && <span className={styles.failedState}>Failed</span>}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -498,7 +515,10 @@ export function PrototypeComposer({
           <strong>AI is handling this conversation</strong>
           <p>Take over when the customer needs a human answer or a custom offer.</p>
         </div>
-        <button className={styles.primaryAction} onClick={onTakeOver}>Take Over</button>
+        <div className={styles.takeoverActions}>
+          <button type="button" onClick={onInternalNote}>Internal note</button>
+          <button className={styles.primaryAction} onClick={onTakeOver}>Take Over</button>
+        </div>
       </footer>
     );
   }

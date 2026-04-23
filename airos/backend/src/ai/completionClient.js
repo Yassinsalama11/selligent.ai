@@ -5,13 +5,14 @@ const { performance } = require('perf_hooks');
 const { logAuditEvent } = require('../db/queries/audit');
 const { recordAiUsage } = require('../core/telemetry');
 const { assessTextSafety, buildSafeRefusal } = require('./safetyGuard');
+const { getPlatformAiConfig } = require('../db/queries/platform');
 
 let anthropicClient;
 let openaiClient;
 let anthropicClientKey;
 let openaiClientKey;
 
-function getPlatformConfig() {
+function getEnvPlatformConfig() {
   const anthropicKey = process.env.PLATFORM_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || '';
   const openaiKey = process.env.PLATFORM_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
   const preferred = String(process.env.PLATFORM_AI_PROVIDER || process.env.AI_PROVIDER || '').trim().toLowerCase();
@@ -24,6 +25,40 @@ function getPlatformConfig() {
     anthropicModel: process.env.PLATFORM_ANTHROPIC_MODEL || process.env.ANTHROPIC_AI_MODEL || 'claude-sonnet-4-20250514',
     openaiModel: process.env.PLATFORM_OPENAI_MODEL || process.env.OPENAI_AI_MODEL || 'gpt-4o-mini',
   };
+}
+
+async function getPlatformConfig() {
+  const envConfig = getEnvPlatformConfig();
+  try {
+    const dbConfig = await getPlatformAiConfig();
+    return {
+      provider: String(dbConfig.provider || envConfig.provider).trim().toLowerCase(),
+      anthropicKey: String(dbConfig.providerCredentials?.anthropicApiKey || envConfig.anthropicKey || '').trim(),
+      openaiKey: String(dbConfig.providerCredentials?.openaiApiKey || envConfig.openaiKey || '').trim(),
+      anthropicModel: dbConfig.provider === 'anthropic'
+        ? (dbConfig.activeModel || envConfig.anthropicModel)
+        : envConfig.anthropicModel,
+      openaiModel: dbConfig.provider === 'openai'
+        ? (dbConfig.activeModel || envConfig.openaiModel)
+        : envConfig.openaiModel,
+      fallbackModel: String(dbConfig.fallbackModel || '').trim(),
+      safetyMode: dbConfig.safetyMode || 'strict',
+      responseMode: dbConfig.responseMode || 'balanced',
+      temperature: Number.isFinite(Number(dbConfig.temperature)) ? Number(dbConfig.temperature) : 0.3,
+      topP: Number.isFinite(Number(dbConfig.topP)) ? Number(dbConfig.topP) : 1,
+      source: 'database',
+    };
+  } catch {
+    return {
+      ...envConfig,
+      fallbackModel: '',
+      safetyMode: 'strict',
+      responseMode: 'balanced',
+      temperature: 0.3,
+      topP: 1,
+      source: 'environment',
+    };
+  }
 }
 
 function getAnthropicClient(apiKey) {
@@ -89,7 +124,7 @@ async function completeTextWithMetadata({
   }
 
   const started = performance.now();
-  const config = getPlatformConfig();
+  const config = await getPlatformConfig();
   let provider = config.provider;
   let model = provider === 'anthropic' ? config.anthropicModel : config.openaiModel;
   let text;
@@ -114,8 +149,9 @@ async function completeTextWithMetadata({
     const response = await openai.chat.completions.create({
       model,
       messages: [{ role: 'user', content: prompt }],
-      temperature,
+      temperature: Number.isFinite(Number(config.temperature)) ? Number(config.temperature) : temperature,
       max_tokens: maxTokens,
+      top_p: Number.isFinite(Number(config.topP)) ? Number(config.topP) : 1,
     });
     text = (response.choices?.[0]?.message?.content || '').trim();
     usage = response.usage || {};
@@ -155,8 +191,8 @@ async function completeText(options) {
   return result.text;
 }
 
-function getPlatformAiStatus() {
-  const config = getPlatformConfig();
+async function getPlatformAiStatus() {
+  const config = await getPlatformConfig();
   return {
     provider: config.provider,
     configured: Boolean(config.anthropicKey || config.openaiKey),
@@ -172,6 +208,8 @@ function getPlatformAiStatus() {
     },
     managedByPlatform: true,
     tenantApiKeysAllowed: false,
+    source: config.source || 'environment',
+    fallbackModel: config.fallbackModel || '',
   };
 }
 

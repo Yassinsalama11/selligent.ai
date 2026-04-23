@@ -301,14 +301,14 @@ function Channels() {
 
 /* ── Pricing ──────────────────────────────────────────────────────────────── */
 function Pricing() {
-  const fallbackPlans = {
-    starter: { name: 'Starter', seatPrice: 19, total: 19, currency: 'USD', seats: 1, includedSeats: 1, configured: false },
-    pro: { name: 'Pro', seatPrice: 39, total: 117, currency: 'USD', seats: 3, includedSeats: 3, configured: false },
-    enterprise: { name: 'Enterprise', seatPrice: 79, total: 790, currency: 'USD', seats: 10, includedSeats: 10, configured: false },
-  };
+  const fallbackPlans = [
+    { key: 'starter', name: 'Starter', description: 'For small stores starting out', seatPrice: 19, discountedSeatPrice: 19, total: 19, currency: 'EUR', seats: 1, includedSeats: 1, configured: false, features: ['1 channel', 'AI included', 'Basic reports', 'Seat-based billing'], metadata: { popular: false } },
+    { key: 'pro', name: 'Pro', description: 'For growing eCommerce brands', seatPrice: 39, discountedSeatPrice: 39, total: 117, currency: 'EUR', seats: 3, includedSeats: 3, configured: false, features: ['All core channels', 'AI replies + lead scoring', 'Full reports suite', 'Commerce catalog sync'], metadata: { popular: true } },
+    { key: 'enterprise', name: 'Enterprise', description: 'For high-volume operations', seatPrice: 79, discountedSeatPrice: 79, total: 790, currency: 'EUR', seats: 10, includedSeats: 10, configured: false, features: ['Advanced AI controls', 'Priority support', 'Custom onboarding', 'Higher usage limits'], metadata: { popular: false } },
+  ];
   const [seats, setSeats] = useState(3);
-  const [country, setCountry] = useState('US');
-  const [plans, setPlans] = useState(fallbackPlans);
+  const [country, setCountry] = useState('EU');
+  const [pricing, setPricing] = useState({ plans: fallbackPlans, promoBanner: null, offers: [] });
 
   useEffect(() => {
     try {
@@ -323,33 +323,33 @@ function Pricing() {
   useEffect(() => {
     let cancelled = false;
     fetch(`${getApiBase()}/api/stripe/plans?country=${encodeURIComponent(country)}&seats=${encodeURIComponent(seats)}`)
-      .then((response) => response.ok ? response.json() : fallbackPlans)
+      .then((response) => response.ok ? response.json() : { plans: fallbackPlans, promoBanner: null, offers: [] })
       .then((data) => {
-        if (!cancelled) setPlans(data || fallbackPlans);
+        if (!cancelled) {
+          setPricing({
+            plans: Array.isArray(data?.plans) && data.plans.length ? data.plans : fallbackPlans,
+            promoBanner: data?.promoBanner || null,
+            offers: Array.isArray(data?.offers) ? data.offers : [],
+          });
+        }
       })
       .catch(() => {
-        if (!cancelled) setPlans(fallbackPlans);
+        if (!cancelled) setPricing({ plans: fallbackPlans, promoBanner: null, offers: [] });
       });
     return () => {
       cancelled = true;
     };
   }, [country, seats]);
 
-  const planCards = [
-    { key: 'starter', desc: 'For small stores starting out', features: ['1 channel', 'AI included', 'Basic reports', 'Seat-based billing'], popular: false },
-    { key: 'pro', desc: 'For growing eCommerce brands', features: ['All core channels', 'AI replies + lead scoring', 'Full reports suite', 'Commerce catalog sync'], popular: true },
-    { key: 'enterprise', desc: 'For high-volume operations', features: ['Advanced AI controls', 'Priority support', 'Custom onboarding', 'Higher usage limits'], popular: false },
-  ];
-
   function formatPlanMoney(plan, amount) {
     try {
       return new Intl.NumberFormat(undefined, {
         style: 'currency',
-        currency: plan.currency || 'USD',
+        currency: plan.currency || 'EUR',
         maximumFractionDigits: 0,
       }).format(Number(amount || 0));
     } catch {
-      return `${plan.currency || 'USD'} ${Number(amount || 0).toLocaleString()}`;
+      return `${plan.currency || 'EUR'} ${Number(amount || 0).toLocaleString()}`;
     }
   }
 
@@ -360,7 +360,13 @@ function Pricing() {
         <h2 style={{ fontSize: 'clamp(36px,4vw,56px)', fontWeight: 900, letterSpacing: '-0.04em' }}>
           Simple, <span className="gt">transparent pricing</span>
         </h2>
-        <p style={{ fontSize: 14, color: 'var(--t4)', marginTop: 12 }}>Local currency · price per user · AI included in every paid plan</p>
+        <p style={{ fontSize: 14, color: 'var(--t4)', marginTop: 12 }}>Local currency display · price per user · AI included in every paid plan</p>
+        {pricing.promoBanner && (
+          <div style={{ margin:'18px auto 0', display:'inline-flex', alignItems:'center', gap:10, padding:'10px 16px', borderRadius:999, background:'rgba(255,90,31,0.12)', border:'1px solid rgba(255,90,31,0.24)', color:'#ffb08f', fontSize:12.5, fontWeight:700 }}>
+            <span>{pricing.promoBanner.badgeLabel || pricing.promoBanner.saleLabel || 'Live offer'}</span>
+            <span style={{ color:'var(--t2)', fontWeight:500 }}>{pricing.promoBanner.title}</span>
+          </div>
+        )}
         <div style={{ margin:'24px auto 0', display:'inline-flex', alignItems:'center', gap:12, padding:10, borderRadius:16, background:'var(--bg3)', border:'1px solid var(--border)' }}>
           <span style={{ fontSize:13, color:'var(--t3)', fontWeight:700 }}>Seats</span>
           <input
@@ -375,46 +381,57 @@ function Pricing() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 24 }}>
-        {planCards.map((card) => {
-          const p = plans[card.key] || fallbackPlans[card.key];
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(Math.max(pricing.plans.length, 1), 4)},1fr)`, gap: 24 }}>
+        {pricing.plans.map((p) => {
+          const popular = p.metadata?.popular === true;
+          const effectiveSeatPrice = Number(p.discountedSeatPrice ?? p.seatPrice ?? 0);
           return (
-          <div key={card.key} style={{
+          <div key={p.key} style={{
             borderRadius: 24, padding: 36, display: 'flex', flexDirection: 'column', position: 'relative',
-            background: card.popular
+            background: popular
               ? 'linear-gradient(160deg, rgba(255,90,31,0.13) 0%, rgba(0,229,255,0.07) 100%)'
               : 'var(--bg3)',
-            border: card.popular ? '1.5px solid rgba(255,90,31,0.38)' : '1px solid var(--border)',
-            boxShadow: card.popular ? '0 0 60px rgba(255,90,31,0.12), 0 0 0 1px rgba(0,229,255,0.08)' : 'none',
+            border: popular ? '1.5px solid rgba(255,90,31,0.38)' : '1px solid var(--border)',
+            boxShadow: popular ? '0 0 60px rgba(255,90,31,0.12), 0 0 0 1px rgba(0,229,255,0.08)' : 'none',
           }}>
-            {card.popular && (
+            {popular && (
               <div style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', background: 'linear-gradient(135deg,#ff7a18,#ff3d00)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '5px 16px', borderRadius: 99, whiteSpace: 'nowrap', letterSpacing: '0.06em' }}>
                 MOST POPULAR
+              </div>
+            )}
+            {p.offer && (
+              <div style={{ position:'absolute', top:16, right:16, padding:'5px 10px', borderRadius:999, background:'rgba(0,229,255,0.12)', border:'1px solid rgba(0,229,255,0.2)', color:'#6ee7f9', fontSize:11, fontWeight:700 }}>
+                {p.discountLabel || `${p.offer.discountValue}${p.offer.discountType === 'percent' ? '%' : ''} off`}
               </div>
             )}
 
             <div style={{ marginBottom: 28 }}>
               <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>{p.name}</div>
-              <div style={{ fontSize: 13, color: 'var(--t4)', marginBottom: 20 }}>{card.desc}</div>
+              <div style={{ fontSize: 13, color: 'var(--t4)', marginBottom: 20 }}>{p.description}</div>
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4 }}>
-                <span style={{ fontSize: 52, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1, fontFamily: 'Space Grotesk' }}>{formatPlanMoney(p, p.seatPrice)}</span>
+                <span style={{ fontSize: 52, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1, fontFamily: 'Space Grotesk' }}>{formatPlanMoney(p, effectiveSeatPrice)}</span>
                 <span style={{ fontSize: 14, color: 'var(--t4)', marginBottom: 6 }}>/user/mo</span>
               </div>
+              {p.offer && Number(p.seatPrice || 0) !== effectiveSeatPrice && (
+                <div style={{ marginTop:6, fontSize:12, color:'var(--t4)', textDecoration:'line-through' }}>
+                  {formatPlanMoney(p, p.seatPrice)}/user/mo
+                </div>
+              )}
               <div style={{ marginTop:10, fontSize:13, color:'var(--t3)' }}>
                 {p.seats} seats total: <strong style={{ color:'var(--t1)' }}>{formatPlanMoney(p, p.total)}/mo</strong>
               </div>
             </div>
 
             <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12, flex: 1, marginBottom: 28 }}>
-              {card.features.map(f => (
+              {(Array.isArray(p.features) && p.features.length ? p.features : fallbackPlans.find((fallback) => fallback.key === p.key)?.features || []).map((f) => (
                 <li key={f} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: 'var(--t2)' }}>
                   <span style={{ color: '#34d399', fontSize: 16, flexShrink: 0 }}>✓</span> {f}
                 </li>
               ))}
             </ul>
 
-            <Link href={`/signup?plan=${card.key}&seats=${seats}&country=${country}`}
-              className={`btn ${card.popular ? 'btn-primary' : 'btn-ghost'}`}
+            <Link href={`/signup?plan=${p.key}&seats=${seats}&country=${country}`}
+              className={`btn ${popular ? 'btn-primary' : 'btn-ghost'}`}
               style={{ textAlign: 'center', width: '100%' }}>
               Start Free Trial →
             </Link>
@@ -423,7 +440,7 @@ function Pricing() {
       </div>
 
       <p style={{ textAlign: 'center', marginTop: 32, fontSize: 13, color: 'var(--t4)' }}>
-        No credit card required to start · Upgrade or cancel anytime · Seat count is enforced after purchase
+        Local pricing is shown for estimation only · Checkout and admin accounting settle in EUR · Seat count is enforced after purchase
       </p>
     </section>
   );

@@ -9,7 +9,10 @@ import { adminApi, getAdminProfile, logoutAdmin, setAdminSession } from '@/lib/a
 const NAV = [
   { href:'/admin',         icon:'◈',  label:'Overview', exact:true },
   { href:'/admin/clients', icon:'🏢', label:'Clients' },
+  { href:'/admin/pricing', icon:'🪙', label:'Plans' },
+  { href:'/admin/offers',  icon:'🏷️', label:'Offers' },
   { href:'/admin/billing', icon:'💳', label:'Billing' },
+  { href:'/admin/ai',      icon:'🤖', label:'AI Control' },
   { href:'/admin/ingestion', icon:'🕸', label:'Ingestion' },
   { href:'/admin/logs',    icon:'📋', label:'Logs' },
   { href:'/admin/system',  icon:'🖥', label:'System' },

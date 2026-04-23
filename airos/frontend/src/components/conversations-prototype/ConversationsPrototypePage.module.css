@@ -973,6 +973,40 @@
   border-color: rgba(251, 113, 133, 0.34);
 }
 
+.internalNoteRow {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0 18px;
+}
+
+.internalNoteCard {
+  width: min(560px, 100%);
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 229, 255, 0.18);
+  background: rgba(0, 229, 255, 0.08);
+}
+
+.internalNoteLabel {
+  display: inline-flex;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--ai);
+  background: rgba(0, 229, 255, 0.1);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.internalNoteCard p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
 .outboundStack .messageTime {
   padding-right: 2px;
 }
@@ -1195,6 +1229,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 20px;
+}
+
+.takeoverActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .customerPanel {

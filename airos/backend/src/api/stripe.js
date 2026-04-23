@@ -1,41 +1,14 @@
 const express = require('express');
-const Stripe   = require('stripe');
-const router   = express.Router();
+const Stripe = require('stripe');
 
+const {
+  buildPublicPricingPayload,
+  listPlatformPlans,
+  normalizeCountry,
+} = require('../db/queries/platform');
+
+const router = express.Router();
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
-
-const PLANS = {
-  starter: {
-    name: 'Starter',
-    priceId: process.env.STRIPE_PRICE_STARTER,
-    baseSeatPrice: 19,
-    includedSeats: 1,
-    aiIncluded: true,
-  },
-  pro: {
-    name: 'Pro',
-    priceId: process.env.STRIPE_PRICE_PRO,
-    baseSeatPrice: 39,
-    includedSeats: 3,
-    aiIncluded: true,
-  },
-  enterprise: {
-    name: 'Enterprise',
-    priceId: process.env.STRIPE_PRICE_ENTERPRISE,
-    baseSeatPrice: 79,
-    includedSeats: 10,
-    aiIncluded: true,
-  },
-};
-
-const COUNTRY_PRICING = {
-  SA: { currency: 'SAR', multiplier: 3.75 },
-  AE: { currency: 'AED', multiplier: 3.67 },
-  EG: { currency: 'EGP', multiplier: 48 },
-  US: { currency: 'USD', multiplier: 1 },
-  GB: { currency: 'GBP', multiplier: 0.8 },
-  EU: { currency: 'EUR', multiplier: 0.92 },
-};
 
 function normalizeSeats(value) {
   const seats = Number.parseInt(value, 10);
@@ -43,73 +16,77 @@ function normalizeSeats(value) {
   return Math.min(seats, 500);
 }
 
-function resolveCountryPricing(country = 'US') {
-  const code = String(country || 'US').trim().toUpperCase();
-  return COUNTRY_PRICING[code] || COUNTRY_PRICING.US;
-}
-
-function buildPlanPayload(country = 'US', seats = 1) {
-  const pricing = resolveCountryPricing(country);
-  return Object.fromEntries(Object.entries(PLANS).map(([key, plan]) => {
-    const enabledSeats = Math.max(normalizeSeats(seats), plan.includedSeats);
-    const localizedSeatPrice = Math.round(plan.baseSeatPrice * pricing.multiplier);
-    return [key, {
-      name: plan.name,
-      currency: pricing.currency,
-      seatPrice: localizedSeatPrice,
-      seats: enabledSeats,
-      includedSeats: plan.includedSeats,
-      total: localizedSeatPrice * enabledSeats,
-      aiIncluded: plan.aiIncluded,
-      configured: Boolean(plan.priceId),
-    }];
-  }));
+async function getSelectedPlan(planKey) {
+  const plans = await listPlatformPlans({ visibleOnly: false });
+  const normalized = String(planKey || '').trim().toLowerCase();
+  return plans.find((plan) => plan.key === normalized) || null;
 }
 
 /* ── POST /api/stripe/create-checkout-session ─────────────────────────────── */
 router.post('/create-checkout-session', async (req, res) => {
   try {
-    const { plan, email, seats } = req.body;
-    const planKey = plan?.toLowerCase();
-    const quantity = normalizeSeats(seats);
-
-    if (!PLANS[planKey]) {
+    const { plan, email, seats, country } = req.body || {};
+    const selectedPlan = await getSelectedPlan(plan);
+    if (!selectedPlan || selectedPlan.visible === false) {
       return res.status(400).json({ error: 'Invalid plan' });
     }
 
-    const { name, priceId } = PLANS[planKey];
+    const quantity = Math.max(normalizeSeats(seats), selectedPlan.includedSeats);
+    const pricingPayload = await buildPublicPricingPayload(country, quantity);
+    const localizedPlan = pricingPayload.plans.find((entry) => entry.key === selectedPlan.key);
+    if (!localizedPlan) return res.status(400).json({ error: 'Plan is not available for checkout' });
 
-    if (!priceId) {
-      return res.status(500).json({ error: `Price ID for ${name} not configured` });
-    }
+    const unitAmount = Math.round(Number(selectedPlan.priceEur || 0) * 100);
+    if (!unitAmount) return res.status(400).json({ error: 'Plan pricing is not configured' });
 
     const baseUrl = process.env.FRONTEND_URL || 'https://chatorai.com';
-
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'subscription',
-      line_items: [{ price: priceId, quantity }],
+      line_items: [{
+        price_data: {
+          currency: 'eur',
+          unit_amount: unitAmount,
+          recurring: { interval: 'month' },
+          product_data: {
+            name: `${localizedPlan.name} (${quantity} seats)`,
+            description: `${localizedPlan.description || ''}${localizedPlan.currency && localizedPlan.currency !== 'EUR' ? ' Display pricing may vary by region; checkout settles in EUR.' : ''}`.trim(),
+          },
+        },
+        quantity,
+      }],
       customer_email: email || undefined,
       allow_promotion_codes: true,
       billing_address_collection: 'required',
       subscription_data: {
-        metadata: { plan: name, seats: String(quantity), ai_included: 'true' },
+        metadata: {
+          plan: localizedPlan.key,
+          plan_name: localizedPlan.name,
+          seats: String(quantity),
+          ai_included: 'true',
+          country: normalizeCountry(country),
+          billing_currency: 'EUR',
+          display_currency: localizedPlan.currency,
+          display_seat_price: String(localizedPlan.discountedSeatPrice || localizedPlan.seatPrice || 0),
+          seat_price_eur: String(selectedPlan.priceEur || 0),
+          base_price_eur: String(selectedPlan.priceEur || 0),
+        },
       },
-      success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}&plan=${encodeURIComponent(name)}`,
-      cancel_url:  `${baseUrl}/cancel`,
+      success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}&plan=${encodeURIComponent(localizedPlan.key)}`,
+      cancel_url: `${baseUrl}/cancel`,
     });
 
-    res.json({ url: session.url, sessionId: session.id });
+    return res.json({ url: session.url, sessionId: session.id });
   } catch (err) {
     console.error('Stripe error:', err.message);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
 /* ── POST /api/stripe/webhook ─────────────────────────────────────────────── */
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig     = req.headers['stripe-signature'];
-  const secret  = process.env.STRIPE_WEBHOOK_SECRET;
+  const sig = req.headers['stripe-signature'];
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
 
   let event;
   try {
@@ -127,7 +104,6 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     case 'checkout.session.completed': {
       const session = event.data.object;
       console.log(`✅ New subscription: ${session.customer_email} — ${session.subscription}`);
-      // TODO: Create client account in DB, send welcome email
       break;
     }
     case 'customer.subscription.updated': {
@@ -145,14 +121,17 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       console.log(`⚠️  Payment failed: ${invoice.customer_email}`);
       break;
     }
+    default:
+      break;
   }
 
-  res.json({ received: true });
+  return res.json({ received: true });
 });
 
 /* ── GET /api/stripe/plans ────────────────────────────────────────────────── */
-router.get('/plans', (req, res) => {
-  res.json(buildPlanPayload(req.query.country, req.query.seats));
+router.get('/plans', async (req, res) => {
+  const payload = await buildPublicPricingPayload(req.query.country, req.query.seats);
+  res.json(payload);
 });
 
 module.exports = router;

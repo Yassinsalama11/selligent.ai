@@ -12,7 +12,7 @@ const STEPS = [
   { n: 5, label: 'Plan'     },
 ];
 
-const PLANS = [
+const FALLBACK_PLANS = [
   { name: 'Starter',    plan: 'starter',    price: 49,  desc: 'For small stores',          features: ['1 channel', '500 conversations/mo', 'AI intent detection', '1 agent seat'] },
   { name: 'Pro',        plan: 'pro',        price: 149, desc: 'For growing brands',         features: ['All 4 channels', '5,000 conversations/mo', 'AI replies + scoring', '5 agent seats'], popular: true },
   { name: 'Enterprise', plan: 'enterprise', price: 299, desc: 'For high-volume operations', features: ['Unlimited everything', 'Full AI engine', 'Unlimited agents', 'Priority support'] },
@@ -41,6 +41,9 @@ const SCAN_STEPS = [
 export default function SignupPage() {
   const [step, setStep]           = useState(1);
   const [payLoading, setPayLoading] = useState(null);
+  const [planSeats, setPlanSeats] = useState(1);
+  const [planCountry, setPlanCountry] = useState('EU');
+  const [plans, setPlans] = useState(FALLBACK_PLANS);
 
   const [account, setAccount] = useState({ name: '', email: '', password: '', company: '', phone: '' });
   const [presence, setPresence] = useState({ website: '', whatsapp: '', instagram: '', facebook: '', other: '' });
@@ -50,6 +53,50 @@ export default function SignupPage() {
     companyName: '', description: '', industry: '', country: '',
     language: 'Arabic + English', products: '', tone: 'Professional & friendly',
   });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const plan = params.get('plan');
+    const seats = Number.parseInt(params.get('seats') || '1', 10);
+    const country = (params.get('country') || '').trim().toUpperCase();
+    if (plan) {
+      setStep(5);
+    }
+    if (Number.isFinite(seats) && seats > 0) setPlanSeats(seats);
+    if (country) setPlanCountry(country);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/api/stripe/plans?country=${encodeURIComponent(planCountry)}&seats=${encodeURIComponent(planSeats)}`)
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => {
+        if (cancelled) return;
+        const nextPlans = Array.isArray(payload?.plans) && payload.plans.length
+          ? payload.plans.map((plan) => ({
+            name: plan.name,
+            plan: plan.key,
+            price: Number(plan.discountedSeatPrice ?? plan.seatPrice ?? 0),
+            desc: plan.description || '',
+            features: Array.isArray(plan.features) ? plan.features : [],
+            popular: plan.metadata?.popular === true,
+            currency: plan.currency || 'EUR',
+            total: Number(plan.total || 0),
+            seats: Number(plan.seats || plan.includedSeats || planSeats),
+            offer: plan.offer || null,
+            basePrice: Number(plan.seatPrice || 0),
+          }))
+          : FALLBACK_PLANS;
+        setPlans(nextPlans);
+      })
+      .catch(() => {
+        if (!cancelled) setPlans(FALLBACK_PLANS);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [planCountry, planSeats]);
 
   useEffect(() => {
     if (step !== 3) return;
@@ -119,6 +166,7 @@ export default function SignupPage() {
           password: account.password,
           name: account.name,
           plan,
+          seats: planSeats,
         }),
       });
       const data = await res.json();
@@ -139,6 +187,7 @@ export default function SignupPage() {
             presence,
             aiData,
             plan,
+            seats: planSeats,
           }),
         }).catch(() => null);
 
@@ -390,9 +439,19 @@ export default function SignupPage() {
           {step === 5 && (
             <div>
               <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--t1)', letterSpacing: '-0.03em', marginBottom: 6, textAlign: 'center' }}>Choose your plan</h1>
-              <p style={{ fontSize: 14, color: 'var(--t4)', marginBottom: 28, textAlign: 'center' }}>7-day free trial · No credit card needed · Prices in EUR</p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
-                {PLANS.map(p => (
+              <p style={{ fontSize: 14, color: 'var(--t4)', marginBottom: 18, textAlign: 'center' }}>7-day free trial · No credit card needed · Admin-managed pricing</p>
+              <div style={{ display:'flex', justifyContent:'center', marginBottom:22 }}>
+                <div style={{ display:'inline-flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:12, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
+                  <span style={{ fontSize:12.5, color:'var(--t4)', fontWeight:700 }}>Seats</span>
+                  <input value={planSeats} min="1" max="500" type="number" onChange={(e) => setPlanSeats(Math.max(1, Number.parseInt(e.target.value || '1', 10)))} style={{ ...inputStyle, width:88, padding:'8px 10px' }} />
+                  <span style={{ fontSize:12, color:'var(--t4)' }}>Region: {planCountry}</span>
+                </div>
+              </div>
+              <p style={{ fontSize:12.5, color:'var(--t4)', textAlign:'center', marginBottom:18 }}>
+                Local currency is shown for estimation. Checkout and platform billing remain in EUR.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(Math.max(plans.length, 1), 4)},1fr)`, gap: 16 }}>
+                {plans.map(p => (
                   <div key={p.plan} style={{ borderRadius: 20, padding: 28, display: 'flex', flexDirection: 'column',
                     position: 'relative',
                     background: p.popular ? 'linear-gradient(160deg,rgba(99,102,241,0.15),rgba(139,92,246,0.1))' : 'var(--bg3)',
@@ -408,9 +467,17 @@ export default function SignupPage() {
                     <p style={{ fontSize: 17, fontWeight: 800, color: 'var(--t1)', marginBottom: 3 }}>{p.name}</p>
                     <p style={{ fontSize: 12, color: 'var(--t4)', marginBottom: 16 }}>{p.desc}</p>
                     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, marginBottom: 20 }}>
-                      <span style={{ fontSize: 42, fontWeight: 900, color: 'var(--t1)', letterSpacing: '-0.04em', lineHeight: 1 }}>€{p.price}</span>
-                      <span style={{ fontSize: 13, color: 'var(--t4)', marginBottom: 4 }}>/mo</span>
+                      <span style={{ fontSize: 42, fontWeight: 900, color: 'var(--t1)', letterSpacing: '-0.04em', lineHeight: 1 }}>{p.currency || 'EUR'} {p.price}</span>
+                      <span style={{ fontSize: 13, color: 'var(--t4)', marginBottom: 4 }}>/user</span>
                     </div>
+                    {p.offer && p.basePrice && p.basePrice !== p.price && (
+                      <p style={{ fontSize: 11.5, color: 'var(--t4)', marginTop: -14, marginBottom: 14 }}>
+                        <span style={{ textDecoration:'line-through' }}>{p.currency || 'EUR'} {p.basePrice}</span> · {p.offer.badgeLabel || p.offer.saleLabel || 'Offer active'}
+                      </p>
+                    )}
+                    <p style={{ fontSize: 12, color:'var(--t3)', marginBottom: 18 }}>
+                      {p.seats || planSeats} seats total · {p.currency || 'EUR'} {p.total || p.price}
+                    </p>
                     <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8, flex: 1, marginBottom: 20 }}>
                       {p.features.map(f => (
                         <li key={f} style={{ display: 'flex', gap: 8, fontSize: 13, color: 'var(--t2)' }}>

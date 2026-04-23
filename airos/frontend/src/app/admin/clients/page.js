@@ -12,6 +12,7 @@ const EMPTY_FORM = {
   password: '',
   plan: 'starter',
   status: 'active',
+  purchasedSeats: 1,
   country: '',
   domain: '',
   phone: '',
@@ -19,7 +20,11 @@ const EMPTY_FORM = {
 };
 
 function money(value) {
-  return `$${Number(value || 0).toLocaleString()}`;
+  return new Intl.NumberFormat('en-IE', {
+    style: 'currency',
+    currency: 'EUR',
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0));
 }
 
 function dateTime(value) {
@@ -92,6 +97,7 @@ export default function AdminClientsPage() {
         name: client.name,
         plan: client.plan,
         status: nextStatus,
+        purchasedSeats: client.purchasedSeats,
         country: client.country,
         domain: client.domain,
         phone: client.phone,
@@ -199,10 +205,11 @@ export default function AdminClientsPage() {
       </div>
 
       <div style={{ borderRadius:14, background:'var(--bg2)', border:'1px solid var(--b1)', overflow:'hidden' }}>
-        <div style={{ display:'grid', gridTemplateColumns:'1.6fr 1.1fr 110px 110px 120px 150px 150px', gap:12, padding:'12px 16px', fontSize:11, fontWeight:700, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.07em' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'1.5fr 1.1fr 120px 130px 110px 120px 150px 150px', gap:12, padding:'12px 16px', fontSize:11, fontWeight:700, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.07em' }}>
           <span>Client</span>
           <span>Owner</span>
           <span style={{ textAlign:'right' }}>Plan</span>
+          <span style={{ textAlign:'right' }}>Seats</span>
           <span style={{ textAlign:'right' }}>Status</span>
           <span style={{ textAlign:'right' }}>Channels</span>
           <span style={{ textAlign:'right' }}>Messages</span>
@@ -218,7 +225,7 @@ export default function AdminClientsPage() {
         )}
 
         {!loading && visibleClients.map((client) => (
-          <div key={client.id} style={{ display:'grid', gridTemplateColumns:'1.6fr 1.1fr 110px 110px 120px 150px 150px', gap:12, padding:'14px 16px', alignItems:'center', borderTop:'1px solid var(--b1)' }}>
+          <div key={client.id} style={{ display:'grid', gridTemplateColumns:'1.5fr 1.1fr 120px 130px 110px 120px 150px 150px', gap:12, padding:'14px 16px', alignItems:'center', borderTop:'1px solid var(--b1)' }}>
             <div>
               <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', marginBottom:4 }}>{client.name}</p>
               <p style={{ fontSize:11.5, color:'var(--t4)' }}>
@@ -234,6 +241,11 @@ export default function AdminClientsPage() {
             <div style={{ textAlign:'right' }}>
               <p style={{ fontSize:12.5, fontWeight:700, color:'#818cf8', textTransform:'capitalize' }}>{client.plan}</p>
               <p style={{ fontSize:10.5, color:'var(--t4)' }}>{money(client.monthlyValue)}</p>
+            </div>
+
+            <div style={{ textAlign:'right' }}>
+              <p style={{ fontSize:12.5, fontWeight:700, color:'#00E5FF' }}>{client.purchasedSeats}</p>
+              <p style={{ fontSize:10.5, color:'var(--t4)' }}>{client.activeUsers} active users</p>
             </div>
 
             <div style={{ textAlign:'right' }}>
@@ -287,7 +299,7 @@ export default function AdminClientsPage() {
             <input value={form.ownerName} onChange={(event) => setForm((current) => ({ ...current, ownerName: event.target.value }))} placeholder="Owner full name" style={inputStyle} />
             <input value={form.ownerEmail} onChange={(event) => setForm((current) => ({ ...current, ownerEmail: event.target.value }))} placeholder="Owner email" style={inputStyle} />
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:10 }}>
             <select value={form.plan} onChange={(event) => setForm((current) => ({ ...current, plan: event.target.value }))} style={inputStyle}>
               <option value="starter">Starter</option>
               <option value="growth">Growth</option>
@@ -299,6 +311,7 @@ export default function AdminClientsPage() {
               <option value="trial">Trial</option>
               <option value="suspended">Suspended</option>
             </select>
+            <input type="number" min="1" value={form.purchasedSeats} onChange={(event) => setForm((current) => ({ ...current, purchasedSeats: Number(event.target.value || 1) }))} placeholder="Purchased seats" style={inputStyle} />
             <input value={form.country} onChange={(event) => setForm((current) => ({ ...current, country: event.target.value }))} placeholder="Country code" style={inputStyle} />
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>

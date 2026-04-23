@@ -33,6 +33,7 @@ async function adminRequest(path, options = {}) {
 export const adminApi = {
   get: (path) => adminRequest(path),
   post: (path, body) => adminRequest(path, { method: 'POST', body: JSON.stringify(body) }),
+  put: (path, body) => adminRequest(path, { method: 'PUT', body: JSON.stringify(body) }),
   patch: (path, body) => adminRequest(path, { method: 'PATCH', body: JSON.stringify(body) }),
 };
 

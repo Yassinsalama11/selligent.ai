@@ -22,6 +22,7 @@ const sourceMeta = {
 };
 
 const SYNCED_SOURCES = ['woocommerce', 'shopify', 'salla', 'zid', 'api'];
+const WOO_PLUGIN_AVAILABLE = false;
 
 function getSourceMeta(source) {
   return sourceMeta[source] || { label: source || 'Unknown', color: '#94a3b8', icon: '📦' };
@@ -254,14 +255,20 @@ export default function ProductsPage() {
             </p>
           </div>
           <ol style={{ margin:0, paddingLeft:18, color:'var(--t2)', fontSize:13, lineHeight:1.8 }}>
-            <li>Download the WooCommerce plugin package.</li>
+            <li>{WOO_PLUGIN_AVAILABLE ? 'Download the WooCommerce plugin package.' : 'Plugin package is not yet published. Use the API/webhook path below until the package is released.'}</li>
             <li>Install and activate it in WordPress Plugins.</li>
             <li>Paste the webhook URL and API key in the plugin settings.</li>
             <li>Run first sync, then enable automatic product update webhooks.</li>
           </ol>
-          <button className="btn btn-primary" type="button" onClick={() => window.open('/downloads/chatorai-woocommerce-plugin.zip', '_blank')}>
-            Download plugin
-          </button>
+          {WOO_PLUGIN_AVAILABLE ? (
+            <button className="btn btn-primary" type="button" onClick={() => window.open('/downloads/chatorai-woocommerce-plugin.zip', '_blank')}>
+              Download plugin
+            </button>
+          ) : (
+            <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.18)', color:'#fcd34d', fontSize:12.5, lineHeight:1.7 }}>
+              WooCommerce plugin download is not available in this build. The API/webhook integration below is the supported path today.
+            </div>
+          )}
         </section>
 
         <section className="card" style={{ display:'flex', flexDirection:'column', gap:12 }}>
@@ -275,8 +282,12 @@ export default function ProductsPage() {
             <strong>POST</strong> {webhookUrl}
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, fontSize:12.5, color:'var(--t3)' }}>
-            <span><b style={{ color:'var(--t1)' }}>Auth:</b> `Authorization: Bearer JWT` or `x-api-key` + `x-tenant-id`</span>
+            <span><b style={{ color:'var(--t1)' }}>Method:</b> POST</span>
+            <span><b style={{ color:'var(--t1)' }}>Content-Type:</b> application/json</span>
+            <span><b style={{ color:'var(--t1)' }}>Auth:</b> `Authorization: Bearer &lt;tenant JWT&gt;` or `x-api-key` + `x-tenant-id`</span>
             <span><b style={{ color:'var(--t1)' }}>Behavior:</b> create/update by `external_id + source`</span>
+            <span><b style={{ color:'var(--t1)' }}>Where to configure:</b> your store middleware, automation layer, or commerce webhook sender</span>
+            <span><b style={{ color:'var(--t1)' }}>Updates:</b> re-send the same `external_id` to upsert changed title, price, stock, or media</span>
           </div>
           <pre style={{ margin:0, padding:12, borderRadius:12, background:'#050816', color:'#d1d5db', fontSize:11.5, lineHeight:1.6, overflowX:'auto' }}>{`{
   "products": [{
@@ -295,9 +306,11 @@ export default function ProductsPage() {
     "metadata": {"url":"https://store.com/product"}
   }]
 }`}</pre>
-          <p style={{ margin:0, fontSize:12.5, color:'var(--t4)', lineHeight:1.7 }}>
-            Success returns <code>{'{ "synced": 1 }'}</code>. Retry 4xx only after correcting payload/auth. Retry 5xx with exponential backoff.
-          </p>
+          <div style={{ display:'grid', gap:6, fontSize:12.5, color:'var(--t4)', lineHeight:1.7 }}>
+            <p style={{ margin:0 }}><b style={{ color:'var(--t1)' }}>Success:</b> returns <code>{'{ "synced": 1 }'}</code> with `200`.</p>
+            <p style={{ margin:0 }}><b style={{ color:'var(--t1)' }}>Errors:</b> `400` for invalid payload, `401` for missing/invalid auth, `500` for server failure.</p>
+            <p style={{ margin:0 }}><b style={{ color:'var(--t1)' }}>Retry guidance:</b> correct and resend on `4xx`; retry with exponential backoff on `5xx` only.</p>
+          </div>
         </section>
       </div>
 

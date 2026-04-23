@@ -95,8 +95,10 @@ function normalizeConversation(row = {}) {
 function mergeConversation(existing = {}, incoming = {}, normalizedMessage = null) {
   const normalizedIncoming = incoming?.id ? normalizeConversation(incoming) : null;
   const sortTimestamp = normalizedMessage?.timestamp || incoming?.updated_at || incoming?.updatedAt || incoming?.created_at || existing.sortTimestamp || '';
-  const messagePreview = normalizedMessage?.content
-    || (normalizedMessage?.type === 'image' ? 'Image attachment' : '');
+  const messagePreview = normalizedMessage?.type === 'internal_note'
+    ? `Internal note: ${normalizedMessage?.content || 'Note added'}`
+    : normalizedMessage?.content
+      || (normalizedMessage?.type === 'image' ? 'Image attachment' : normalizedMessage?.type === 'file' || normalizedMessage?.type === 'document' ? 'File attachment' : '');
 
   return {
     ...existing,
@@ -147,6 +149,8 @@ function extractMediaUrl(message = {}, parsedContent = null) {
 function inferMessageType(message = {}, mediaUrl = null, parsedContent = null) {
   const type = String(message.type || message.message_type || message.messageType || parsedContent?.type || '').toLowerCase();
   if (type) return type;
+  const mimeType = String(message.mime_type || message.mimeType || message.metadata?.mime_type || message.metadata?.mimeType || '').toLowerCase();
+  if (mimeType.startsWith('image/')) return 'image';
   if (mediaUrl) return 'image';
   return 'text';
 }
@@ -787,6 +791,58 @@ export default function ConversationsLivePage() {
     }
   }
 
+  async function createInternalNote() {
+    if (!activeConversation || sending) return;
+    const seeded = composerValue.trim();
+    const content = seeded || window.prompt('Write an internal note for this conversation:')?.trim() || '';
+    if (!content) return;
+
+    const tempId = `note-${activeConversation.id}-${Date.now()}`;
+    const optimisticMessage = normalizeMessage({
+      id: tempId,
+      conversationId: activeConversation.id,
+      direction: 'internal',
+      sent_by: 'agent',
+      type: 'internal_note',
+      content,
+      timestamp: new Date().toISOString(),
+      status: 'sending',
+      metadata: { internal: true },
+    }, activeConversation.id);
+
+    setComposerValue('');
+    setMessages((current) => [...current, optimisticMessage]);
+    setConversations((current) => current.map((conversation) => (
+      conversation.id === activeConversation.id
+        ? {
+          ...conversation,
+          lastMessage: `Internal note: ${content}`,
+          timestamp: formatTime(optimisticMessage.timestamp),
+          sortTimestamp: optimisticMessage.timestamp,
+        }
+        : conversation
+    )));
+
+    try {
+      const response = await api.post(`/api/conversations/${encodeURIComponent(activeConversation.id)}/internal-notes`, {
+        content,
+      });
+      const confirmed = normalizeMessage(response?.message || response, activeConversation.id);
+      setMessages((current) => {
+        const withoutTemp = current.filter((message) => message.id !== tempId);
+        return upsertMessage(withoutTemp, confirmed);
+      });
+    } catch {
+      setMessages((current) => current.map((message) => (
+        message.id === tempId ? { ...message, status: 'failed' } : message
+      )));
+    } finally {
+      requestAnimationFrame(() => {
+        messageBottomRef.current?.scrollIntoView({ block: 'end' });
+      });
+    }
+  }
+
   async function handleManualSend() {
     const content = composerValue.trim();
     if (!activeConversationId || !content || sending) return;
@@ -891,7 +947,7 @@ export default function ConversationsLivePage() {
               cannedReplies={cannedReplies}
               onInsertCanned={insertCannedReply}
               onAttach={handleAttach}
-              onInternalNote={() => window.alert('Internal notes are not supported by the current backend.')}
+              onInternalNote={createInternalNote}
             />
           </section>
           <PrototypeCustomerPanel

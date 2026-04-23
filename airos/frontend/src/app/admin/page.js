@@ -5,7 +5,11 @@ import { useEffect, useState } from 'react';
 import { adminApi } from '@/lib/adminApi';
 
 function formatMoney(value) {
-  return `$${Number(value || 0).toLocaleString()}`;
+  return new Intl.NumberFormat('en-IE', {
+    style: 'currency',
+    currency: 'EUR',
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0));
 }
 
 function formatDate(value) {

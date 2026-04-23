@@ -13,7 +13,7 @@ const requireOwnerRole = requireRole('owner', 'admin');
 // POST /api/auth/register — create tenant + owner account
 router.post('/register', async (req, res, next) => {
   try {
-    const { tenantName, email, password, name, plan } = req.body;
+    const { tenantName, email, password, name, plan, seats } = req.body;
     if (!tenantName || !email || !password || !name) {
       return res.status(400).json({ error: 'All fields required' });
     }
@@ -30,17 +30,18 @@ router.post('/register', async (req, res, next) => {
       return res.status(409).json({ error: 'Email already registered' });
     }
 
+    const purchasedSeats = Math.max(Number.parseInt(seats, 10) || 0, 1);
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
     // Create tenant + owner in a transaction
     const result = await queryAdmin(`
       WITH new_tenant AS (
-        INSERT INTO tenants (name, email, plan, status) VALUES ($1, $2, $5, 'active') RETURNING id, plan
+        INSERT INTO tenants (name, email, plan, status, settings) VALUES ($1, $2, $5, 'active', $6) RETURNING id, plan
       )
       INSERT INTO users (tenant_id, email, password_hash, name, role)
       SELECT id, $2, $3, $4, 'owner' FROM new_tenant
       RETURNING id, tenant_id, email, name, role
-    `, [tenantName, email, passwordHash, name, normalizedPlan]);
+    `, [tenantName, email, passwordHash, name, normalizedPlan, JSON.stringify({ purchased_seats: purchasedSeats })]);
 
     const user = result.rows[0];
     const token = signToken(user);
@@ -52,6 +53,7 @@ router.post('/register', async (req, res, next) => {
         company: tenantName,
         plan: normalizedPlan,
         status: 'active',
+        purchasedSeats,
       },
     });
   } catch (err) {

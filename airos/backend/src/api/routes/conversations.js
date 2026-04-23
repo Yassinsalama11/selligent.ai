@@ -176,6 +176,32 @@ async function sendChannelMedia({ conversation, credentials, type, mediaUrl, cap
   throw err;
 }
 
+async function persistConversationMessage(req, conversation, payload) {
+  const saved = await saveMessage(req.user.tenant_id, conversation.id, payload, req.db);
+  const preview = payload.type === 'internal_note'
+    ? `Internal note: ${saved.content || 'Note added'}`
+    : saved.content;
+  const updatedConversation = {
+    ...conversation,
+    last_message: preview,
+    updated_at: saved.created_at,
+  };
+
+  emitToTenantConversations(req.user.tenant_id, 'message:new', {
+    conversation: updatedConversation,
+    message: saved,
+    customer: {
+      id: conversation.customer_id,
+      name: conversation.customer_name,
+      phone: conversation.customer_phone,
+      channel_customer_id: conversation.channel_customer_id,
+      avatar_url: conversation.avatar_url,
+    },
+  });
+
+  return { saved, updatedConversation };
+}
+
 router.get('/', requireReadRole, async (req, res, next) => {
   try {
     const convs = await listConversations(req.user.tenant_id, {
@@ -203,45 +229,57 @@ router.post('/:id/messages', requireWriteRole, async (req, res, next) => {
     const messageType = String(req.body?.type || req.body?.message_type || (req.body?.media_url ? 'image' : 'text')).toLowerCase();
     const mediaUrl = req.body?.media_url || req.body?.mediaUrl || null;
     const isAttachment = ['image', 'file'].includes(messageType);
+    const isInternalNote = messageType === 'internal_note';
     if (!text && !mediaUrl) return res.status(400).json({ error: 'Message content or media_url is required' });
 
     const conversation = await loadConversationContext(req, req.params.id);
     if (!conversation) return res.status(404).json({ error: 'Not found' });
 
-    const credentials = await loadChannelCredentials(req, conversation.channel);
-    const externalId = isAttachment
-      ? await sendChannelMedia({ conversation, credentials, type: messageType, mediaUrl, caption: text })
-      : await sendChannelText({ conversation, credentials, text });
-    const saved = await saveMessage(req.user.tenant_id, conversation.id, {
-      direction: 'outbound',
+    let externalId = null;
+    if (!isInternalNote) {
+      const credentials = await loadChannelCredentials(req, conversation.channel);
+      externalId = isAttachment
+        ? await sendChannelMedia({ conversation, credentials, type: messageType, mediaUrl, caption: text })
+        : await sendChannelText({ conversation, credentials, text });
+    }
+
+    const { saved, updatedConversation } = await persistConversationMessage(req, conversation, {
+      direction: isInternalNote ? 'internal' : 'outbound',
       type: messageType,
-      content: text || req.body?.file_name || req.body?.fileName || (messageType === 'image' ? 'Image attachment' : 'File attachment'),
+      content: text || req.body?.file_name || req.body?.fileName || (messageType === 'image' ? 'Image attachment' : messageType === 'internal_note' ? 'Internal note' : 'File attachment'),
       media_url: mediaUrl,
       sent_by: 'agent',
       metadata: {
         external_id: externalId,
         user_id: req.user.id,
+        internal: isInternalNote,
         file_name: req.body?.file_name || req.body?.fileName || null,
         mime_type: req.body?.mime_type || req.body?.mimeType || null,
         size: req.body?.size || null,
       },
-    }, req.db);
+    });
 
-    const updatedConversation = {
-      ...conversation,
-      last_message: saved.content,
-      updated_at: saved.created_at,
-    };
+    res.status(201).json({ message: saved, conversation: updatedConversation });
+  } catch (err) { next(err); }
+});
 
-    emitToTenantConversations(req.user.tenant_id, 'message:new', {
-      conversation: updatedConversation,
-      message: saved,
-      customer: {
-        id: conversation.customer_id,
-        name: conversation.customer_name,
-        phone: conversation.customer_phone,
-        channel_customer_id: conversation.channel_customer_id,
-        avatar_url: conversation.avatar_url,
+router.post('/:id/internal-notes', requireWriteRole, async (req, res, next) => {
+  try {
+    const content = String(req.body?.content || '').trim();
+    if (!content) return res.status(400).json({ error: 'Note content is required' });
+
+    const conversation = await loadConversationContext(req, req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'Not found' });
+
+    const { saved, updatedConversation } = await persistConversationMessage(req, conversation, {
+      direction: 'internal',
+      type: 'internal_note',
+      content,
+      media_url: null,
+      sent_by: 'agent',
+      metadata: {
+        internal: true,
+        user_id: req.user.id,
       },
     });
 
