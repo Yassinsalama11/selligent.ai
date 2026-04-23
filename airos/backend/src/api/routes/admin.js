@@ -17,6 +17,7 @@ const {
   recordFailedLogin,
 } = require('../middleware/adminLockout');
 const { logAuditEvent } = require('../../db/queries/audit');
+const { getPlatformAiStatus } = require('../../ai/completionClient');
 
 const router = express.Router();
 const SALT_ROUNDS = 12;
@@ -888,6 +889,13 @@ router.get('/billing', adminAuthMiddleware, async (req, res, next) => {
       totals,
       tenantPlans,
       stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
+      pricingControls: {
+        localizedPricing: true,
+        seatBasedBilling: true,
+        aiIncludedInPlans: true,
+        adminManagedPlans: true,
+        supportedCountries: ['US', 'EU', 'GB', 'SA', 'AE', 'EG'],
+      },
       stripeSubscriptions,
     });
   } catch (err) {
@@ -959,6 +967,7 @@ router.get('/system/health', adminAuthMiddleware, async (req, res) => {
     databaseConfigured: Boolean(process.env.DATABASE_URL),
     redisConfigured: Boolean(process.env.REDIS_URL),
     stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
+    ai: getPlatformAiStatus(),
   });
 });
 

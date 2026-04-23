@@ -63,6 +63,29 @@ export default function AdminBillingPage() {
         ))}
       </div>
 
+      {billing?.pricingControls && (
+        <section style={{ borderRadius:14, background:'var(--bg2)', border:'1px solid var(--b1)', padding:'18px 20px' }}>
+          <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:16 }}>
+            <div>
+              <h2 style={{ fontSize:15, fontWeight:800, color:'var(--t1)', marginBottom:6 }}>Plan control model</h2>
+              <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.7 }}>
+                Plans are configured for localized pricing, user-seat billing, and AI-included subscriptions. Pricing edits remain admin-only.
+              </p>
+            </div>
+            <span style={{ padding:'6px 10px', borderRadius:999, background:'rgba(0,229,255,0.1)', color:'#00E5FF', fontSize:11.5, fontWeight:800 }}>
+              AI included
+            </span>
+          </div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginTop:14 }}>
+            {(billing.pricingControls.supportedCountries || []).map((country) => (
+              <span key={country} style={{ padding:'5px 9px', borderRadius:999, background:'var(--bg3)', color:'var(--t2)', fontSize:11.5, fontWeight:700 }}>
+                {country}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section style={{ borderRadius:14, background:'var(--bg2)', border:'1px solid var(--b1)', overflow:'hidden' }}>
         <div style={{ padding:'14px 16px', fontSize:12, fontWeight:800, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em' }}>
           Tenant Plans

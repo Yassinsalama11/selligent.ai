@@ -3,8 +3,9 @@ function isPlainObject(value) {
 }
 
 const DEFAULT_AI_CONFIG = {
-  provider: 'openai',
-  model: 'gpt-4o-mini',
+  platformManaged: true,
+  tenantApiKeysAllowed: false,
+  agentName: 'Chator Assistant',
   temperature: 0.4,
   maxTokens: 300,
   systemPrompt: 'You are a helpful assistant for an eCommerce business. Reply in the same language as the customer.',
@@ -132,6 +133,7 @@ function buildCompanyContext(tenant = {}) {
 
   return {
     name: company.name || tenant.name || 'our store',
+    agentName: settings.aiConfig.agentName || company.agentName || 'Chator Assistant',
     email: company.email || tenant.email || '',
     website: company.website || '',
     address: company.address || '',

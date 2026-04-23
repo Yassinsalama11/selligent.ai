@@ -444,79 +444,20 @@ export default function SettingsPage() {
   const [emailTestSendingId, setEmailTestSendingId] = useState('');
 
   /* ── AI Configuration ── */
-  const AI_PROVIDERS = {
-    openai:    { label:'OpenAI',              models:['gpt-4o','gpt-4o-mini','gpt-4-turbo','gpt-3.5-turbo'], keyPrefix:'sk-' },
-    anthropic: { label:'Anthropic (Claude)',  models:['claude-opus-4-6','claude-sonnet-4-6','claude-haiku-4-5-20251001'], keyPrefix:'sk-ant-' },
-    google:    { label:'Google (Gemini)',     models:['gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash'], keyPrefix:'AIza' },
-    mistral:   { label:'Mistral AI',          models:['mistral-large-latest','mistral-medium-latest','mistral-small-latest'], keyPrefix:'mis-' },
-  };
   const [aiCfg, setAiCfg] = useState(() => {
-    try {
-      const s = typeof window !== 'undefined' ? localStorage.getItem('airos_ai_cfg') : null;
-      return s ? JSON.parse(s) : { provider:'openai', model:'gpt-4o-mini', apiKey:'', temperature:0.4, maxTokens:300, systemPrompt:'You are a helpful assistant for an eCommerce business. Reply in the same language as the customer.', autoReply:false, suggestOnly:true };
-    } catch { return { provider:'openai', model:'gpt-4o-mini', apiKey:'', temperature:0.4, maxTokens:300, systemPrompt:'You are a helpful assistant for an eCommerce business. Reply in the same language as the customer.', autoReply:false, suggestOnly:true }; }
+    return {
+      platformManaged: true,
+      tenantApiKeysAllowed: false,
+      agentName: 'Chator Assistant',
+      temperature: 0.4,
+      maxTokens: 300,
+      systemPrompt: 'You are a helpful assistant for an eCommerce business. Reply in the same language as the customer.',
+      autoReply: false,
+      suggestOnly: true,
+    };
   });
-  const [aiKeyVisible, setAiKeyVisible] = useState(false);
-  const [aiTestResult, setAiTestResult] = useState(null);
-  const [aiTesting, setAiTesting] = useState(false);
   function saveAiCfg() {
-    if (typeof window !== 'undefined') localStorage.setItem('airos_ai_cfg', JSON.stringify(aiCfg));
     save('AI configuration saved');
-  }
-  async function testAiConnection() {
-    if (!aiCfg.apiKey?.trim()) { toast.error('Enter an API key first'); return; }
-    setAiTesting(true); setAiTestResult(null);
-    try {
-      const minPrompt = 'Reply with the single word: OK';
-      let reply = '';
-
-      if (aiCfg.provider === 'openai' || !aiCfg.provider) {
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${aiCfg.apiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: aiCfg.model || 'gpt-4o-mini', messages: [{ role:'user', content: minPrompt }], max_tokens: 5 }),
-        });
-        const d = await res.json();
-        if (!res.ok) throw new Error(d.error?.message || `HTTP ${res.status}`);
-        reply = d.choices?.[0]?.message?.content?.trim();
-
-      } else if (aiCfg.provider === 'anthropic') {
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'x-api-key': aiCfg.apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
-          body: JSON.stringify({ model: aiCfg.model || 'claude-haiku-4-5-20251001', max_tokens: 5, messages: [{ role:'user', content: minPrompt }] }),
-        });
-        const d = await res.json();
-        if (!res.ok) throw new Error(d.error?.message || `HTTP ${res.status}`);
-        reply = d.content?.[0]?.text?.trim();
-
-      } else if (aiCfg.provider === 'google') {
-        const model = aiCfg.model || 'gemini-2.0-flash';
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${aiCfg.apiKey}`,
-          { method:'POST', headers:{ 'Content-Type':'application/json' },
-            body: JSON.stringify({ contents:[{ parts:[{ text: minPrompt }] }], generationConfig:{ maxOutputTokens:5 } }) },
-        );
-        const d = await res.json();
-        if (!res.ok) throw new Error(d.error?.message || `HTTP ${res.status}`);
-        reply = d.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-      } else if (aiCfg.provider === 'mistral') {
-        const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${aiCfg.apiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: aiCfg.model || 'mistral-small-latest', messages:[{ role:'user', content: minPrompt }], max_tokens:5 }),
-        });
-        const d = await res.json();
-        if (!res.ok) throw new Error(d.error?.message || `HTTP ${res.status}`);
-        reply = d.choices?.[0]?.message?.content?.trim();
-      }
-
-      setAiTestResult({ ok: true, msg: `✅ Connected to ${AI_PROVIDERS[aiCfg.provider]?.label} · model ${aiCfg.model} · response: "${reply}"` });
-    } catch(e) {
-      setAiTestResult({ ok: false, msg: `❌ ${e.message}` });
-    }
-    setAiTesting(false);
   }
 
   /* ── Channels ── */
@@ -1246,7 +1187,7 @@ export default function SettingsPage() {
   }
 
   function buildSettingsSnapshot() {
-    const { apiKey, ...persistedAiConfig } = aiCfg;
+    const { apiKey, provider, model, ...persistedAiConfig } = aiCfg;
     const persistedChannels = {
       whatsapp: {
         connected: channels.whatsapp.connected,
@@ -2667,68 +2608,45 @@ export default function SettingsPage() {
 
       /* ────── AI Configuration ────── */
       case 'ai_config': {
-        const prov = AI_PROVIDERS[aiCfg.provider];
         return (
           <div>
-            <Section title="AI Provider & Model" sub="Choose your AI provider and connect your API key. Used for reply suggestions and auto-replies.">
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
-                <Field label="AI Provider">
-                  <select className="input" style={{ fontSize:13 }} value={aiCfg.provider}
-                    onChange={e => {
-                      const p = e.target.value;
-                      setAiCfg(c => ({ ...c, provider:p, model:AI_PROVIDERS[p].models[0] }));
-                    }}>
-                    {Object.entries(AI_PROVIDERS).map(([k,v]) => (
-                      <option key={k} value={k}>{v.label}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Model">
-                  <select className="input" style={{ fontSize:13 }} value={aiCfg.model}
-                    onChange={e => setAiCfg(c => ({ ...c, model:e.target.value }))}>
-                    {prov.models.map(m => <option key={m} value={m}>{m}</option>)}
-                  </select>
-                </Field>
-              </div>
-
-              <Field label="API Key">
-                <div style={{ display:'flex', gap:8 }}>
-                  <div style={{ flex:1, position:'relative' }}>
-                    <input className="input" style={{ fontSize:13, paddingRight:44 }}
-                      type={aiKeyVisible ? 'text' : 'password'}
-                      placeholder={`${prov.keyPrefix}…`}
-                      value={aiCfg.apiKey}
-                      onChange={e => setAiCfg(c => ({ ...c, apiKey:e.target.value }))} />
-                    <button
-                      onClick={() => setAiKeyVisible(v => !v)}
-                      style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)',
-                        background:'none', border:'none', cursor:'pointer', fontSize:15, color:'var(--t4)' }}>
-                      {aiKeyVisible ? '🙈' : '👁'}
-                    </button>
-                  </div>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={testAiConnection}
-                    disabled={aiTesting}
-                    style={{ flexShrink:0, minWidth:90 }}>
-                    {aiTesting ? '…' : '🔌 Test'}
-                  </button>
+            <Section title="Platform-managed AI" sub="The AI model is included in your ChatorAI plan. Provider credentials and model routing are managed securely by the platform.">
+              <div style={{
+                padding:16,
+                borderRadius:12,
+                background:'rgba(0,229,255,0.07)',
+                border:'1px solid rgba(0,229,255,0.18)',
+                display:'flex',
+                gap:12,
+                alignItems:'flex-start',
+              }}>
+                <div style={{
+                  width:34,
+                  height:34,
+                  borderRadius:10,
+                  background:'rgba(0,229,255,0.12)',
+                  border:'1px solid rgba(0,229,255,0.22)',
+                  display:'flex',
+                  alignItems:'center',
+                  justifyContent:'center',
+                  color:'#00e5ff',
+                  fontWeight:800,
+                  flexShrink:0,
+                }}>AI</div>
+                <div>
+                  <p style={{ margin:0, color:'var(--t2)', fontSize:13, fontWeight:700 }}>
+                    No API key required
+                  </p>
+                  <p style={{ margin:'5px 0 0', color:'var(--t4)', fontSize:12.5, lineHeight:1.7 }}>
+                    OpenAI / Anthropic credentials are configured by platform admins only. Your team controls the tenant agent persona and behavior below.
+                  </p>
                 </div>
-                {aiTestResult && (
-                  <div style={{ marginTop:8, padding:'8px 12px', borderRadius:8, fontSize:12,
-                    background: aiTestResult.ok ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)',
-                    border: `1px solid ${aiTestResult.ok ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`,
-                    color: aiTestResult.ok ? '#34d399' : '#fca5a5' }}>
-                    {aiTestResult.ok ? '✓' : '✕'} {aiTestResult.msg}
-                  </div>
-                )}
-                <p style={{ fontSize:11, color:'var(--t4)', marginTop:6 }}>
-                  Your key is stored locally in your browser and never sent to our servers.
-                  Get your key from: {aiCfg.provider === 'openai' ? 'platform.openai.com/api-keys'
-                    : aiCfg.provider === 'anthropic' ? 'console.anthropic.com/settings/keys'
-                    : aiCfg.provider === 'google' ? 'aistudio.google.com/app/apikey'
-                    : 'console.mistral.ai/api-keys'}
-                </p>
+              </div>
+              <Field label="Tenant AI agent name" sub="Used when the assistant introduces itself or signs a response.">
+                <input className="input" style={{ fontSize:13 }}
+                  value={aiCfg.agentName || ''}
+                  placeholder="Chator Assistant"
+                  onChange={e => setAiCfg(c => ({ ...c, agentName:e.target.value }))} />
               </Field>
               <SaveRow onSave={saveAiCfg} saving={saving} />
             </Section>
@@ -2740,7 +2658,7 @@ export default function SettingsPage() {
                     <input type="range" min={0} max={1} step={0.1}
                       value={aiCfg.temperature}
                       onChange={e => setAiCfg(c => ({ ...c, temperature:parseFloat(e.target.value) }))}
-                      style={{ flex:1, accentColor:'#6366f1' }} />
+                      style={{ flex:1, accentColor:'#FF5A1F' }} />
                     <span style={{ fontSize:13, fontWeight:600, color:'var(--t2)', minWidth:28 }}>{aiCfg.temperature}</span>
                   </div>
                 </Field>
@@ -2779,7 +2697,7 @@ export default function SettingsPage() {
                     <span style={{ color:'var(--t4)' }}>{r.used.toLocaleString()} / {r.limit.toLocaleString()}</span>
                   </div>
                   <div style={{ height:6, borderRadius:99, background:'var(--s3)' }}>
-                    <div style={{ height:6, borderRadius:99, background:'#6366f1',
+                    <div style={{ height:6, borderRadius:99, background:'#FF5A1F',
                       width:`${Math.min(100, r.used/r.limit*100).toFixed(1)}%`,
                       transition:'width 0.4s' }} />
                   </div>

@@ -1,7 +1,6 @@
-const Anthropic = require('@anthropic-ai/sdk');
-
 const { queryAdmin } = require('../db/pool');
 const { getKnowledgeChunks } = require('../ingest/ingestionJob');
+const { completeText } = require('./completionClient');
 
 function heuristicProfile(tenant = {}, chunks = []) {
   const combined = chunks.map((chunk) => chunk.content).join('\n').slice(0, 8000);
@@ -14,6 +13,12 @@ function heuristicProfile(tenant = {}, chunks = []) {
 
   return {
     businessName: tenant.name || '',
+    businessCategory: /real estate|property|apartment/i.test(combined) ? 'Real estate'
+      : /hotel|travel|tour/i.test(combined) ? 'Tourism'
+        : 'Commerce',
+    businessModel: /subscription|monthly|plan/i.test(combined) ? 'subscription'
+      : /service|consultation|booking/i.test(combined) ? 'services'
+        : 'online sales',
     vertical: /real estate|property|apartment/i.test(combined) ? 'real_estate'
       : /hotel|travel|tour/i.test(combined) ? 'tourism'
         : 'ecommerce',
@@ -25,6 +30,11 @@ function heuristicProfile(tenant = {}, chunks = []) {
     tone: 'professional and helpful',
     primaryLanguage: language,
     primaryDialect: language === 'arabic' ? 'ar-msa' : 'en',
+    supportStyle: 'helpful, concise, and sales-aware',
+    leadQualificationHints: ['Need', 'budget', 'timeline', 'preferred product or service'],
+    customerIntentPatterns: ['product inquiry', 'price question', 'availability check', 'support request'],
+    productServiceTypes: chunks.slice(0, 8).map((chunk) => chunk.heading || chunk.title).filter(Boolean),
+    agentName: 'Chator Assistant',
     openingHours: '',
     locations: [],
     faqCandidates,
@@ -32,10 +42,7 @@ function heuristicProfile(tenant = {}, chunks = []) {
   };
 }
 
-async function callClaudeForProfile(tenant, chunks) {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+async function callPlatformAiForProfile(tenant, chunks) {
   const content = chunks
     .slice(0, 30)
     .map((chunk) => `Source: ${chunk.source_url}\n${chunk.content}`)
@@ -47,12 +54,19 @@ async function callClaudeForProfile(tenant, chunks) {
 Schema:
 {
   "businessName": string,
+  "businessCategory": string,
+  "businessModel": string,
   "vertical": string,
   "offerings": string[],
   "policies": [{"title": string, "source": string}],
   "tone": string,
   "primaryLanguage": string,
   "primaryDialect": string,
+  "supportStyle": string,
+  "leadQualificationHints": string[],
+  "customerIntentPatterns": string[],
+  "productServiceTypes": string[],
+  "agentName": string,
   "openingHours": string,
   "locations": string[],
   "faqCandidates": string[],
@@ -65,13 +79,13 @@ Tenant email: ${tenant.email}
 Content:
 ${content}`;
 
-  const response = await client.messages.create({
-    model: process.env.ANTHROPIC_ANALYSIS_MODEL || 'claude-3-5-sonnet-20240620',
-    max_tokens: 2000,
-    messages: [{ role: 'user', content: prompt }],
+  const text = await completeText({
+    tenantId: tenant.id,
+    prompt,
+    maxTokens: 2000,
+    purpose: 'business_profile_analysis',
+    safetyInput: tenant.name,
   });
-
-  const text = response.content?.[0]?.text || '{}';
   return JSON.parse(text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, ''));
 }
 
@@ -90,7 +104,7 @@ async function analyzeBusinessProfile(tenantId) {
 
   let profile = null;
   try {
-    profile = await callClaudeForProfile(tenant, chunks);
+    profile = await callPlatformAiForProfile(tenant, chunks);
   } catch {
     profile = null;
   }

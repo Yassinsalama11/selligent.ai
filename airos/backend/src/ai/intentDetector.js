@@ -1,5 +1,6 @@
 const { resolvePromptContent } = require('./promptRegistry');
 const { completeText } = require('./completionClient');
+const { assessTextSafety } = require('./safetyGuard');
 
 /**
  * Detect intent, score lead, and suggest deal stage for an inbound message.
@@ -15,6 +16,19 @@ const { completeText } = require('./completionClient');
  * @returns {{ intent, lead_score, estimated_value, suggested_stage, language, sentiment, summary }}
  */
 async function detectIntent({ tenantId, message, customer = {}, history = [], products = [], offers = [] }) {
+  const inputGuard = assessTextSafety(message);
+  if (!inputGuard.allowed) {
+    return {
+      intent: 'other',
+      lead_score: 0,
+      estimated_value: null,
+      suggested_stage: 'new_lead',
+      language: /[\u0600-\u06ff]/.test(String(message || '')) ? 'arabic' : 'english',
+      sentiment: 'neutral',
+      summary: 'Restricted data request blocked by platform AI safety controls.',
+    };
+  }
+
   const customerCtx = JSON.stringify({
     name: customer.name || 'Unknown',
     total_spent: customer.total_spent || 0,
@@ -63,7 +77,13 @@ Active offers:
 ${offersCtx}
 New message: ${message}`;
 
-  const text = await completeText({ prompt, maxTokens: 300 });
+  const text = await completeText({
+    tenantId,
+    prompt,
+    maxTokens: 300,
+    purpose: 'intent_detection',
+    safetyInput: message,
+  });
 
   // Strip markdown code fences if present
   const json = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');

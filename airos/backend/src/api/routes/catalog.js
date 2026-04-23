@@ -8,7 +8,7 @@ const {
 } = require('../../db/queries/products');
 const { queryAdmin } = require('../../db/pool');
 
-const VALID_CATALOG_SOURCES = new Set(['woocommerce', 'shopify']);
+const VALID_CATALOG_SOURCES = new Set(['manual', 'woocommerce', 'shopify', 'salla', 'zid', 'api']);
 
 function defaultVerifyJwt(token) {
   return jwt.verify(token, process.env.JWT_SECRET);
@@ -189,7 +189,7 @@ function createCatalogHandlers(deps = {}) {
     try {
       const source = normalizeCatalogSource(req.query.source);
       if (!VALID_CATALOG_SOURCES.has(source)) {
-        return res.status(400).json({ error: 'source must be woocommerce or shopify' });
+        return res.status(400).json({ error: 'source must be one of manual, woocommerce, shopify, salla, zid, api' });
       }
 
       const deleted = await deleteCatalogProductFn(

@@ -57,7 +57,8 @@ async function getActiveProducts(tenantId, { limit = 100, source } = {}, client)
 
 async function getProductCatalogSummary(tenantId) {
   const res = await queryAdmin(`
-    SELECT id, name, price, sale_price, currency, stock_status, categories
+    SELECT id, name, description, price, sale_price, currency, stock_status,
+           stock_quantity, sku, source, images, variants, categories, metadata
     FROM products WHERE tenant_id = $1 AND is_active = TRUE
     ORDER BY name LIMIT 50
   `, [tenantId]);

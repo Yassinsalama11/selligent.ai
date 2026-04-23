@@ -29,6 +29,8 @@ function normalizePlan(value) {
 function brandProfileFromSignup(tenant, account = {}, presence = {}, aiData = {}) {
   return {
     businessName: aiData.companyName || account.company || tenant.name || '',
+    businessCategory: aiData.category || aiData.industry || 'general',
+    businessModel: aiData.businessModel || 'not specified',
     vertical: aiData.industry || 'general',
     offerings: String(aiData.products || '')
       .split(',')
@@ -38,6 +40,18 @@ function brandProfileFromSignup(tenant, account = {}, presence = {}, aiData = {}
     tone: aiData.tone || 'Professional & friendly',
     primaryLanguage: aiData.language || 'Arabic + English',
     primaryDialect: /arab/i.test(aiData.language || '') ? 'ar-msa' : 'en',
+    supportStyle: aiData.supportStyle || 'Helpful, concise, and sales-aware',
+    leadQualificationHints: Array.isArray(aiData.leadQualificationHints)
+      ? aiData.leadQualificationHints
+      : ['Need', 'budget', 'timeline', 'preferred product or service'],
+    customerIntentPatterns: Array.isArray(aiData.customerIntentPatterns)
+      ? aiData.customerIntentPatterns
+      : ['product inquiry', 'pricing question', 'availability check', 'support request'],
+    productServiceTypes: String(aiData.products || '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+    agentName: aiData.agentName || 'Chator Assistant',
     openingHours: '',
     locations: [aiData.country].filter(Boolean),
     faqCandidates: [],

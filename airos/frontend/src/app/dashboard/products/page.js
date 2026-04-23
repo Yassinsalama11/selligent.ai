@@ -11,13 +11,17 @@ import {
   StatusBanner,
 } from '@/components/dashboard/ResourceState';
 
-const TABS = ['all', 'woocommerce', 'shopify', 'manual', 'api'];
+const TABS = ['all', 'woocommerce', 'shopify', 'salla', 'zid', 'manual', 'api'];
 const sourceMeta = {
-  woocommerce: { label: 'WooCommerce', color: '#a855f7', icon: '🟣' },
+  woocommerce: { label: 'WooCommerce', color: '#FF5A1F', icon: '🛒' },
   shopify: { label: 'Shopify', color: '#96bf48', icon: '🟢' },
-  manual: { label: 'Manual', color: '#6366f1', icon: '✏️' },
+  salla: { label: 'Salla', color: '#00a6a6', icon: '🏬' },
+  zid: { label: 'Zid', color: '#00E5FF', icon: '🧾' },
+  manual: { label: 'Manual', color: '#FF5A1F', icon: '✏️' },
   api: { label: 'API', color: '#06b6d4', icon: '🔌' },
 };
+
+const SYNCED_SOURCES = ['woocommerce', 'shopify', 'salla', 'zid', 'api'];
 
 function getSourceMeta(source) {
   return sourceMeta[source] || { label: source || 'Unknown', color: '#94a3b8', icon: '📦' };
@@ -42,6 +46,16 @@ export default function ProductsPage() {
   const [activeTab, setActiveTab] = useState('all');
   const [search, setSearch] = useState('');
   const [deletingId, setDeletingId] = useState(null);
+  const [savingManual, setSavingManual] = useState(false);
+  const [manualProduct, setManualProduct] = useState({
+    name: '',
+    price: '',
+    currency: 'USD',
+    sku: '',
+    description: '',
+    category: '',
+    url: '',
+  });
   const deferredSearch = useDeferredValue(search);
 
   const filteredProducts = useMemo(() => (
@@ -66,13 +80,13 @@ export default function ProductsPage() {
   const stats = useMemo(() => ({
     total: (data || []).length,
     inStock: (data || []).filter((product) => product.stock_status === 'in_stock').length,
-    synced: (data || []).filter((product) => ['woocommerce', 'shopify'].includes(product.source)).length,
+    synced: (data || []).filter((product) => SYNCED_SOURCES.includes(product.source)).length,
     priced: (data || []).filter((product) => Number(product.price || 0) > 0).length,
   }), [data]);
 
   async function deleteProduct(product) {
-    if (!['woocommerce', 'shopify'].includes(product.source)) {
-      toast.error('Only WooCommerce and Shopify products can be deleted from this screen.');
+    if (!['manual', ...SYNCED_SOURCES].includes(product.source)) {
+      toast.error('Unsupported product source.');
       return;
     }
 
@@ -88,13 +102,53 @@ export default function ProductsPage() {
     }
   }
 
+  async function createManualProduct(event) {
+    event.preventDefault();
+    if (!manualProduct.name.trim()) {
+      toast.error('Product title is required.');
+      return;
+    }
+
+    setSavingManual(true);
+    try {
+      const payload = {
+        products: [{
+          external_id: `manual:${Date.now()}`,
+          source: 'manual',
+          name: manualProduct.name.trim(),
+          description: manualProduct.description.trim(),
+          price: manualProduct.price ? Number(manualProduct.price) : null,
+          currency: manualProduct.currency || 'USD',
+          sku: manualProduct.sku.trim() || null,
+          stock_status: 'in_stock',
+          categories: manualProduct.category ? [manualProduct.category.trim()] : [],
+          images: [],
+          variants: [],
+          metadata: {
+            created_from: 'dashboard_manual_entry',
+            url: manualProduct.url.trim() || null,
+          },
+        }],
+      };
+      await api.post('/v1/catalog/products/sync', payload);
+      setManualProduct({ name: '', price: '', currency: 'USD', sku: '', description: '', category: '', url: '' });
+      setActiveTab('manual');
+      await reload();
+      toast.success('Manual product added');
+    } catch (err) {
+      toast.error(err.message || 'Could not add product');
+    } finally {
+      setSavingManual(false);
+    }
+  }
+
   return (
     <div style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 900, marginBottom: 6 }}>Product Catalog</h1>
           <p style={{ fontSize: 13, color: 'var(--t3)' }}>
-            Live catalog data from `/v1/catalog/products`, including plugin-owned delete actions.
+            Unified catalog data for manual products, WooCommerce, Shopify, Salla, Zid, and API sources.
           </p>
         </div>
         <button className="btn btn-ghost btn-sm" onClick={reload}>Refresh</button>
@@ -116,7 +170,7 @@ export default function ProductsPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 14 }}>
           <div className="card-sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>Total products</span>
-            <span style={{ fontSize: 24, fontWeight: 900, color: '#6366f1' }}>{stats.total}</span>
+            <span style={{ fontSize: 24, fontWeight: 900, color: '#FF5A1F' }}>{stats.total}</span>
           </div>
           <div className="card-sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>In stock</span>
@@ -124,7 +178,7 @@ export default function ProductsPage() {
           </div>
           <div className="card-sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>Synced</span>
-            <span style={{ fontSize: 24, fontWeight: 900, color: '#8b5cf6' }}>{stats.synced}</span>
+            <span style={{ fontSize: 24, fontWeight: 900, color: '#00E5FF' }}>{stats.synced}</span>
           </div>
           <div className="card-sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>Priced</span>
@@ -159,6 +213,37 @@ export default function ProductsPage() {
         />
       </div>
 
+      <form
+        onSubmit={createManualProduct}
+        className="card"
+        style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:12, alignItems:'end' }}
+      >
+        <div style={{ gridColumn:'1 / -1' }}>
+          <div style={{ fontSize:15, fontWeight:800, color:'var(--t1)' }}>Manual product entry</div>
+          <div style={{ fontSize:12.5, color:'var(--t4)', marginTop:4 }}>
+            Add products that are not connected through a commerce integration. These are stored in the same catalog used by AI replies.
+          </div>
+        </div>
+        <input className="input" placeholder="Product title" value={manualProduct.name}
+          onChange={(event) => setManualProduct((current) => ({ ...current, name:event.target.value }))} />
+        <input className="input" placeholder="Price" type="number" min="0" step="0.01" value={manualProduct.price}
+          onChange={(event) => setManualProduct((current) => ({ ...current, price:event.target.value }))} />
+        <input className="input" placeholder="Currency" value={manualProduct.currency}
+          onChange={(event) => setManualProduct((current) => ({ ...current, currency:event.target.value.toUpperCase() }))} />
+        <input className="input" placeholder="SKU" value={manualProduct.sku}
+          onChange={(event) => setManualProduct((current) => ({ ...current, sku:event.target.value }))} />
+        <input className="input" placeholder="Category" value={manualProduct.category}
+          onChange={(event) => setManualProduct((current) => ({ ...current, category:event.target.value }))} />
+        <input className="input" placeholder="Product URL" value={manualProduct.url}
+          onChange={(event) => setManualProduct((current) => ({ ...current, url:event.target.value }))} />
+        <textarea className="input" placeholder="Description" value={manualProduct.description}
+          onChange={(event) => setManualProduct((current) => ({ ...current, description:event.target.value }))}
+          style={{ gridColumn:'1 / -1', minHeight:74, resize:'vertical' }} />
+        <button className="btn btn-primary" type="submit" disabled={savingManual} style={{ justifySelf:'start' }}>
+          {savingManual ? 'Adding…' : 'Add product'}
+        </button>
+      </form>
+
       {!loading && filteredProducts.length === 0 ? (
         <EmptyState
           title="No products match this filter"
@@ -169,7 +254,7 @@ export default function ProductsPage() {
           {filteredProducts.map((product) => {
             const meta = getSourceMeta(product.source);
             const categories = Array.isArray(product.categories) ? product.categories : [];
-            const canDelete = ['woocommerce', 'shopify'].includes(product.source);
+            const canDelete = ['manual', ...SYNCED_SOURCES].includes(product.source);
 
             return (
               <div key={product.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
