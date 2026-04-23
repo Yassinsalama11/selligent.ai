@@ -103,14 +103,14 @@ function normalizePlanInput(input = {}, fallback = {}) {
     key,
     name: String(source.name || fallback.name || key).trim(),
     description: String(source.description || fallback.description || '').trim(),
-    priceEur: Math.max(0, Number(source.priceEur ?? source.price_eur ?? fallback.priceEur ?? 0) || 0),
-    includedSeats: Math.max(1, Number.parseInt(source.includedSeats ?? source.included_seats ?? fallback.includedSeats ?? 1, 10) || 1),
+    priceEur: Math.max(0, Number((source.priceEur ?? source.price_eur ?? fallback.priceEur ?? 0)) || 0),
+    includedSeats: Math.max(1, Number.parseInt((source.includedSeats ?? source.included_seats ?? fallback.includedSeats ?? 1), 10) || 1),
     features: Array.isArray(source.features) ? source.features.map((item) => String(item).trim()).filter(Boolean) : (fallback.features || []),
     limits: safeJson(source.limits, fallback.limits || {}),
     visible: source.visible !== false,
-    sortOrder: Number.parseInt(source.sortOrder ?? source.sort_order ?? fallback.sortOrder ?? 100, 10) || 100,
+    sortOrder: Number.parseInt((source.sortOrder ?? source.sort_order ?? fallback.sortOrder ?? 100), 10) || 100,
     metadata: safeJson(source.metadata, fallback.metadata || {}),
-    countryOverrides: safeJson(source.countryOverrides ?? source.country_overrides, fallback.countryOverrides || {}),
+    countryOverrides: safeJson((source.countryOverrides ?? source.country_overrides), fallback.countryOverrides || {}),
   };
 }
 
@@ -120,14 +120,14 @@ function normalizeOfferInput(input = {}) {
     subtitle: String(input.subtitle || '').trim(),
     badgeLabel: String(input.badgeLabel || input.badge_label || '').trim(),
     discountType: ['percent', 'amount'].includes(String(input.discountType || input.discount_type || '').trim()) ? String(input.discountType || input.discount_type).trim() : 'percent',
-    discountValue: Math.max(0, Number(input.discountValue ?? input.discount_value ?? 0) || 0),
+    discountValue: Math.max(0, Number((input.discountValue ?? input.discount_value ?? 0)) || 0),
     startAt: input.startAt || input.start_at || null,
     endAt: input.endAt || input.end_at || null,
     active: input.active !== false,
     targetPlans: Array.isArray(input.targetPlans || input.target_plans) ? (input.targetPlans || input.target_plans).map((value) => String(value).trim().toLowerCase()).filter(Boolean) : [],
     promoStrip: Boolean(input.promoStrip ?? input.promo_strip),
     saleLabel: String(input.saleLabel || input.sale_label || '').trim(),
-    sortOrder: Number.parseInt(input.sortOrder ?? input.sort_order ?? 100, 10) || 100,
+    sortOrder: Number.parseInt((input.sortOrder ?? input.sort_order ?? 100), 10) || 100,
     metadata: safeJson(input.metadata, {}),
   };
 }
@@ -448,13 +448,13 @@ async function updatePlatformAiConfig(input = {}, updatedBy = null) {
   const current = await getPlatformAiConfig();
   const next = {
     ...current,
-    provider: String(input.provider ?? current.provider).trim() || current.provider,
-    activeModel: String(input.activeModel ?? current.activeModel).trim() || current.activeModel,
+    provider: String((input.provider ?? current.provider)).trim() || current.provider,
+    activeModel: String((input.activeModel ?? current.activeModel)).trim() || current.activeModel,
     fallbackModel: String(input.fallbackModel ?? current.fallbackModel).trim(),
     enabledModels: Array.isArray(input.enabledModels) ? input.enabledModels.map((value) => String(value).trim()).filter(Boolean) : current.enabledModels,
     defaultModelByPlan: safeJson(input.defaultModelByPlan, current.defaultModelByPlan),
-    safetyMode: String(input.safetyMode ?? current.safetyMode).trim() || current.safetyMode,
-    responseMode: String(input.responseMode ?? current.responseMode).trim() || current.responseMode,
+    safetyMode: String((input.safetyMode ?? current.safetyMode)).trim() || current.safetyMode,
+    responseMode: String((input.responseMode ?? current.responseMode)).trim() || current.responseMode,
     temperature: Number(input.temperature ?? current.temperature),
     topP: Number(input.topP ?? current.topP),
     providerCredentials: {
@@ -505,7 +505,7 @@ function resolveLocalizedSeatPrice(plan, country = 'EU') {
   if (override && typeof override === 'object') {
     return {
       currency: String(override.currency || COUNTRY_PRICING[normalizedCountry].currency).trim().toUpperCase(),
-      seatPrice: Math.max(0, Number(override.seatPrice ?? override.price ?? plan.priceEur) || 0),
+      seatPrice: Math.max(0, Number((override.seatPrice ?? override.price ?? plan.priceEur)) || 0),
     };
   }
 

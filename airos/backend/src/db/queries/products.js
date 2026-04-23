@@ -55,7 +55,7 @@ function normalizeVariantList(value) {
         sale_price: asNumber(entry.sale_price ?? entry.salePrice ?? entry.compare_at_price ?? entry.compareAtPrice),
         stock_quantity: asNumber(entry.stock_quantity ?? entry.stockQuantity ?? entry.quantity ?? entry.inventory_quantity),
         stock_status: pickString(entry.stock_status, entry.stockStatus) || (
-          Number(entry.stock_quantity ?? entry.quantity ?? entry.inventory_quantity || 0) > 0
+          Number((entry.stock_quantity ?? entry.quantity ?? entry.inventory_quantity) || 0) > 0
             ? 'in_stock'
             : 'out_of_stock'
         ),
