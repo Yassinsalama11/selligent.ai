@@ -103,8 +103,8 @@ async function sendChannelText({ conversation, credentials, text }) {
   }
 
   if (channel === 'instagram') {
-    const { sendText } = require('../../channels/instagram/sender');
-    const senderId = credentials?.instagram_business_account_id || credentials?.ig_user_id || credentials?.page_id;
+    const { sendText, resolveSenderId } = require('../../channels/instagram/sender');
+    const senderId = resolveSenderId(credentials);
     if (!senderId || !credentials?.access_token || !conversation.channel_customer_id) {
       const err = new Error('Instagram send context is incomplete');
       err.status = 400;
@@ -158,8 +158,8 @@ async function sendChannelMedia({ conversation, credentials, type, mediaUrl, cap
   }
 
   if (channel === 'instagram') {
-    const { sendImage } = require('../../channels/instagram/sender');
-    const senderId = credentials?.instagram_business_account_id || credentials?.ig_user_id || credentials?.page_id;
+    const { sendImage, resolveSenderId } = require('../../channels/instagram/sender');
+    const senderId = resolveSenderId(credentials);
     if (!senderId || !credentials?.access_token || !conversation.channel_customer_id) {
       const err = new Error('Instagram send context is incomplete');
       err.status = 400;

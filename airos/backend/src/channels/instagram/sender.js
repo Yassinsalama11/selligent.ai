@@ -2,6 +2,10 @@ const https = require('https');
 
 const BASE_URL = 'https://graph.facebook.com/v19.0';
 
+function resolveSenderId(credentials = {}) {
+  return credentials?.page_id || credentials?.instagram_business_account_id || credentials?.ig_user_id || null;
+}
+
 /**
  * Send a text reply to an Instagram DM.
  * @param {string} pageId     — Instagram Page ID (from channel_connections)
@@ -63,4 +67,4 @@ function _post(url, token, body) {
   });
 }
 
-module.exports = { sendText, sendImage };
+module.exports = { sendText, sendImage, resolveSenderId };

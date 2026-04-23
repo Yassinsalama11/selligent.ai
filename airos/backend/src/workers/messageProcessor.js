@@ -388,8 +388,8 @@ async function sendAutoReplyToChannel({ channel, credentials, customer, text }) 
   }
 
   if (channel === 'instagram') {
-    const { sendText } = require('../channels/instagram/sender');
-    const senderId = credentials?.instagram_business_account_id || credentials?.ig_user_id || credentials?.page_id;
+    const { sendText, resolveSenderId } = require('../channels/instagram/sender');
+    const senderId = resolveSenderId(credentials);
     if (!senderId || !credentials?.access_token || !customer?.channel_customer_id) {
       return { status: 'skipped', reason: 'missing_instagram_send_context' };
     }
