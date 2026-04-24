@@ -62,6 +62,15 @@ const telemetry = initTelemetry();
 const app = express();
 const server = http.createServer(app);
 
+// Global safety handlers
+process.on('unhandledRejection', (err) => {
+  logger.warn('[UNHANDLED REJECTION]', { error: err.message, stack: err.stack });
+});
+
+process.on('uncaughtException', (err) => {
+  logger.warn('[UNCAUGHT EXCEPTION]', { error: err.message, stack: err.stack });
+});
+
 // Init Socket.io + copilot namespace (3-C2)
 const io = initSocketServer(server);
 initCopilotNamespace(io);
@@ -255,47 +264,85 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3001;
 
 async function bootstrap() {
-  // Ensure Redis connects early if configured
-  if (process.env.REDIS_URL) {
-    getRedisClient();
-    startWorker().catch(err => logger.error('Worker failed to start', { error: err.message }));
+  // Step 1: Redis Initialization
+  try {
+    if (process.env.REDIS_URL) {
+      getRedisClient();
+      console.log('[REDIS] initialization attempted');
+    }
+  } catch (err) {
+    logger.warn('[REDIS WARNING] initialization failed', { error: err.message });
   }
 
+  // Step 2: Queue Worker Initialization
+  try {
+    if (process.env.REDIS_URL) {
+      startWorker().catch(err => logger.warn('[QUEUE WARNING] background worker error', { error: err.message }));
+      console.log('[QUEUE] worker start initiated');
+    }
+  } catch (err) {
+    logger.warn('[QUEUE WARNING] failed to start worker', { error: err.message });
+  }
+
+  // Step 3: Database & Migrations
   if (process.env.DATABASE_URL || process.env.DATABASE_URL_ADMIN) {
-    await ensureRuntimeSchema();
-    await runPerformanceMigrations().catch(err => logger.error('Performance migrations failed', { error: err.message }));
-    await validateTenantStatsBackfill().catch(err => logger.error('Backfill validation failed', { error: err.message }));
+    try {
+      await ensureRuntimeSchema();
+      console.log('[DB] core schema verified');
+    } catch (err) {
+      logger.warn('[DB WARNING] core schema verification failed', { error: err.message });
+    }
+
+    try {
+      await runPerformanceMigrations();
+      console.log('[MIGRATIONS] performance optimizations applied');
+    } catch (err) {
+      logger.warn('[MIGRATION WARNING] performance migrations failed', { error: err.message });
+    }
+
+    try {
+      await validateTenantStatsBackfill();
+      console.log('[BACKFILL] tenant stats validation completed');
+    } catch (err) {
+      logger.warn('[BACKFILL WARNING] validation failed', { error: err.message });
+    }
   }
 
-  if (process.env.ENABLE_REPORT_SCHEDULER !== '0' && process.env.DATABASE_URL) {
-    startReportScheduler();
-    if (startRetentionScheduler) startRetentionScheduler();
+  // Step 4: External Schedulers & Pipelines
+  try {
+    if (process.env.ENABLE_REPORT_SCHEDULER !== '0' && process.env.DATABASE_URL) {
+      startReportScheduler();
+      if (startRetentionScheduler) startRetentionScheduler();
 
-    // Weekly correction miner (2-C2) — runs every Sunday at 02:00 UTC
-    const MINER_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
-    setTimeout(function fireMiner() {
-      runMiner()
-        .then(({ exported, skipped }) =>
-          logger.info('[CorrectionMiner] weekly export done', { exported, skipped }),
-        )
-        .catch((err) => logger.error('[CorrectionMiner] failed', { error: err.message }))
-        .finally(() => setTimeout(fireMiner, MINER_INTERVAL_MS));
-    }, MINER_INTERVAL_MS);
+      // Weekly correction miner (2-C2) — runs every Sunday at 02:00 UTC
+      const MINER_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+      setTimeout(function fireMiner() {
+        runMiner()
+          .then(({ exported, skipped }) =>
+            logger.info('[CorrectionMiner] weekly export done', { exported, skipped }),
+          )
+          .catch((err) => logger.error('[CorrectionMiner] failed', { error: err.message }))
+          .finally(() => setTimeout(fireMiner, MINER_INTERVAL_MS));
+      }, MINER_INTERVAL_MS);
 
-    // Nightly Platform Brain anonymization pipeline (3-C4)
-    const BRAIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
-    setTimeout(function fireBrain() {
-      runAnonymizationPipeline()
-        .then(({ tenantsProcessed, signalsEmitted }) =>
-          logger.info('[PlatformBrain] nightly pipeline done', { tenantsProcessed, signalsEmitted }),
-        )
-        .catch((err) => logger.error('[PlatformBrain] pipeline failed', { error: err.message }))
-        .finally(() => setTimeout(fireBrain, BRAIN_INTERVAL_MS));
-    }, BRAIN_INTERVAL_MS);
-  } else if (process.env.ENABLE_REPORT_SCHEDULER !== '0') {
-    logger.warn('[ReportScheduler] skipped because DATABASE_URL is not configured');
+      // Nightly Platform Brain anonymization pipeline (3-C4)
+      const BRAIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+      setTimeout(function fireBrain() {
+        runAnonymizationPipeline()
+          .then(({ tenantsProcessed, signalsEmitted }) =>
+            logger.info('[PlatformBrain] nightly pipeline done', { tenantsProcessed, signalsEmitted }),
+          )
+          .catch((err) => logger.error('[PlatformBrain] pipeline failed', { error: err.message }))
+          .finally(() => setTimeout(fireBrain, BRAIN_INTERVAL_MS));
+      }, BRAIN_INTERVAL_MS);
+    } else if (process.env.ENABLE_REPORT_SCHEDULER !== '0') {
+      logger.warn('[ReportScheduler] skipped because DATABASE_URL is not configured');
+    }
+  } catch (err) {
+    logger.warn('[SCHEDULER WARNING] failed to initialize schedulers', { error: err.message });
   }
 
+  // Final Step: Start Server
   server.listen(PORT, () => {
     logger.info('ChatOrAI backend started', {
       port: PORT,
@@ -307,11 +354,16 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-  logger.error('Backend bootstrap failed', {
+  logger.error('Backend bootstrap fatal error', {
     error: err.message,
     stack: err.stack,
   });
-  process.exit(1);
+  // Fallback listen if bootstrap failed catastrophically
+  if (!server.listening) {
+    server.listen(PORT, () => {
+      console.log(`[SERVER] Fallback start on port ${PORT}`);
+    });
+  }
 });
 
 module.exports = { app, server };
