@@ -7,10 +7,17 @@ function getRedisClient() {
     redisClient = new Redis(process.env.REDIS_URL, {
       maxRetriesPerRequest: 3,
       retryStrategy: (times) => Math.min(times * 50, 2000),
+      reconnectOnError: (err) => {
+        const targetError = 'READONLY';
+        if (err.message.includes(targetError)) {
+          return true;
+        }
+        return false;
+      },
     });
 
     redisClient.on('error', (err) => {
-      console.error('[Redis] connection error:', err.message);
+      console.warn('[Redis] warning: connection error', { message: err.message });
     });
 
     redisClient.on('connect', () => {

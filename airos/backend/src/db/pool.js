@@ -64,8 +64,9 @@ async function query(text, params) {
   const start = Date.now();
   try {
     const res = await pool.query(text, params);
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[DB] ${Date.now() - start}ms — ${text.slice(0, 80)}`);
+    const duration = Date.now() - start;
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG_PERF === 'true') {
+      console.log(`[DB] ${duration}ms — ${text.slice(0, 80).replace(/\s+/g, ' ')}`);
     }
     return res;
   } catch (err) {
@@ -76,6 +77,7 @@ async function query(text, params) {
 async function withTransaction(fn) {
   ensureDatabaseConfigured();
   const client = await pool.connect();
+  const start = Date.now();
   try {
     await client.query('BEGIN');
     const result = await fn(client);
@@ -85,6 +87,10 @@ async function withTransaction(fn) {
     await client.query('ROLLBACK');
     throw mapDatabaseError(err);
   } finally {
+    const duration = Date.now() - start;
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG_PERF === 'true') {
+      console.log(`[TX] ${duration}ms`);
+    }
     client.release();
   }
 }
@@ -94,8 +100,9 @@ async function queryAdmin(text, params) {
   const start = Date.now();
   try {
     const res = await adminPool.query(text, params);
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[DB:admin] ${Date.now() - start}ms — ${text.slice(0, 80)}`);
+    const duration = Date.now() - start;
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG_PERF === 'true') {
+      console.log(`[DB:admin] ${duration}ms — ${text.slice(0, 80).replace(/\s+/g, ' ')}`);
     }
     return res;
   } catch (err) {

@@ -1,4 +1,5 @@
 const { queryAdmin } = require('../pool');
+const { delCache } = require('../cache');
 
 async function getTenantById(tenantId, client) {
   const res = client
@@ -17,6 +18,11 @@ async function updateTenantSettings(tenantId, settings, client) {
         'UPDATE tenants SET settings = $1 WHERE id = $2 RETURNING *',
         [JSON.stringify(settings), tenantId]
       );
+  
+  if (res.rows[0]) {
+    await delCache(tenantId, 'config', 'data');
+  }
+  
   return res.rows[0];
 }
 
@@ -30,6 +36,11 @@ async function updateKnowledgeBase(tenantId, knowledgeBase, client) {
         'UPDATE tenants SET knowledge_base = $1 WHERE id = $2 RETURNING *',
         [JSON.stringify(knowledgeBase), tenantId]
       );
+
+  if (res.rows[0]) {
+    await delCache(tenantId, 'config', 'data');
+  }
+
   return res.rows[0];
 }
 

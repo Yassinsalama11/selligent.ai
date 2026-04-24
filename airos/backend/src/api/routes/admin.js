@@ -31,6 +31,7 @@ const {
   upsertPlatformPlan,
 } = require('../../db/queries/platform');
 const { getPlatformConfig } = require('../../ai/completionClient');
+const { getCache, setCache } = require('../../db/cache');
 
 const router = express.Router();
 const SALT_ROUNDS = 12;
@@ -41,6 +42,8 @@ const ADMIN_SECRET = process.env.ADMIN_JWT_SECRET
   || (process.env.NODE_ENV === 'production'
     ? (() => { throw new Error('[SECURITY] ADMIN_JWT_SECRET env var is required in production'); })()
     : (console.warn('[SECURITY] ADMIN_JWT_SECRET not set - falling back to JWT_SECRET. Do not use in production.'), process.env.JWT_SECRET));
+const IS_PERF_DEBUG = process.env.DEBUG_PERF === 'true';
+
 authenticator.options = { window: 1 };
 function normalizePlan(value) {
   const plan = String(value || '').trim().toLowerCase();
@@ -779,342 +782,22 @@ router.post('/plans', adminAuthMiddleware, async (req, res, next) => {
   }
 });
 
-router.put('/plans/:key', adminAuthMiddleware, async (req, res, next) => {
-  try {
-    const plan = await upsertPlatformPlan({
-      ...(req.body || {}),
-      key: req.params.key,
-    });
-    await logAdminAction(req, 'admin.plan.updated', 'platform_plan', plan.key, {
-      price_eur: plan.priceEur,
-      included_seats: plan.includedSeats,
-      visible: plan.visible,
-    });
-    return res.json({ plan });
-  } catch (err) {
-    return next(err);
-  }
-});
-
-router.get('/offers', adminAuthMiddleware, async (req, res, next) => {
-  try {
-    const offers = await listPlatformOffers();
-    return res.json({ offers });
-  } catch (err) {
-    return next(err);
-  }
-});
-
-router.post('/offers', adminAuthMiddleware, async (req, res, next) => {
-  try {
-    const offer = await createPlatformOffer(req.body || {});
-    await logAdminAction(req, 'admin.offer.created', 'platform_offer', offer.id, {
-      active: offer.active,
-      discount_type: offer.discountType,
-      discount_value: offer.discountValue,
-    });
-    return res.status(201).json({ offer });
-  } catch (err) {
-    return next(err);
-  }
-});
-
-router.patch('/offers/:id', adminAuthMiddleware, async (req, res, next) => {
-  try {
-    const offer = await updatePlatformOffer(req.params.id, req.body || {});
-    await logAdminAction(req, 'admin.offer.updated', 'platform_offer', offer.id, {
-      active: offer.active,
-      discount_type: offer.discountType,
-      discount_value: offer.discountValue,
-    });
-    return res.json({ offer });
-  } catch (err) {
-    return next(err);
-  }
-});
-
-router.get('/ai-control', adminAuthMiddleware, async (req, res, next) => {
-  try {
-    const [config, clients] = await Promise.all([
-      getPlatformAiConfig(),
-      fetchClients({ limit: 500 }),
-    ]);
-
-    const tenantUsage = clients.map((client) => ({
-      tenantId: client.id,
-      name: client.name,
-      plan: client.plan,
-      aiAgentName: String(client.agentName || '').trim() || null,
-      purchasedSeats: client.purchasedSeats,
-      messagesCount: client.messagesCount,
-      conversationsCount: client.conversationsCount,
-      activeUsers: client.activeUsers,
-    }));
-
-    return res.json({
-      config: {
-        ...config,
-        providerCredentials: {
-          openaiApiKey: maskSecret(config.providerCredentials?.openaiApiKey || process.env.PLATFORM_OPENAI_API_KEY || ''),
-          anthropicApiKey: maskSecret(config.providerCredentials?.anthropicApiKey || process.env.PLATFORM_ANTHROPIC_API_KEY || ''),
-        },
-      },
-      availableModels: getSystemAvailableModels(config),
-      providerStatus: await getPlatformAiStatus(),
-      tenantUsage,
-    });
-  } catch (err) {
-    return next(err);
-  }
-});
-
-router.patch('/ai-control', adminAuthMiddleware, async (req, res, next) => {
-  try {
-    const config = await updatePlatformAiConfig(req.body || {}, req.admin.id);
-    await logAdminAction(req, 'admin.ai.updated', 'platform_ai_config', 'singleton', {
-      provider: config.provider,
-      active_model: config.activeModel,
-      fallback_model: config.fallbackModel,
-    });
-    return res.json({ config });
-  } catch (err) {
-    return next(err);
-  }
-});
-
-router.get('/ai-agents', adminAuthMiddleware, async (req, res, next) => {
-  try {
-    const [clients, aiConfig] = await Promise.all([
-      fetchClients({ limit: 500 }),
-      getPlatformAiConfig(),
-    ]);
-
-    const result = await queryAdmin(`
-      SELECT
-        t.id AS tenant_id,
-        t.name AS company_name,
-        t.created_at,
-        t.settings,
-        COALESCE(conv_stats.messages_handled, 0)::int AS messages_handled,
-        COALESCE(conv_stats.conversations_handled, 0)::int AS conversations_handled,
-        COALESCE(conv_stats.ai_mode, 'manual') AS ai_mode
-      FROM tenants t
-      LEFT JOIN LATERAL (
-        SELECT
-          COUNT(m.*) FILTER (WHERE m.sent_by = 'ai') AS messages_handled,
-          COUNT(DISTINCT c.id) FILTER (WHERE EXISTS (
-            SELECT 1
-            FROM messages ai_m
-            WHERE ai_m.conversation_id = c.id AND ai_m.sent_by = 'ai'
-          )) AS conversations_handled,
-          COALESCE(MAX(c.ai_mode), 'manual') AS ai_mode
-        FROM conversations c
-        LEFT JOIN messages m ON m.conversation_id = c.id
-        WHERE c.tenant_id = t.id
-      ) AS conv_stats ON TRUE
-      ORDER BY t.created_at DESC
-    `);
-
-    const clientByTenant = Object.fromEntries(clients.map((client) => [client.id, client]));
-    const agents = result.rows.map((row) => {
-      const settings = row.settings || {};
-      const company = settings.company || {};
-      const aiCfg = settings.aiConfig || {};
-      const client = clientByTenant[row.tenant_id] || {};
-      return {
-        tenantId: row.tenant_id,
-        agentName: aiCfg.agentName || client.agentName || 'Chator Assistant',
-        companyName: company.name || row.company_name,
-        agentType: aiCfg.autoReply ? 'autonomous' : 'copilot',
-        usageStats: {
-          conversations: Number(client.conversationsCount || row.conversations_handled || 0),
-          messages: Number(client.messagesCount || row.messages_handled || 0),
-        },
-        messagesHandled: Number(row.messages_handled || 0),
-        aiMode: row.ai_mode || 'manual',
-        createdAt: row.created_at,
-      };
-    });
-
-    return res.json({
-      chator: {
-        name: aiConfig.chator?.name || 'Chator',
-        provider: aiConfig.provider,
-        activeModel: aiConfig.activeModel,
-        fallbackModel: aiConfig.fallbackModel,
-        hierarchyMode: aiConfig.chator?.hierarchyMode || 'platform-defaults',
-      },
-      tenants: agents,
-    });
-  } catch (err) {
-    return next(err);
-  }
-});
-
-router.get('/team', adminAuthMiddleware, async (req, res, next) => {
-  try {
-    await ensurePlatformControlSchema();
-    const result = await queryAdmin(`
-      SELECT
-        u.id,
-        u.name,
-        u.email,
-        u.role,
-        u.created_at,
-        COALESCE(ptm.is_active, TRUE) AS is_active
-      FROM users u
-      LEFT JOIN platform_team_members ptm ON ptm.user_id = u.id
-      WHERE u.tenant_id IS NULL
-        AND u.role IN ('platform_admin', 'super_admin')
-      ORDER BY COALESCE(ptm.is_active, TRUE) DESC, u.created_at ASC
-    `);
-
-    return res.json({
-      members: result.rows.map((row) => ({
-        id: row.id,
-        name: row.name || '',
-        email: row.email,
-        role: row.role,
-        isActive: row.is_active === true,
-        createdAt: row.created_at,
-      })),
-    });
-  } catch (err) {
-    return next(err);
-  }
-});
-
-router.post('/team', adminAuthMiddleware, async (req, res, next) => {
-  try {
-    await ensurePlatformControlSchema();
-    const name = String(req.body?.name || '').trim();
-    const email = String(req.body?.email || '').trim().toLowerCase();
-    const role = ['platform_admin', 'super_admin'].includes(String(req.body?.role || '').trim()) ? String(req.body.role).trim() : 'platform_admin';
-    const password = String(req.body?.password || '').trim() || crypto.randomBytes(8).toString('base64url');
-    const isActive = req.body?.isActive !== false;
-
-    if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
-    if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-
-    const existing = await queryAdmin(`
-      SELECT id FROM users
-      WHERE tenant_id IS NULL AND LOWER(email) = LOWER($1)
-      LIMIT 1
-    `, [email]).then((result) => result.rows[0] || null);
-    if (existing) return res.status(409).json({ error: 'An admin user with this email already exists' });
-
-    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-    const created = await queryAdmin(`
-      WITH inserted AS (
-        INSERT INTO users (tenant_id, email, password_hash, name, role)
-        VALUES (NULL, $1, $2, $3, $4)
-        RETURNING id, email, name, role, created_at
-      )
-      INSERT INTO platform_team_members (user_id, is_active, invited_by)
-      SELECT id, $5, $6
-      FROM inserted
-      RETURNING user_id
-    `, [email, passwordHash, name, role, isActive, req.admin.id]);
-
-    const member = await queryAdmin(`
-      SELECT
-        u.id,
-        u.name,
-        u.email,
-        u.role,
-        u.created_at,
-        COALESCE(ptm.is_active, TRUE) AS is_active
-      FROM users u
-      LEFT JOIN platform_team_members ptm ON ptm.user_id = u.id
-      WHERE u.id = $1
-      LIMIT 1
-    `, [created.rows[0].user_id]).then((result) => result.rows[0]);
-
-    await logAdminAction(req, 'admin.team.created', 'platform_team_member', member.id, {
-      role: member.role,
-      is_active: member.is_active,
-    });
-
-    return res.status(201).json({
-      member: {
-        id: member.id,
-        name: member.name,
-        email: member.email,
-        role: member.role,
-        isActive: member.is_active === true,
-        createdAt: member.created_at,
-      },
-      generatedPassword: req.body?.password ? '' : password,
-    });
-  } catch (err) {
-    if (err.code === '23505') return res.status(409).json({ error: 'An admin user with this email already exists' });
-    return next(err);
-  }
-});
-
-router.patch('/team/:id', adminAuthMiddleware, async (req, res, next) => {
-  try {
-    await ensurePlatformControlSchema();
-    const current = await queryAdmin(`
-      SELECT u.id, u.name, u.email, u.role, u.created_at, COALESCE(ptm.is_active, TRUE) AS is_active
-      FROM users u
-      LEFT JOIN platform_team_members ptm ON ptm.user_id = u.id
-      WHERE u.id = $1
-        AND u.tenant_id IS NULL
-        AND u.role IN ('platform_admin', 'super_admin')
-      LIMIT 1
-    `, [req.params.id]).then((result) => result.rows[0] || null);
-    if (!current) return res.status(404).json({ error: 'Team member not found' });
-
-    const role = ['platform_admin', 'super_admin'].includes(String(req.body?.role || current.role).trim()) ? String(req.body?.role || current.role).trim() : current.role;
-    const isActive = req.body?.isActive === undefined ? current.is_active === true : req.body.isActive === true;
-    const name = String(req.body?.name ?? current.name ?? '').trim();
-
-    await queryAdmin(`
-      UPDATE users
-      SET name = $1,
-          role = $2
-      WHERE id = $3
-    `, [name, role, req.params.id]);
-
-    await queryAdmin(`
-      INSERT INTO platform_team_members (user_id, is_active, invited_by)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (user_id) DO UPDATE
-      SET is_active = EXCLUDED.is_active,
-          updated_at = NOW()
-    `, [req.params.id, isActive, req.admin.id]);
-
-    const member = await queryAdmin(`
-      SELECT u.id, u.name, u.email, u.role, u.created_at, COALESCE(ptm.is_active, TRUE) AS is_active
-      FROM users u
-      LEFT JOIN platform_team_members ptm ON ptm.user_id = u.id
-      WHERE u.id = $1
-      LIMIT 1
-    `, [req.params.id]).then((result) => result.rows[0]);
-
-    await logAdminAction(req, 'admin.team.updated', 'platform_team_member', member.id, {
-      role: member.role,
-      is_active: member.is_active,
-    });
-
-    return res.json({
-      member: {
-        id: member.id,
-        name: member.name,
-        email: member.email,
-        role: member.role,
-        isActive: member.is_active === true,
-        createdAt: member.created_at,
-      },
-    });
-  } catch (err) {
-    return next(err);
-  }
-});
-
 router.get('/overview', adminAuthMiddleware, async (req, res, next) => {
+  const startTime = Date.now();
+  let cacheStatus = 'MISS';
   try {
+    const tenantId = 'platform_admin'; // Global admin cache
+    
+    // 1. Try cache first
+    const cachedOverview = await getCache(tenantId, 'admin', 'overview');
+    if (cachedOverview) {
+      cacheStatus = 'HIT';
+      if (IS_PERF_DEBUG) {
+        console.log(`[PERF:ENDPOINT] name=/api/admin/overview tenant_id=${tenantId} duration=${Date.now() - startTime}ms cache=${cacheStatus}`);
+      }
+      return res.json(cachedOverview);
+    }
+
     const clients = await fetchClients({ limit: 500 });
     const totals = clients.reduce((acc, client) => {
       acc.totalClients += 1;
@@ -1146,13 +829,22 @@ router.get('/overview', adminAuthMiddleware, async (req, res, next) => {
       })
       .slice(0, 6);
 
-    return res.json({
+    const payload = {
       totals,
       recentClients,
       topClients,
-    });
+    };
+
+    // 2. Set cache with 30s TTL
+    await setCache(tenantId, 'admin', 'overview', payload, 30);
+
+    if (IS_PERF_DEBUG) {
+      console.log(`[PERF:ENDPOINT] name=/api/admin/overview tenant_id=${tenantId} duration=${Date.now() - startTime}ms cache=${cacheStatus}`);
+    }
+
+    return res.json(payload);
   } catch (err) {
-    return next(err);
+    next(err);
   }
 });
 

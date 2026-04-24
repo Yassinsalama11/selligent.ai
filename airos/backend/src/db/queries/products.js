@@ -1,4 +1,5 @@
 const { query, queryAdmin, adminWithTransaction } = require('../pool');
+const { delCache, invalidatePattern } = require('../cache');
 
 function asNumber(value) {
   if (value == null || value === '') return null;
@@ -144,6 +145,12 @@ async function upsertProducts(tenantId, products) {
     ]);
     results.push(res.rows[0]);
   }
+
+  if (results.length > 0) {
+    await delCache(tenantId, 'dashboard', 'summary');
+    await invalidatePattern(tenantId, 'conversations');
+  }
+
   return results;
 }
 
@@ -198,6 +205,9 @@ async function deleteCatalogProduct(
     const product = deleted.rows[0];
     if (!product) return null;
 
+    await delCache(tenantId, 'dashboard', 'summary');
+    await invalidatePattern(tenantId, 'conversations');
+
     await client.query(
       `INSERT INTO audit_log
         (tenant_id, actor_type, actor_id, action, entity_type, entity_id, metadata)
@@ -238,6 +248,9 @@ async function deleteCatalogProductByExternalId(
 
     const product = deleted.rows[0];
     if (!product) return null;
+
+    await delCache(tenantId, 'dashboard', 'summary');
+    await invalidatePattern(tenantId, 'conversations');
 
     await client.query(
       `INSERT INTO audit_log

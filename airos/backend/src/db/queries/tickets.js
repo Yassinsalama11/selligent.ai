@@ -1,4 +1,5 @@
 const { queryAdmin } = require('../pool');
+const { delCache, invalidatePattern } = require('../cache');
 
 async function execute(client, sql, params) {
   return client ? client.query(sql, params) : queryAdmin(sql, params);
@@ -205,6 +206,11 @@ async function createTicket(tenantId, input = {}, client) {
     escalationReason,
   ]);
 
+  if (insertResult.rows[0]) {
+    await delCache(tenantId, 'dashboard', 'summary');
+    await invalidatePattern(tenantId, 'conversations');
+  }
+
   return getTicketById(tenantId, insertResult.rows[0].id, client);
 }
 
@@ -256,6 +262,11 @@ async function updateTicket(tenantId, ticketId, updates = {}, client) {
       AND deleted_at IS NULL
     RETURNING id
   `, values);
+
+  if (result.rows[0]) {
+    await delCache(tenantId, 'dashboard', 'summary');
+    await invalidatePattern(tenantId, 'conversations');
+  }
 
   if (!result.rows[0]) return null;
   return getTicketById(tenantId, ticketId, client);
@@ -314,6 +325,9 @@ async function escalateTicket(tenantId, ticketId, updates = {}, client) {
     }),
   ]);
 
+  await delCache(tenantId, 'dashboard', 'summary');
+  await invalidatePattern(tenantId, 'conversations');
+
   return getTicketById(tenantId, ticketId, client);
 }
 
@@ -327,6 +341,11 @@ async function deleteTicket(tenantId, ticketId, client) {
       AND deleted_at IS NULL
     RETURNING id
   `, [tenantId, ticketId]);
+
+  if (result.rows[0]) {
+    await delCache(tenantId, 'dashboard', 'summary');
+    await invalidatePattern(tenantId, 'conversations');
+  }
 
   return result.rows[0] ? { id: result.rows[0].id } : null;
 }

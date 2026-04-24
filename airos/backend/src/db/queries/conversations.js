@@ -1,5 +1,6 @@
 const { queryAdmin } = require('../pool');
 const { decryptMessageContent, buildMessageSearchTokens } = require('./messages');
+const { delCache, invalidatePattern } = require('../cache');
 
 async function getOrCreateConversation(tenantId, customerId, channel, client) {
   // Try to find an existing open conversation
@@ -102,13 +103,11 @@ async function listConversations(tenantId, {
 
   params.push(normalizeLimit(limit), normalizeOffset(offset));
 
-  const res = client
-    ? await client.query(`
+  const sql = `
     SELECT c.*, cu.id AS customer_id, cu.name AS customer_name, cu.phone AS customer_phone, cu.avatar_url, cu.tags,
            cu.preferences->>'email' AS customer_email,
            u.name AS assignee_name,
-           t.priority,
-           (SELECT content FROM messages WHERE tenant_id = c.tenant_id AND conversation_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message
+           t.priority
     FROM conversations c
     JOIN customers cu ON cu.id = c.customer_id
     LEFT JOIN users u ON u.id = c.assigned_to AND u.tenant_id = c.tenant_id
@@ -116,26 +115,16 @@ async function listConversations(tenantId, {
     WHERE ${conditions.join(' AND ')}
     ORDER BY c.updated_at DESC
     LIMIT $${i++} OFFSET $${i}
-  `, params)
-    : await queryAdmin(`
-    SELECT c.*, cu.id AS customer_id, cu.name AS customer_name, cu.phone AS customer_phone, cu.avatar_url, cu.tags,
-           cu.preferences->>'email' AS customer_email,
-           u.name AS assignee_name,
-           t.priority,
-           (SELECT content FROM messages WHERE tenant_id = c.tenant_id AND conversation_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message
-    FROM conversations c
-    JOIN customers cu ON cu.id = c.customer_id
-    LEFT JOIN users u ON u.id = c.assigned_to AND u.tenant_id = c.tenant_id
-    LEFT JOIN tickets t ON t.tenant_id = c.tenant_id AND t.conversation_id = c.id AND t.deleted_at IS NULL
-    WHERE ${conditions.join(' AND ')}
-    ORDER BY c.updated_at DESC
-    LIMIT $${i++} OFFSET $${i}
-  `, params);
+  `;
 
-  return Promise.all(res.rows.map(async (row) => ({
+  const res = client
+    ? await client.query(sql, params)
+    : await queryAdmin(sql, params);
+
+  return res.rows.map((row) => ({
     ...row,
-    last_message: await decryptMessageContent(tenantId, row.last_message),
-  })));
+    last_message: row.last_message_preview || null,
+  }));
 }
 
 async function updateConversationStatus(tenantId, conversationId, status, client) {
@@ -148,6 +137,12 @@ async function updateConversationStatus(tenantId, conversationId, status, client
     UPDATE conversations SET status = $1, updated_at = NOW()
     WHERE id = $2 AND tenant_id = $3 RETURNING *
   `, [status, conversationId, tenantId]);
+  
+  if (res.rows[0]) {
+    await delCache(tenantId, 'dashboard', 'summary');
+    await invalidatePattern(tenantId, 'conversations');
+  }
+
   return res.rows[0];
 }
 
@@ -182,8 +177,7 @@ async function assignConversation(tenantId, conversationId, userId, client) {
     SELECT c.*, cu.id AS customer_id, cu.name AS customer_name, cu.phone AS customer_phone, cu.avatar_url, cu.tags,
            cu.preferences->>'email' AS customer_email,
            u.name AS assignee_name,
-           t.priority,
-           (SELECT content FROM messages WHERE tenant_id = c.tenant_id AND conversation_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message
+           t.priority
     FROM conversations c
     JOIN customers cu ON cu.id = c.customer_id
     LEFT JOIN users u ON u.id = c.assigned_to AND u.tenant_id = c.tenant_id
@@ -192,9 +186,12 @@ async function assignConversation(tenantId, conversationId, userId, client) {
     LIMIT 1
   `, [conversationId, tenantId]);
 
+  await delCache(tenantId, 'dashboard', 'summary');
+  await invalidatePattern(tenantId, 'conversations');
+
   const row = enriched.rows[0] || res.rows[0];
   return row
-    ? { ...row, last_message: await decryptMessageContent(tenantId, row.last_message) }
+    ? { ...row, last_message: row.last_message_preview || null }
     : row;
 }
 
@@ -215,6 +212,11 @@ async function updateConversationAiMode(tenantId, conversationId, aiMode, client
     UPDATE conversations SET ai_mode = $1, updated_at = NOW()
     WHERE id = $2 AND tenant_id = $3 RETURNING *
   `, [mode, conversationId, tenantId]);
+
+  if (res.rows[0]) {
+    await delCache(tenantId, 'dashboard', 'summary');
+    await invalidatePattern(tenantId, 'conversations');
+  }
 
   return res.rows[0];
 }

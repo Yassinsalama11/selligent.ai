@@ -1,14 +1,28 @@
 const express = require('express');
 const { requireRole } = require('../middleware/rbac');
+const { getCache, setCache } = require('../../db/cache');
 
 const router = express.Router();
 const requireReadRole = requireRole('owner', 'admin', 'agent');
+const IS_PERF_DEBUG = process.env.DEBUG_PERF === 'true';
 
 // GET /api/dashboard — summary stats for today
 router.get('/', requireReadRole, async (req, res, next) => {
+  const startTime = Date.now();
+  let cacheStatus = 'MISS';
   try {
     const { tenant_id } = req.user;
     const today = new Date().toISOString().slice(0, 10);
+
+    // 1. Try cache first
+    const cachedDashboard = await getCache(tenant_id, 'dashboard', 'summary');
+    if (cachedDashboard) {
+      cacheStatus = 'HIT';
+      if (IS_PERF_DEBUG) {
+        console.log(`[PERF:ENDPOINT] name=/api/dashboard tenant_id=${tenant_id} duration=${Date.now() - startTime}ms cache=${cacheStatus}`);
+      }
+      return res.json(cachedDashboard);
+    }
 
     const [dealsRes, convRes, reportRes, trendRes, hotLeadRes, channelRes, aiUsageRes] = await Promise.all([
       req.db.query(`SELECT stage, COUNT(*) AS count FROM deals WHERE tenant_id = $1 GROUP BY stage`, [tenant_id]),
@@ -62,7 +76,7 @@ router.get('/', requireReadRole, async (req, res, next) => {
     const aiSent = Number(aiUsageRes.rows[0]?.sent || 0);
     const aiUsed = Number(aiUsageRes.rows[0]?.used || 0);
 
-    res.json({
+    const payload = {
       deals_by_stage: dealsRes.rows,
       open_conversations: parseInt(convRes.rows[0]?.open || 0),
       today: todayRow,
@@ -89,7 +103,16 @@ router.get('/', requireReadRole, async (req, res, next) => {
         used: aiUsed,
         rate: aiSent > 0 ? Number(((aiUsed / aiSent) * 100).toFixed(1)) : 0,
       },
-    });
+    };
+
+    // Cache the response for 60 seconds
+    await setCache(tenant_id, 'dashboard', 'summary', payload, 60);
+
+    if (IS_PERF_DEBUG) {
+      console.log(`[PERF:ENDPOINT] name=/api/dashboard tenant_id=${tenant_id} duration=${Date.now() - startTime}ms cache=${cacheStatus}`);
+    }
+
+    res.json(payload);
   } catch (err) {
     next(err);
   }

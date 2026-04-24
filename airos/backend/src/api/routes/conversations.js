@@ -11,11 +11,13 @@ const { decryptCredentials } = require('../../core/tenantManager');
 const { emitToTenantConversations } = require('../../channels/livechat/socket');
 const { createTicket, listTickets } = require('../../db/queries/tickets');
 const { getOrCreateDeal, closeDeal } = require('../../db/queries/deals');
+const { getCache, setCache, delCache, invalidatePattern } = require('../../db/cache');
 
 const router = express.Router();
 const requireReadRole = requireRole('owner', 'admin', 'agent');
 const requireWriteRole = requireRole('owner', 'admin', 'agent');
 const requireOwnerRole = requireRole('owner', 'admin');
+const IS_PERF_DEBUG = process.env.DEBUG_PERF === 'true';
 
 async function canAccessConversation(req, conversationId) {
   const params = [conversationId, req.user.tenant_id];
@@ -199,16 +201,42 @@ async function persistConversationMessage(req, conversation, payload) {
     },
   });
 
+  // Invalidate conversation list caches
+  await invalidatePattern(req.user.tenant_id, 'conversations');
+
   return { saved, updatedConversation };
 }
 
 router.get('/', requireReadRole, async (req, res, next) => {
+  const startTime = Date.now();
+  let cacheStatus = 'MISS';
   try {
-    const convs = await listConversations(req.user.tenant_id, {
+    const tenantId = req.user.tenant_id;
+    const cacheKey = JSON.stringify(req.query);
+
+    // 1. Try cache first
+    const cachedConvs = await getCache(tenantId, 'conversations', cacheKey);
+    if (cachedConvs) {
+      cacheStatus = 'HIT';
+      if (IS_PERF_DEBUG) {
+        console.log(`[PERF:ENDPOINT] name=/api/conversations tenant_id=${tenantId} duration=${Date.now() - startTime}ms cache=${cacheStatus}`);
+      }
+      return res.json(cachedConvs);
+    }
+
+    const convs = await listConversations(tenantId, {
       ...req.query,
       viewerRole: req.user.role,
       viewerId: req.user.id,
     }, req.db);
+
+    // 2. Set cache with 30s TTL
+    await setCache(tenantId, 'conversations', cacheKey, convs, 30);
+
+    if (IS_PERF_DEBUG) {
+      console.log(`[PERF:ENDPOINT] name=/api/conversations tenant_id=${tenantId} duration=${Date.now() - startTime}ms cache=${cacheStatus}`);
+    }
+
     res.json(convs);
   } catch (err) { next(err); }
 });
@@ -369,6 +397,12 @@ router.patch('/:id/tags', requireWriteRole, async (req, res, next) => {
       RETURNING id, tags
     `, [JSON.stringify(uniqueTags), req.user.tenant_id, conversation.customer_id]);
     if (!result.rows[0]) return res.status(404).json({ error: 'Customer not found' });
+
+    // Invalidate dashboard summary cache
+    await delCache(req.user.tenant_id, 'dashboard', 'summary');
+    // Invalidate conversation list caches
+    await invalidatePattern(req.user.tenant_id, 'conversations');
+
     res.json({ tags: result.rows[0].tags || uniqueTags });
   } catch (err) { next(err); }
 });
@@ -379,6 +413,11 @@ router.post('/:id/won', requireWriteRole, async (req, res, next) => {
     if (!conversation) return res.status(404).json({ error: 'Not found' });
     const deal = await getOrCreateDeal(req.user.tenant_id, conversation.id, conversation.customer_id, req.db);
     const updated = await closeDeal(req.user.tenant_id, deal.id, 'won');
+    
+    // Invalidate caches
+    await delCache(req.user.tenant_id, 'dashboard', 'summary');
+    await invalidatePattern(req.user.tenant_id, 'conversations');
+
     res.json({ deal: updated });
   } catch (err) { next(err); }
 });

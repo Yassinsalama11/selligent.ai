@@ -252,6 +252,11 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3001;
 
 async function bootstrap() {
+  // Ensure Redis connects early if configured
+  if (process.env.REDIS_URL) {
+    getRedisClient();
+  }
+
   if (process.env.DATABASE_URL || process.env.DATABASE_URL_ADMIN) {
     await ensureRuntimeSchema();
   }
