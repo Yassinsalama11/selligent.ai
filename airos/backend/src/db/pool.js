@@ -9,6 +9,7 @@ const pool = new Pool({
   connectionString: DATABASE_URL || undefined,
   connectionTimeoutMillis: 5000,
   statement_timeout: 25000, // 25s strict timeout
+  max: 20, // Increase pool size from default 10 to 20 to reduce contention
 });
 
 // Admin pool — for cross-tenant operations (auth login, registration).
@@ -18,6 +19,7 @@ const adminPool = new Pool({
   connectionString: ADMIN_DATABASE_URL || undefined,
   connectionTimeoutMillis: 5000,
   statement_timeout: 25000, // 25s strict timeout
+  max: 10,
 });
 
 function databaseUnavailableError(message) {

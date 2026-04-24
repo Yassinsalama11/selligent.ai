@@ -2,15 +2,18 @@ const { getRedisClient } = require('../db/redis');
 const { queryAdmin } = require('../db/pool');
 
 const QUEUE_KEY = 'airos:jobs';
+const DEBOUNCE_SET_KEY = 'airos:jobs:active';
 const IS_DEBUG = process.env.DEBUG_PERF === 'true';
 
 /**
- * Enqueue a background job.
+ * Enqueue a background job with debouncing.
  * Fails safely by running immediately (async) if Redis is unavailable.
  */
 async function enqueueJob(type, payload) {
   const redis = getRedisClient();
-  const job = { type, payload, id: Math.random().toString(36).slice(2), created_at: Date.now() };
+  const { tenantId } = payload;
+  const jobKey = `${type}:${tenantId}${payload.date ? ':' + payload.date : ''}`;
+  const job = { type, payload, id: Math.random().toString(36).slice(2), created_at: Date.now(), key: jobKey };
 
   if (!redis) {
     if (IS_DEBUG) console.log(`[QUEUE] Redis unavailable, running job ${type} immediately`);
@@ -19,8 +22,15 @@ async function enqueueJob(type, payload) {
   }
 
   try {
+    // Debounce: check if this specific job type for this tenant is already active
+    const isQueued = await redis.sadd(DEBOUNCE_SET_KEY, jobKey);
+    if (isQueued === 0) {
+      if (IS_DEBUG) console.log(`[QUEUE] Job ${jobKey} already queued, skipping`);
+      return;
+    }
+
     await redis.lpush(QUEUE_KEY, JSON.stringify(job));
-    if (IS_DEBUG) console.log(`[QUEUE] Enqueued ${type} for tenant ${payload.tenantId}`);
+    if (IS_DEBUG) console.log(`[QUEUE] Enqueued ${type} for tenant ${tenantId}`);
   } catch (err) {
     console.error(`[QUEUE] Enqueue failed: ${err.message}`);
     processJob(job).catch(() => {});
@@ -28,13 +38,21 @@ async function enqueueJob(type, payload) {
 }
 
 async function processJob(job) {
-  const { type, payload } = job;
+  const { type, payload, key: jobKey } = job;
   const { tenantId } = payload;
+  const redis = getRedisClient();
 
-  if (type === 'refresh_tenant_stats') {
-    await refreshTenantStats(tenantId);
-  } else if (type === 'refresh_daily_report') {
-    await refreshDailyReport(tenantId, payload.date);
+  try {
+    if (type === 'refresh_tenant_stats') {
+      await refreshTenantStats(tenantId);
+    } else if (type === 'refresh_daily_report') {
+      await refreshDailyReport(tenantId, payload.date);
+    }
+  } finally {
+    // Always clear from debounce set even on failure so it can retry later
+    if (redis && jobKey) {
+      await redis.srem(DEBOUNCE_SET_KEY, jobKey);
+    }
   }
 }
 
@@ -92,9 +110,6 @@ async function refreshDailyReport(tenantId, date) {
   const targetDate = date || new Date().toISOString().slice(0, 10);
   if (IS_DEBUG) console.log(`[REPORTS] Refreshing daily report for tenant ${tenantId} on ${targetDate}`);
 
-  // This is a heavy aggregation that populates report_daily for a specific day.
-  // It calculates all fields by scanning raw tables.
-  
   await queryAdmin(`
     INSERT INTO report_daily (
       tenant_id, date, channel, 
