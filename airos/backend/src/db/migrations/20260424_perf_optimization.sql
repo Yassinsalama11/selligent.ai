@@ -9,6 +9,13 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(convers
 CREATE INDEX IF NOT EXISTS idx_campaigns_tenant_status_perf ON campaigns(tenant_id, status);
 CREATE INDEX IF NOT EXISTS idx_campaign_recipients_campaign_status_perf ON campaign_recipients(campaign_id, status);
 
+-- Phase 1.1: Ticket Joins (Optimizing /api/conversations)
+CREATE INDEX IF NOT EXISTS idx_tickets_tenant_status ON tickets(tenant_id, status);
+CREATE INDEX IF NOT EXISTS idx_tickets_tenant_priority ON tickets(tenant_id, priority);
+CREATE INDEX IF NOT EXISTS idx_tickets_tenant_assignee ON tickets(tenant_id, assignee_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_tenant_created ON tickets(tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tickets_conversation_perf ON tickets(tenant_id, conversation_id) WHERE deleted_at IS NULL;
+
 -- Phase 2: Conversation Denormalization
 ALTER TABLE conversations ADD COLUMN IF NOT EXISTS last_message_preview TEXT;
 ALTER TABLE conversations ADD COLUMN IF NOT EXISTS last_message_at TIMESTAMPTZ;

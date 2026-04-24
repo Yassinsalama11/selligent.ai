@@ -8,6 +8,7 @@ const IS_PRODUCTION_LIKE =
 const pool = new Pool({
   connectionString: DATABASE_URL || undefined,
   connectionTimeoutMillis: 5000,
+  statement_timeout: 25000, // 25s strict timeout
 });
 
 // Admin pool — for cross-tenant operations (auth login, registration).
@@ -16,6 +17,7 @@ const ADMIN_DATABASE_URL = DATABASE_URL_ADMIN || (!IS_PRODUCTION_LIKE ? DATABASE
 const adminPool = new Pool({
   connectionString: ADMIN_DATABASE_URL || undefined,
   connectionTimeoutMillis: 5000,
+  statement_timeout: 25000, // 25s strict timeout
 });
 
 function databaseUnavailableError(message) {
@@ -66,7 +68,7 @@ async function query(text, params) {
     const res = await pool.query(text, params);
     const duration = Date.now() - start;
     if (process.env.NODE_ENV === 'development' || process.env.DEBUG_PERF === 'true') {
-      console.log(`[DB] ${duration}ms — ${text.slice(0, 80).replace(/\s+/g, ' ')}`);
+      console.log(`[PERF:DB] duration=${duration}ms sql=${text.slice(0, 80).replace(/\s+/g, ' ')}`);
     }
     return res;
   } catch (err) {
@@ -89,7 +91,7 @@ async function withTransaction(fn) {
   } finally {
     const duration = Date.now() - start;
     if (process.env.NODE_ENV === 'development' || process.env.DEBUG_PERF === 'true') {
-      console.log(`[TX] ${duration}ms`);
+      console.log(`[PERF:TX] duration=${duration}ms`);
     }
     client.release();
   }
@@ -102,7 +104,7 @@ async function queryAdmin(text, params) {
     const res = await adminPool.query(text, params);
     const duration = Date.now() - start;
     if (process.env.NODE_ENV === 'development' || process.env.DEBUG_PERF === 'true') {
-      console.log(`[DB:admin] ${duration}ms — ${text.slice(0, 80).replace(/\s+/g, ' ')}`);
+      console.log(`[PERF:DB_ADMIN] duration=${duration}ms sql=${text.slice(0, 80).replace(/\s+/g, ' ')}`);
     }
     return res;
   } catch (err) {

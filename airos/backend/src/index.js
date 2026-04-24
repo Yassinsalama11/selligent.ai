@@ -284,27 +284,13 @@ async function bootstrap() {
     logger.warn('[QUEUE WARNING] failed to start worker', { error: err.message });
   }
 
-  // Step 3: Database & Migrations
+  // Step 3: Database Core Schema (Must be before server listen to avoid early query failures)
   if (process.env.DATABASE_URL || process.env.DATABASE_URL_ADMIN) {
     try {
       await ensureRuntimeSchema();
       console.log('[DB] core schema verified');
     } catch (err) {
       logger.warn('[DB WARNING] core schema verification failed', { error: err.message });
-    }
-
-    try {
-      await runPerformanceMigrations();
-      console.log('[MIGRATIONS] performance optimizations applied');
-    } catch (err) {
-      logger.warn('[MIGRATION WARNING] performance migrations failed', { error: err.message });
-    }
-
-    try {
-      await validateTenantStatsBackfill();
-      console.log('[BACKFILL] tenant stats validation completed');
-    } catch (err) {
-      logger.warn('[BACKFILL WARNING] validation failed', { error: err.message });
     }
   }
 
@@ -350,6 +336,25 @@ async function bootstrap() {
       requestIdTracing: true,
       telemetry,
     });
+
+    // Step 5: Heavy Background Migrations & Backfill (Post-startup)
+    if (process.env.DATABASE_URL || process.env.DATABASE_URL_ADMIN) {
+      setTimeout(async () => {
+        try {
+          await runPerformanceMigrations();
+          console.log('[MIGRATIONS] performance optimizations applied in background');
+        } catch (err) {
+          logger.warn('[MIGRATION WARNING] performance migrations failed', { error: err.message });
+        }
+
+        try {
+          await validateTenantStatsBackfill();
+          console.log('[BACKFILL] tenant stats validation completed in background');
+        } catch (err) {
+          logger.warn('[BACKFILL WARNING] validation failed', { error: err.message });
+        }
+      }, 5000); // 5s delay to let server settle
+    }
   });
 }
 

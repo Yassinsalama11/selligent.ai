@@ -207,38 +207,71 @@ async function persistConversationMessage(req, conversation, payload) {
   return { saved, updatedConversation };
 }
 
+// GET / — list conversations with timeout protection
 router.get('/', requireReadRole, async (req, res, next) => {
   const startTime = Date.now();
   let cacheStatus = 'MISS';
+  let timeoutTriggered = false;
+
+  // 1. Strict Request Timeout (30s)
+  const timeout = setTimeout(() => {
+    timeoutTriggered = true;
+    if (!res.headersSent) {
+      res.status(503).json({ error: 'Request timed out' });
+    }
+  }, 30000);
+
   try {
     const tenantId = req.user.tenant_id;
     const cacheKey = JSON.stringify(req.query);
 
-    // 1. Try cache first
+    // 2. Try cache first
+    const cacheStart = Date.now();
     const cachedConvs = await getCache(tenantId, 'conversations', cacheKey);
+    const cacheDuration = Date.now() - cacheStart;
+
     if (cachedConvs) {
       cacheStatus = 'HIT';
+      clearTimeout(timeout);
+      if (timeoutTriggered) return;
+
       if (IS_PERF_DEBUG) {
-        console.log(`[PERF:ENDPOINT] name=/api/conversations tenant_id=${tenantId} duration=${Date.now() - startTime}ms cache=${cacheStatus}`);
+        console.log(`[PERF:ENDPOINT] name=/api/conversations tenant_id=${tenantId} total_duration=${Date.now() - startTime}ms cache=${cacheStatus} redis_get=${cacheDuration}ms`);
       }
       return res.json(cachedConvs);
     }
 
+    if (timeoutTriggered) return;
+
+    // 3. Query DB
+    const dbStart = Date.now();
     const convs = await listConversations(tenantId, {
       ...req.query,
       viewerRole: req.user.role,
       viewerId: req.user.id,
     }, req.db);
+    const dbDuration = Date.now() - dbStart;
 
-    // 2. Set cache with 30s TTL
+    if (timeoutTriggered) return;
+
+    // 4. Set cache (async)
+    const setCacheStart = Date.now();
     await setCache(tenantId, 'conversations', cacheKey, convs, 30);
+    const setCacheDuration = Date.now() - setCacheStart;
+
+    clearTimeout(timeout);
+    if (timeoutTriggered) return;
 
     if (IS_PERF_DEBUG) {
-      console.log(`[PERF:ENDPOINT] name=/api/conversations tenant_id=${tenantId} duration=${Date.now() - startTime}ms cache=${cacheStatus}`);
+      console.log(`[PERF:ENDPOINT] name=/api/conversations tenant_id=${tenantId} total_duration=${Date.now() - startTime}ms cache=${cacheStatus} redis_get=${cacheDuration}ms db_query=${dbDuration}ms redis_set=${setCacheDuration}ms`);
     }
 
     res.json(convs);
-  } catch (err) { next(err); }
+  } catch (err) {
+    clearTimeout(timeout);
+    if (timeoutTriggered) return;
+    next(err);
+  }
 });
 
 router.get('/:id/messages', requireReadRole, async (req, res, next) => {
