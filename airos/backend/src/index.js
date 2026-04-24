@@ -53,6 +53,9 @@ const { logger } = require('./core/logger');
 const { pool } = require('./db/pool');
 const { getRedisClient } = require('./db/redis');
 const { ensureRuntimeSchema } = require('./db/runtimeSchema');
+const { runPerformanceMigrations } = require('./db/migrations');
+const { validateTenantStatsBackfill } = require('./db/validate_backfill');
+const { startWorker } = require('./core/queue');
 
 const telemetry = initTelemetry();
 
@@ -255,10 +258,13 @@ async function bootstrap() {
   // Ensure Redis connects early if configured
   if (process.env.REDIS_URL) {
     getRedisClient();
+    startWorker().catch(err => logger.error('Worker failed to start', { error: err.message }));
   }
 
   if (process.env.DATABASE_URL || process.env.DATABASE_URL_ADMIN) {
     await ensureRuntimeSchema();
+    await runPerformanceMigrations().catch(err => logger.error('Performance migrations failed', { error: err.message }));
+    await validateTenantStatsBackfill().catch(err => logger.error('Backfill validation failed', { error: err.message }));
   }
 
   if (process.env.ENABLE_REPORT_SCHEDULER !== '0' && process.env.DATABASE_URL) {

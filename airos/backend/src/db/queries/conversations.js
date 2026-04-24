@@ -1,6 +1,7 @@
 const { queryAdmin } = require('../pool');
 const { decryptMessageContent, buildMessageSearchTokens } = require('./messages');
 const { delCache, invalidatePattern } = require('../cache');
+const { enqueueJob } = require('../../core/queue');
 
 async function getOrCreateConversation(tenantId, customerId, channel, client) {
   // Try to find an existing open conversation
@@ -27,6 +28,11 @@ async function getOrCreateConversation(tenantId, customerId, channel, client) {
     INSERT INTO conversations (tenant_id, customer_id, channel)
     VALUES ($1, $2, $3) RETURNING *
   `, [tenantId, customerId, channel]);
+
+  if (res.rows[0]) {
+    enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
+    enqueueJob('refresh_daily_report', { tenantId }).catch(() => {});
+  }
 
   return res.rows[0];
 }
@@ -141,6 +147,8 @@ async function updateConversationStatus(tenantId, conversationId, status, client
   if (res.rows[0]) {
     await delCache(tenantId, 'dashboard', 'summary');
     await invalidatePattern(tenantId, 'conversations');
+    enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
+    enqueueJob('refresh_daily_report', { tenantId }).catch(() => {});
   }
 
   return res.rows[0];
@@ -188,6 +196,8 @@ async function assignConversation(tenantId, conversationId, userId, client) {
 
   await delCache(tenantId, 'dashboard', 'summary');
   await invalidatePattern(tenantId, 'conversations');
+
+  enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
 
   const row = enriched.rows[0] || res.rows[0];
   return row

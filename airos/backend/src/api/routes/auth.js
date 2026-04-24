@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const { queryAdmin } = require('../../db/pool');
 const { authMiddleware } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
+const { enqueueJob } = require('../../core/queue');
 
 const router = express.Router();
 const SALT_ROUNDS = 12;
@@ -45,6 +46,8 @@ router.post('/register', async (req, res, next) => {
 
     const user = result.rows[0];
     const token = signToken(user);
+
+    enqueueJob('refresh_tenant_stats', { tenantId: user.tenant_id }).catch(() => {});
 
     res.status(201).json({
       token,
@@ -182,6 +185,8 @@ router.post('/invite', authMiddleware, requireOwnerRole, async (req, res, next) 
       RETURNING id, tenant_id, email, name, role
     `, [tenant_id, email, passwordHash, name, role]);
 
+    enqueueJob('refresh_tenant_stats', { tenantId: tenant_id }).catch(() => {});
+
     res.status(201).json({ user: sanitize(result.rows[0]), tempPassword });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Email already exists' });
@@ -250,6 +255,9 @@ router.delete('/team/:id', authMiddleware, requireOwnerRole, async (req, res, ne
     `, [req.params.id, tenant_id]);
 
     if (!result.rows[0]) return res.status(404).json({ error: 'User not found' });
+
+    enqueueJob('refresh_tenant_stats', { tenantId: tenant_id }).catch(() => {});
+
     res.status(204).end();
   } catch (err) {
     next(err);

@@ -1,4 +1,5 @@
 const { queryAdmin, adminWithTransaction } = require('../pool');
+const { enqueueJob } = require('../../core/queue');
 
 async function getOrCreateDeal(tenantId, conversationId, customerId, client) {
   const existing = client ? await client.query(`
@@ -20,6 +21,10 @@ async function getOrCreateDeal(tenantId, conversationId, customerId, client) {
     INSERT INTO deals (tenant_id, conversation_id, customer_id)
     VALUES ($1, $2, $3) RETURNING *
   `, [tenantId, conversationId, customerId]);
+
+  if (res.rows[0]) {
+    enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
+  }
 
   return res.rows[0];
 }
@@ -129,6 +134,10 @@ async function createDeal(tenantId, {
     notes,
   ]);
 
+  if (res.rows[0]) {
+    enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
+  }
+
   return res.rows[0];
 }
 
@@ -149,6 +158,13 @@ async function updateDeal(tenantId, dealId, updates, client) {
     WHERE id = $1 AND tenant_id = $2
     RETURNING *
   `, [dealId, tenantId, ...values]);
+
+  if (res.rows[0]) {
+    enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
+    if (updates.stage) {
+      enqueueJob('refresh_daily_report', { tenantId }).catch(() => {});
+    }
+  }
 
   return res.rows[0];
 }
@@ -179,6 +195,9 @@ async function closeDeal(tenantId, dealId, stage) {
           deals_lost = report_daily.deals_lost + $4,
           revenue_won = report_daily.revenue_won + $5
     `, [tenantId, today, won, lost, revenue]);
+
+    enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
+    enqueueJob('refresh_daily_report', { tenantId, date: today }).catch(() => {});
 
     return deal;
   });

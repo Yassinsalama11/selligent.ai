@@ -1,6 +1,7 @@
 const { queryAdmin } = require('../pool');
 const { encrypt, decrypt, isEncrypted } = require('../../../vendor/db/src/encryption');
 const { delCache, invalidatePattern } = require('../cache');
+const { enqueueJob } = require('../../core/queue');
 const crypto = require('crypto');
 
 function normalizeSearchText(value) {
@@ -76,6 +77,10 @@ async function saveMessage(tenantId, conversationId, { direction, type = 'text',
   await delCache(tenantId, 'dashboard', 'summary');
   // Invalidate conversation list caches
   await invalidatePattern(tenantId, 'conversations');
+
+  // Enqueue background refreshes
+  enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
+  enqueueJob('refresh_daily_report', { tenantId, date: saved.created_at.toISOString().slice(0, 10) }).catch(() => {});
 
   return decryptMessageRow(tenantId, saved);
 }

@@ -1,5 +1,6 @@
 const { queryAdmin } = require('../pool');
 const { delCache, invalidatePattern } = require('../cache');
+const { enqueueJob } = require('../../core/queue');
 
 async function execute(client, sql, params) {
   return client ? client.query(sql, params) : queryAdmin(sql, params);
@@ -209,6 +210,7 @@ async function createTicket(tenantId, input = {}, client) {
   if (insertResult.rows[0]) {
     await delCache(tenantId, 'dashboard', 'summary');
     await invalidatePattern(tenantId, 'conversations');
+    enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
   }
 
   return getTicketById(tenantId, insertResult.rows[0].id, client);
@@ -266,6 +268,7 @@ async function updateTicket(tenantId, ticketId, updates = {}, client) {
   if (result.rows[0]) {
     await delCache(tenantId, 'dashboard', 'summary');
     await invalidatePattern(tenantId, 'conversations');
+    enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
   }
 
   if (!result.rows[0]) return null;
@@ -327,6 +330,7 @@ async function escalateTicket(tenantId, ticketId, updates = {}, client) {
 
   await delCache(tenantId, 'dashboard', 'summary');
   await invalidatePattern(tenantId, 'conversations');
+  enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
 
   return getTicketById(tenantId, ticketId, client);
 }
@@ -345,6 +349,7 @@ async function deleteTicket(tenantId, ticketId, client) {
   if (result.rows[0]) {
     await delCache(tenantId, 'dashboard', 'summary');
     await invalidatePattern(tenantId, 'conversations');
+    enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
   }
 
   return result.rows[0] ? { id: result.rows[0].id } : null;

@@ -162,71 +162,32 @@ async function getOverviewReport(tenantId, { from, to } = {}, client) {
   const range = normalizeDateRange(from, to);
   const executor = client ? client.query.bind(client) : queryAdmin;
 
-  const [conversationResult, messageResult, conversionResult, responseResult] = await Promise.all([
-    executor(`
-      SELECT COUNT(*)::int AS conversations
-      FROM conversations
-      WHERE tenant_id = $1
-        AND created_at >= $2::date
-        AND created_at < ($3::date + INTERVAL '1 day')
-    `, [tenantId, range.from, range.to]),
-    executor(`
-      SELECT COUNT(*)::int AS messages
-      FROM messages
-      WHERE tenant_id = $1
-        AND created_at >= $2::date
-        AND created_at < ($3::date + INTERVAL '1 day')
-    `, [tenantId, range.from, range.to]),
-    executor(`
-      SELECT
-        COUNT(*)::int AS total_deals,
-        COUNT(*) FILTER (WHERE stage = 'won')::int AS deals_won
-      FROM deals
-      WHERE tenant_id = $1
-        AND created_at >= $2::date
-        AND created_at < ($3::date + INTERVAL '1 day')
-    `, [tenantId, range.from, range.to]),
-    executor(`
-      SELECT AVG(EXTRACT(EPOCH FROM (first_outbound.created_at - first_inbound.created_at))) AS avg_response_time_seconds
-      FROM conversations c
-      JOIN LATERAL (
-        SELECT m.created_at
-        FROM messages m
-        WHERE m.conversation_id = c.id
-          AND m.direction = 'inbound'
-        ORDER BY m.created_at ASC
-        LIMIT 1
-      ) AS first_inbound ON TRUE
-      JOIN LATERAL (
-        SELECT m.created_at
-        FROM messages m
-        WHERE m.conversation_id = c.id
-          AND m.direction = 'outbound'
-          AND m.created_at >= first_inbound.created_at
-        ORDER BY m.created_at ASC
-        LIMIT 1
-      ) AS first_outbound ON TRUE
-      WHERE c.tenant_id = $1
-        AND c.created_at >= $2::date
-        AND c.created_at < ($3::date + INTERVAL '1 day')
-    `, [tenantId, range.from, range.to]),
-  ]);
+  const result = await executor(`
+    SELECT
+      SUM(total_conversations)::int AS conversations,
+      SUM(human_replies)::int AS messages,
+      SUM(deals_won)::int AS deals_won,
+      SUM(deals_won + deals_lost)::int AS total_deals,
+      AVG(avg_response_time_seconds) AS avg_response_time_seconds,
+      AVG(conversion_rate) AS conversion_rate
+    FROM report_daily
+    WHERE tenant_id = $1 AND date BETWEEN $2 AND $3
+  `, [tenantId, range.from, range.to]);
 
-  const totalConversations = Number(conversationResult.rows[0]?.conversations || 0);
-  const totalMessages = Number(messageResult.rows[0]?.messages || 0);
-  const totalDeals = Number(conversionResult.rows[0]?.total_deals || 0);
-  const dealsWon = Number(conversionResult.rows[0]?.deals_won || 0);
-  const avgResponseTimeSeconds = Number(responseResult.rows[0]?.avg_response_time_seconds || 0);
+  const row = result.rows[0] || {};
+  const totalConversations = Number(row.conversations || 0);
+
+  // If we have no pre-aggregated data for this range, we could fall back to raw scan
+  // but the brief says "do not block request with heavy raw scan unless absolutely necessary".
+  // For now, we return aggregated data.
 
   return {
     conversations: totalConversations,
-    messages: totalMessages,
-    dealsWon,
-    totalDeals,
-    conversionRate: totalConversations > 0
-      ? Number(((dealsWon / totalConversations) * 100).toFixed(2))
-      : 0,
-    avgResponseTimeSeconds: Number(avgResponseTimeSeconds.toFixed(2)),
+    messages: Number(row.messages || 0),
+    dealsWon: Number(row.deals_won || 0),
+    totalDeals: Number(row.total_deals || 0),
+    conversionRate: Number(row.conversion_rate || 0),
+    avgResponseTimeSeconds: Number(Number(row.avg_response_time_seconds || 0).toFixed(2)),
   };
 }
 

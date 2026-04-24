@@ -5,6 +5,7 @@ const { getOAuthUrl, handleOAuthCallback } = require('../../channels/instagram/o
 const { decryptCredentials } = require('../../core/tenantManager');
 const { authMiddleware } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
+const { enqueueJob } = require('../../core/queue');
 
 const router = express.Router();
 
@@ -155,6 +156,8 @@ router.post('/', requireOwnerRole, async (req, res, next) => {
       RETURNING id, channel, status, created_at, credentials
     `, [req.user.tenant_id, channel, JSON.stringify({ encrypted: encryptedCreds })]);
 
+    enqueueJob('refresh_tenant_stats', { tenantId: req.user.tenant_id }).catch(() => {});
+
     res.status(updated.rowCount > 0 ? 200 : 201).json({
       id: result.rows[0].id,
       channel: result.rows[0].channel,
@@ -172,6 +175,9 @@ router.delete('/:id', requireOwnerRole, async (req, res, next) => {
       'DELETE FROM channel_connections WHERE id = $1 AND tenant_id = $2',
       [req.params.id, req.user.tenant_id]
     );
+    
+    enqueueJob('refresh_tenant_stats', { tenantId: req.user.tenant_id }).catch(() => {});
+
     res.status(204).end();
   } catch (err) { next(err); }
 });
@@ -228,6 +234,7 @@ router.get('/meta/callback', async (req, res) => {
 
   try {
     await handleOAuthCallback(state.tenantId, req.query.code, channel);
+    enqueueJob('refresh_tenant_stats', { tenantId: state.tenantId }).catch(() => {});
     return res.redirect(buildFrontendRedirect(returnTo, { channel_connected: channel }));
   } catch (err) {
     console.error('[Meta OAuth callback]', err);

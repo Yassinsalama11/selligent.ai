@@ -419,7 +419,7 @@ function buildClientPayload(row, planCatalog = []) {
     Number.parseInt(settings.purchased_seats || settings.purchasedSeats || 0, 10) || 0,
     Number(planMeta?.includedSeats || 1),
   );
-  const activeUsers = Number(row.operators_count || 0);
+  const activeUsers = Number(row.active_users_count || 0);
 
   return {
     id: row.id,
@@ -441,12 +441,12 @@ function buildClientPayload(row, planCatalog = []) {
     agentName: settings.agent_name || settings.agentName || '',
     purchasedSeats,
     activeUsers,
-    operatorsCount: Number(row.operators_count || 0),
-    channelsConnected: Number(row.channels_connected || 0),
+    operatorsCount: Number(row.users_count || 0),
+    channelsConnected: Number(row.channels_count || 0),
     customersCount: Number(row.customers_count || 0),
     conversationsCount: Number(row.conversations_count || 0),
     messagesCount: Number(row.messages_count || 0),
-    lastSeen: row.last_seen || null,
+    lastSeen: row.last_activity_at || null,
   };
 }
 
@@ -479,13 +479,17 @@ async function fetchClients({ search = '', limit = 200 } = {}) {
       owner.id AS owner_id,
       owner.name AS owner_name,
       owner.email AS owner_email,
-      COALESCE(operator_counts.count, 0)::int AS operators_count,
-      COALESCE(channel_counts.count, 0)::int AS channels_connected,
-      COALESCE(customer_counts.count, 0)::int AS customers_count,
-      COALESCE(conversation_counts.count, 0)::int AS conversations_count,
-      COALESCE(message_counts.count, 0)::int AS messages_count,
-      last_activity.last_seen
+      s.conversations_count,
+      s.messages_count,
+      s.customers_count,
+      s.tickets_count,
+      s.deals_count,
+      s.users_count,
+      s.active_users_count,
+      s.channels_count,
+      s.last_activity_at
     FROM tenants t
+    LEFT JOIN tenant_stats s ON s.tenant_id = t.id
     LEFT JOIN LATERAL (
       SELECT u.id, u.name, u.email
       FROM users u
@@ -493,39 +497,8 @@ async function fetchClients({ search = '', limit = 200 } = {}) {
       ORDER BY u.created_at ASC
       LIMIT 1
     ) AS owner ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*) AS count
-      FROM users u
-      WHERE u.tenant_id = t.id
-    ) AS operator_counts ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*) AS count
-      FROM channel_connections cc
-      WHERE cc.tenant_id = t.id AND cc.status = 'active'
-    ) AS channel_counts ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*) AS count
-      FROM customers c
-      WHERE c.tenant_id = t.id
-        AND COALESCE(c.preferences->>'deleted_at', '') = ''
-    ) AS customer_counts ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*) AS count
-      FROM conversations cv
-      WHERE cv.tenant_id = t.id
-    ) AS conversation_counts ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*) AS count
-      FROM messages m
-      WHERE m.tenant_id = t.id
-    ) AS message_counts ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT MAX(cv.updated_at) AS last_seen
-      FROM conversations cv
-      WHERE cv.tenant_id = t.id
-    ) AS last_activity ON TRUE
     ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''}
-    ORDER BY COALESCE(last_activity.last_seen, t.created_at) DESC, t.created_at DESC
+    ORDER BY COALESCE(s.last_activity_at, t.created_at) DESC, t.created_at DESC
     LIMIT $${params.length}
   `, params);
 
@@ -798,41 +771,70 @@ router.get('/overview', adminAuthMiddleware, async (req, res, next) => {
       return res.json(cachedOverview);
     }
 
-    const clients = await fetchClients({ limit: 500 });
-    const totals = clients.reduce((acc, client) => {
-      acc.totalClients += 1;
-      acc.monthlyRevenue += client.status === 'active' ? client.monthlyValue : 0;
-      acc.totalConversations += client.conversationsCount;
-      acc.totalMessages += client.messagesCount;
-      acc.totalCustomers += client.customersCount;
-      acc.connectedChannels += client.channelsConnected;
-      acc.byStatus[client.status] = (acc.byStatus[client.status] || 0) + 1;
-      return acc;
-    }, {
-      totalClients: 0,
-      monthlyRevenue: 0,
-      totalConversations: 0,
-      totalMessages: 0,
-      totalCustomers: 0,
-      connectedChannels: 0,
-      byStatus: { active: 0, trial: 0, suspended: 0 },
-    });
+    const result = await queryAdmin(`
+      SELECT
+        COUNT(*)::int AS total_clients,
+        SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END)::int AS active_clients,
+        SUM(CASE WHEN status = 'trial' THEN 1 ELSE 0 END)::int AS trial_clients,
+        SUM(CASE WHEN status = 'suspended' THEN 1 ELSE 0 END)::int AS suspended_clients,
+        COALESCE(SUM(s.conversations_count), 0)::int AS total_conversations,
+        COALESCE(SUM(s.messages_count), 0)::int AS total_messages,
+        COALESCE(SUM(s.customers_count), 0)::int AS total_customers,
+        COALESCE(SUM(s.channels_count), 0)::int AS connected_channels
+      FROM tenants t
+      LEFT JOIN tenant_stats s ON s.tenant_id = t.id
+    `);
 
-    const recentClients = [...clients]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 6);
+    const stats = result.rows[0];
 
-    const topClients = [...clients]
-      .sort((a, b) => {
-        if (b.messagesCount !== a.messagesCount) return b.messagesCount - a.messagesCount;
-        return b.monthlyValue - a.monthlyValue;
-      })
-      .slice(0, 6);
+    const recentResult = await queryAdmin(`
+      SELECT t.id, t.name, t.email, t.plan, t.status, t.created_at, s.last_activity_at
+      FROM tenants t
+      LEFT JOIN tenant_stats s ON s.tenant_id = t.id
+      ORDER BY t.created_at DESC
+      LIMIT 6
+    `);
+
+    const topResult = await queryAdmin(`
+      SELECT t.id, t.name, t.email, t.plan, t.status, t.created_at, s.messages_count, s.conversations_count
+      FROM tenants t
+      JOIN tenant_stats s ON s.tenant_id = t.id
+      ORDER BY s.messages_count DESC, s.conversations_count DESC
+      LIMIT 6
+    `);
 
     const payload = {
-      totals,
-      recentClients,
-      topClients,
+      totals: {
+        totalClients: stats.total_clients,
+        monthlyRevenue: 0, // Needs pricing calculation if required
+        totalConversations: stats.total_conversations,
+        totalMessages: stats.total_messages,
+        totalCustomers: stats.total_customers,
+        connectedChannels: stats.connected_channels,
+        byStatus: {
+          active: stats.active_clients,
+          trial: stats.trial_clients,
+          suspended: stats.suspended_clients,
+        },
+      },
+      recentClients: recentResult.rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        plan: r.plan,
+        status: r.status,
+        createdAt: r.created_at,
+        lastSeen: r.last_activity_at,
+      })),
+      topClients: topResult.rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        plan: r.plan,
+        status: r.status,
+        messagesCount: r.messages_count,
+        conversationsCount: r.conversations_count,
+      })),
     };
 
     // 2. Set cache with 30s TTL
@@ -856,7 +858,7 @@ router.get('/clients', adminAuthMiddleware, async (req, res, next) => {
     });
     return res.json(clients);
   } catch (err) {
-    return next(err);
+    next(err);
   }
 });
 
@@ -937,12 +939,12 @@ router.post('/clients', adminAuthMiddleware, async (req, res, next) => {
       owner_id: created.owner.id,
       owner_name: created.owner.name,
       owner_email: created.owner.email,
-      operators_count: 1,
-      channels_connected: 0,
+      users_count: 1,
+      channels_count: 0,
       customers_count: 0,
       conversations_count: 0,
       messages_count: 0,
-      last_seen: null,
+      last_activity_at: null,
     }, planCatalog);
 
     await logAdminAction(req, 'admin.client.created', 'tenant', created.tenant.id, {

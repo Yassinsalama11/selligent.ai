@@ -1,4 +1,5 @@
 const { queryAdmin } = require('../db/pool');
+const { enqueueJob } = require('./queue');
 const crypto = require('crypto');
 
 const ALGO = 'aes-256-gcm';
@@ -57,6 +58,10 @@ async function getOrCreateCustomer(tenantId, { channel, channelCustomerId, name,
     INSERT INTO customers (tenant_id, channel, channel_customer_id, name, phone, avatar_url)
     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
   `, [tenantId, channel, channelCustomerId, name, phone, avatar]);
+
+  if (res.rows[0]) {
+    enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
+  }
 
   return res.rows[0];
 }
