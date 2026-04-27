@@ -288,8 +288,10 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  /* Core data */
-  const [settings, setSettings] = useState({});
+  /* Core data — settings is guaranteed non-null (demo mode returns null from API) */
+  const [_rawSettings, _setRawSettings] = useState({});
+  const settings = _rawSettings ?? {};
+  const setSettings = React.useCallback((v) => _setRawSettings(v ?? {}), []);
   const [team, setTeam] = useState([]);
   const [channels, setChannels] = useState([]);
   const [usage, setUsage] = useState(null);
@@ -516,7 +518,7 @@ export default function SettingsPage() {
       }
 
       const saved = await api.put('/api/settings', settings);
-      setSettings(saved);
+      setSettings(saved || {});
       toast.success('Saved');
     } catch (err) {
       toast.error(err.message || 'Save failed');
@@ -840,7 +842,7 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       const saved = await api.put('/api/settings', { ...settings, tagMeta });
-      setSettings(saved);
+      setSettings(saved || {});
       setTagMeta(saved.tagMeta && typeof saved.tagMeta === 'object' ? saved.tagMeta : {});
       toast.success('Tags saved');
     } catch (err) {
