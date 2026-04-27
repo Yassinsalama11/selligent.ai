@@ -1,3310 +1,4697 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
-import toast from 'react-hot-toast';
-import Modal from '@/components/Modal';
-import { api, getApiBase, isDemo } from '@/lib/api';
 
-/* ─── Shared UI helpers ───────────────────────────────────────────────────── */
-function Label({ children, sub }) {
+import * as React from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
+import toast from 'react-hot-toast';
+import {
+  Settings, User, Building2, Users, Layers, BarChart3, Trash2,
+  Layout as LayoutIcon, Palette, Globe, Mail, ShieldAlert, Tags as TagsIcon,
+  MessageSquare, Bot, Zap, Route, TrendingUp, Lock, ChevronRight, Plus,
+  Save, Smartphone, Camera, MessageCircle, Monitor, RefreshCcw,
+  Eye, Shield, FileUp, LineChart, Calendar, Play, X, Edit2, Key,
+  CheckCircle2, XCircle, AlertCircle, Minus, Clock, Menu, KeyRound,
+} from 'lucide-react';
+
+import { api } from '@/lib/api';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { SectionHeader } from '@/components/ui/section-header';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+
+/* ── Sidebar Structure ──────────────────────────────────────────────────── */
+
+const STRUCTURE = [
+  { group: 'GENERAL', items: [
+    { id: 'profile',      label: 'My Profile',           icon: User },
+    { id: 'company',      label: 'Company Profile',       icon: Building2 },
+    { id: 'operators',    label: 'Operators',             icon: Users },
+    { id: 'departments',  label: 'Departments',           icon: Layers },
+    { id: 'usage',        label: 'Usage Statistics',      icon: BarChart3 },
+    { id: 'recycle_bin',  label: 'Recycle Bin',           icon: Trash2 },
+    { id: 'layout',       label: 'Conversation Layout',   icon: LayoutIcon },
+  ]},
+  { group: 'PERSONALIZE', items: [
+    { id: 'brands',       label: 'Brands',                icon: Palette },
+    { id: 'global',       label: 'Global Settings',       icon: Globe },
+    { id: 'email_tpl',    label: 'Email Templates',        icon: Mail },
+    { id: 'profanity',    label: 'Profanity Library',      icon: ShieldAlert },
+    { id: 'tags',         label: 'Tags',                  icon: TagsIcon },
+  ]},
+  { group: 'MESSAGING CHANNELS', items: [
+    { id: 'ch_messenger', label: 'Facebook Messenger',    icon: MessageCircle },
+    { id: 'ch_livechat',  label: 'Live Chat',             icon: Monitor },
+    { id: 'ch_instagram', label: 'Instagram',             icon: Camera },
+    { id: 'ch_whatsapp',  label: 'WhatsApp',              icon: Smartphone },
+  ]},
+  { group: 'AI', items: [
+    { id: 'ai_config',    label: 'AI Configuration',      icon: Bot },
+  ]},
+  { group: 'AUTOMATE', items: [
+    { id: 'triggers',        label: 'Triggers',           icon: Zap },
+    { id: 'visitor_routing', label: 'Visitor Routing',    icon: Route },
+    { id: 'chat_routing',    label: 'Chat Routing',       icon: Route },
+    { id: 'lead_scoring',    label: 'Lead Scoring',       icon: TrendingUp },
+    { id: 'company_scoring', label: 'Company Scoring',    icon: LineChart },
+    { id: 'schedule_report', label: 'Schedule Report',    icon: Calendar },
+  ]},
+  { group: 'CONTROLS', items: [
+    { id: 'monitor',      label: 'Conversation Monitor',  icon: Eye },
+    { id: 'import',       label: 'Import',                icon: FileUp },
+    { id: 'profiles',     label: 'Profiles',              icon: Shield },
+    { id: 'spammers',     label: 'Spammers',              icon: ShieldAlert },
+  ]},
+];
+
+// Maps section id → API URL slug
+function sectionUrl(id) {
+  const map = {
+    visitor_routing: 'visitor-routing',
+    lead_scoring:    'lead-scoring',
+    chat_routing:    'chat-routing',
+    company_scoring: 'company-scoring',
+    schedule_report: 'schedule-report',
+    email_tpl:       'email-templates',
+    recycle_bin:     'recycle-bin',
+  };
+  return map[id] || id.replaceAll('_', '-');
+}
+
+// Sections that load dedicated data via activeData
+const ACTIVE_DATA_SECTIONS = new Set([
+  'departments', 'brands', 'triggers', 'visitor_routing', 'lead_scoring',
+  'chat_routing', 'company_scoring', 'schedule_report', 'email_tpl',
+  'profanity', 'layout', 'profiles', 'import', 'spammers', 'monitor',
+]);
+
+/* ── Reusable UI helpers ────────────────────────────────────────────────── */
+
+function SettingSection({ title, description, children, onSave, saving, loading }) {
   return (
-    <div style={{ marginBottom: 7 }}>
-      <label style={{ display:'block', fontSize:12.5, fontWeight:600, color:'var(--t2)' }}>{children}</label>
-      {sub && <p style={{ fontSize:11.5, color:'var(--t4)', marginTop:2 }}>{sub}</p>}
-    </div>
+    <Card className="border shadow-sm bg-card">
+      <CardHeader className="border-b bg-muted/5">
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <CardTitle>{title}</CardTitle>
+            {description && <CardDescription>{description}</CardDescription>}
+          </div>
+          {onSave && (
+            <Button onClick={onSave} disabled={saving || loading} className="h-9 gap-2 px-6 bg-primary font-medium">
+              <Save className="h-4 w-4" />
+              {saving ? 'Saving…' : 'Save Changes'}
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="p-8">
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <RefreshCcw className="h-5 w-5 animate-spin text-muted-foreground/30" />
+          </div>
+        ) : children}
+      </CardContent>
+    </Card>
   );
 }
-function Field({ label, sub, children }) {
+
+function Field({ label, children }) {
   return (
-    <div>
-      <Label sub={sub}>{label}</Label>
+    <div className="space-y-2">
+      <Label>{label}</Label>
       {children}
     </div>
   );
 }
-function Section({ title, sub, children }) {
-  return (
-    <div style={{ borderBottom:'1px solid var(--b1)', paddingBottom:28, marginBottom:28 }}>
-      <div style={{ marginBottom:18 }}>
-        <h3 style={{ fontSize:15, fontWeight:700, color:'var(--t1)' }}>{title}</h3>
-        {sub && <p style={{ fontSize:12.5, color:'var(--t4)', marginTop:3 }}>{sub}</p>}
-      </div>
-      {children}
-    </div>
-  );
-}
-function SaveRow({ onSave, saving }) {
-  return (
-    <div style={{ display:'flex', justifyContent:'flex-end', marginTop:16 }}>
-      <button className="btn btn-primary" onClick={onSave} style={{ minWidth:140 }}>
-        {saving ? 'Saving…' : '✓ Save Changes'}
-      </button>
-    </div>
-  );
-}
+
 function Toggle({ value, onChange, label }) {
   return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
-      padding:'12px 14px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-      <span style={{ fontSize:13, color:'var(--t2)', fontWeight:500 }}>{label}</span>
-      <div className={`toggle${value?' on':''}`} style={{ transform:'scale(0.85)' }} onClick={() => onChange(!value)} />
+    <button
+      type="button"
+      onClick={() => onChange(!value)}
+      className={cn(
+        'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+        value ? 'bg-primary' : 'bg-muted border',
+      )}
+    >
+      <span className={cn(
+        'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+        value ? 'translate-x-6' : 'translate-x-1',
+      )} />
+    </button>
+  );
+}
+
+function EmptyState({ icon: Icon, text }) {
+  return (
+    <div className="py-16 flex flex-col items-center justify-center text-center space-y-4">
+      <div className="w-14 h-14 rounded-2xl bg-muted/20 flex items-center justify-center">
+        <Icon className="h-7 w-7 text-muted-foreground opacity-30" />
+      </div>
+      <p className="text-sm text-muted-foreground italic">{text}</p>
     </div>
   );
 }
-function Badge({ color='#818cf8', children }) {
+
+function UsageBar({ label, used, limit }) {
+  const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   return (
-    <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:99,
-      background:`${color}18`, color, border:`1px solid ${color}28` }}>{children}</span>
+    <div className="space-y-2">
+      <div className="flex justify-between text-sm">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-medium">{used.toLocaleString()} / {limit.toLocaleString()}</span>
+      </div>
+      <div className="h-2 bg-muted rounded-full overflow-hidden">
+        <div
+          className={cn('h-full rounded-full transition-all', pct >= 90 ? 'bg-destructive' : pct >= 70 ? 'bg-amber-500' : 'bg-primary')}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
   );
 }
 
-/* ─── Sidebar nav config ──────────────────────────────────────────────────── */
-const NAV = [
-  { group:'GENERAL',           icon:'⚙',  items:[
-    { id:'profile',       label:'My Profile' },
-    { id:'company',       label:'Company Profile' },
-    { id:'operators',     label:'Operators' },
-    { id:'departments',   label:'Departments' },
-    { id:'usage',         label:'Usage Statistics' },
-    { id:'recycle',       label:'Recycle Bin' },
-    { id:'conv_layout',   label:'Conversation Layout' },
-  ]},
-  { group:'PERSONALIZE',       icon:'🎨', items:[
-    { id:'brands',        label:'Brands' },
-    { id:'global',        label:'Global Settings' },
-    { id:'email_tpl',     label:'Email Templates' },
-    { id:'profanity',     label:'Profanity Library' },
-    { id:'tags',          label:'Tags' },
-  ]},
-  { group:'MESSAGING CHANNELS',icon:'📡', items:[
-    { id:'ch_messenger',  label:'Facebook Messenger' },
-    { id:'ch_livechat',   label:'Live Chat' },
-    { id:'ch_instagram',  label:'Instagram' },
-    { id:'ch_whatsapp',   label:'WhatsApp' },
-  ]},
-  { group:'AI',                 icon:'🤖', items:[
-    { id:'ai_config',    label:'AI Configuration' },
-  ]},
-  { group:'AUTOMATE',          icon:'⚡', items:[
-    { id:'triggers',      label:'Triggers' },
-    { id:'visitor_route', label:'Visitor Routing' },
-    { id:'chat_route',    label:'Chat Routing' },
-    { id:'lead_scoring',  label:'Lead Scoring' },
-    { id:'company_score', label:'Company Scoring' },
-    { id:'sched_report',  label:'Schedule Report' },
-  ]},
-  { group:'CONTROLS',          icon:'🛡', items:[
-    { id:'conv_monitor',  label:'Conversation Monitor' },
-    { id:'import',        label:'Import' },
-    { id:'profiles',      label:'Profiles' },
-    { id:'spammers',      label:'Spammers' },
-  ]},
+/**
+ * Authoritative channel connection normalizer.
+ *
+ * Uses channel_connections.status as the single source of truth.
+ * Never derives connected state from credential decryption, because
+ * an ENCRYPTION_KEY rotation makes a live channel appear disconnected.
+ */
+function normalizeChannelConnection(rec) {
+  const isConnected = rec?.status === 'active';
+  const details = (rec && typeof rec.details === 'object' && rec.details !== null) ? rec.details : {};
+  const detailsAvailable = Object.values(details).some(v => v && v !== '');
+  const displayName =
+    details.pageName ||
+    details.instagramBusinessAccountUsername ||
+    details.displayName ||
+    details.domain ||
+    rec?.channel ||
+    '';
+  return { isConnected, status: rec?.status || null, details, detailsAvailable, displayName };
+}
+
+function ChannelStatus({ connected }) {
+  return connected
+    ? <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-200"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+    : <Badge variant="outline" className="text-muted-foreground"><XCircle className="h-3 w-3 mr-1" />Not connected</Badge>;
+}
+
+/* ── Lead Scoring: predefined signals that matchesRule() recognises ─────── */
+
+const LEAD_SIGNALS = [
+  { signal: 'buy/order keywords',      label: 'Buy / Order Keywords' },
+  { signal: 'replies within 5 minutes', label: 'Replies Within 5 Minutes' },
+  { signal: 'more than 3 messages',    label: 'More Than 3 Messages' },
+  { signal: 'shares phone number',     label: 'Shares Phone Number' },
+  { signal: 'price objection',         label: 'Price Objection' },
+  { signal: 'return/refund',           label: 'Return / Refund Request' },
 ];
 
-const SETTINGS_STORAGE_KEY = 'airos_dashboard_settings_v1';
-const ALL_SETTINGS_IDS = new Set(NAV.flatMap((group) => group.items.map((item) => item.id)));
-const PLAN_PRICING = {
-  starter: '$49/mo',
-  growth: '$149/mo',
-  pro: '$399/mo',
+/* ── Import: expected column templates per type ─────────────────────────── */
+
+const IMPORT_COLUMNS = {
+  conversations: ['customer_name', 'customer_phone', 'channel', 'message', 'direction', 'sent_at'],
+  pipeline:      ['contact_name', 'phone', 'email', 'stage', 'estimated_value', 'notes'],
+  tickets:       ['customer_name', 'subject', 'description', 'status', 'priority', 'created_at'],
 };
 
-function isRecord(value) {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
+/* ── Trigger engine events ─────────────────────────────────────────────── */
 
-function mergeSavedObject(defaults, saved) {
-  return isRecord(saved) ? { ...defaults, ...saved } : defaults;
-}
-
-function mergeSavedArray(defaults, saved) {
-  return Array.isArray(saved) ? saved : defaults;
-}
-
-function mergeSavedChannels(defaults, saved) {
-  if (!isRecord(saved)) return defaults;
-
-  return Object.fromEntries(
-    Object.entries(defaults).map(([key, value]) => [key, mergeSavedObject(value, saved[key])]),
-  );
-}
-
-function readSettingsStorage() {
-  if (typeof window === 'undefined') return {};
-
-  try {
-    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!raw) return {};
-
-    const parsed = JSON.parse(raw);
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeSettingsStorage(snapshot) {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(snapshot));
-}
-
-function getSettingsIdFromHash(hash) {
-  const id = typeof hash === 'string' ? hash.replace(/^#/, '') : '';
-  return ALL_SETTINGS_IDS.has(id) ? id : null;
-}
-
-function readFileAsText(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('Could not read file'));
-    reader.readAsText(file);
-  });
-}
-
-function parseCsvText(text) {
-  const rows = [];
-  let current = '';
-  let row = [];
-  let inQuotes = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    const next = text[index + 1];
-
-    if (char === '"') {
-      if (inQuotes && next === '"') {
-        current += '"';
-        index += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-
-    if (char === ',' && !inQuotes) {
-      row.push(current);
-      current = '';
-      continue;
-    }
-
-    if ((char === '\n' || char === '\r') && !inQuotes) {
-      if (char === '\r' && next === '\n') index += 1;
-      row.push(current);
-      if (row.some((cell) => String(cell || '').trim() !== '')) rows.push(row);
-      row = [];
-      current = '';
-      continue;
-    }
-
-    current += char;
-  }
-
-  if (current || row.length > 0) {
-    row.push(current);
-    if (row.some((cell) => String(cell || '').trim() !== '')) rows.push(row);
-  }
-
-  if (rows.length < 2) return [];
-
-  const headers = rows[0].map((header) => String(header || '').trim());
-  return rows.slice(1).map((values) => Object.fromEntries(
-    headers.map((header, index) => [header, values[index] ?? '']),
-  ));
-}
-
-function formatPlanLabel(plan) {
-  const normalized = String(plan || 'growth').trim().toLowerCase();
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-}
-
-function isMaskedSecret(value) {
-  return typeof value === 'string' && value.includes('…');
-}
-
-/* ─── Seed data ───────────────────────────────────────────────────────────── */
-const INIT_OPERATORS = [
-  { id:'o1', name:'Ahmed Mohamed', email:'ahmed@store.com',  role:'owner',   dept:'Management',  status:'online',  avatar:'A' },
-  { id:'o2', name:'Sara Khalil',   email:'sara@store.com',   role:'admin',   dept:'Sales',        status:'online',  avatar:'S' },
-  { id:'o3', name:'Omar Hassan',   email:'omar@store.com',   role:'agent',   dept:'Support',      status:'away',    avatar:'O' },
-  { id:'o4', name:'Layla Samir',   email:'layla@store.com',  role:'agent',   dept:'Sales',        status:'offline', avatar:'L' },
+const TRIGGER_EVENTS = [
+  { value: 'message_received',     label: 'Message Received' },
+  { value: 'conversation_started', label: 'Conversation Started' },
+  { value: 'score_updated',        label: 'Score Updated' },
+  { value: 'intent_detected',      label: 'Intent Detected' },
+  { value: 'ready_to_buy',         label: 'Ready to Buy' },
+  { value: 'ticket_created',       label: 'Ticket Created' },
+  { value: 'deal_stage_changed',   label: 'Deal Stage Changed' },
 ];
-const INIT_DEPTS = [
-  { id:'d1', name:'Management', color:'#6366f1', operators:['o1'], sla:24 },
-  { id:'d2', name:'Sales',      color:'#10b981', operators:['o2','o4'], sla:4 },
-  { id:'d3', name:'Support',    color:'#f59e0b', operators:['o3'], sla:8 },
-];
-const INIT_TAGS = [
-  { id:'tg1', name:'VIP',         color:'#fbbf24' },
-  { id:'tg2', name:'Follow Up',   color:'#6366f1' },
-  { id:'tg3', name:'Discount',    color:'#10b981' },
-  { id:'tg4', name:'Urgent',      color:'#ef4444' },
-  { id:'tg5', name:'Refund',      color:'#f59e0b' },
-  { id:'tg6', name:'New Lead',    color:'#38bdf8' },
-];
-const INIT_BRANDS = [
-  { id:'br1', name:'ChatOrAI Store', tone:'Friendly & Warm', lang:'ar', primary:'#6366f1', domain:'mystore.com', active:true },
-];
-const INIT_TRIGGERS = [
-  { id:'tr1', name:'New lead greeting',  event:'conversation_started', condition:'score > 0',  action:'Send welcome canned reply',   active:true  },
-  { id:'tr2', name:'High-score alert',   event:'score_updated',        condition:'score >= 80', action:'Notify sales team + Add VIP tag', active:true  },
-  { id:'tr3', name:'Idle follow-up',     event:'no_reply',             condition:'idle > 2h',   action:'Send follow-up message',       active:false },
-  { id:'tr4', name:'Price objection',    event:'intent_detected',      condition:'intent = price_objection', action:'Send discount canned reply', active:true },
-];
-const INIT_LEAD_RULES = [
-  { id:'lr1', signal:'Message contains buy/order keywords',   weight:30, active:true  },
-  { id:'lr2', signal:'Customer replies within 5 minutes',     weight:15, active:true  },
-  { id:'lr3', signal:'More than 3 messages in conversation',  weight:10, active:true  },
-  { id:'lr4', signal:'Customer shares phone number',          weight:20, active:true  },
-  { id:'lr5', signal:'Price objection detected',              weight:-10, active:true },
-  { id:'lr6', signal:'Customer requests return/refund',       weight:-15, active:true },
-];
-const INIT_ROUTING = [
-  { id:'rr1', name:'VIP to Sales',        condition:'tag = VIP',            assignTo:'Sales dept',    priority:1, active:true  },
-  { id:'rr2', name:'WhatsApp to Ahmed',   condition:'channel = whatsapp',   assignTo:'Ahmed Mohamed', priority:2, active:true  },
-  { id:'rr3', name:'Instagram to Sara',   condition:'channel = instagram',  assignTo:'Sara Khalil',   priority:3, active:true  },
-  { id:'rr4', name:'After hours → bot',   condition:'time outside 9-18',    assignTo:'AI Bot',        priority:4, active:true  },
-];
-const INIT_SPAMMERS = [
-  { id:'sp1', type:'phone', value:'+20 100 000 9999', reason:'Abusive messages',   blockedAt:'Apr 1' },
-  { id:'sp2', type:'email', value:'spam@fake.com',    reason:'Phishing attempt',   blockedAt:'Mar 28' },
-];
-const INIT_PROFILES = [
-  { id:'pf1', label:'Full Name',     type:'text',   required:true,  system:true  },
-  { id:'pf2', label:'Phone',         type:'phone',  required:true,  system:true  },
-  { id:'pf3', label:'Email',         type:'email',  required:false, system:true  },
-  { id:'pf4', label:'Company',       type:'text',   required:false, system:false },
-  { id:'pf5', label:'City',          type:'text',   required:false, system:false },
-  { id:'pf6', label:'Order Count',   type:'number', required:false, system:false },
-];
-const INIT_EMAIL_TPLS = [
-  { id:'et1', name:'Conversation Assigned', subject:'New conversation assigned to you', active:true  },
-  { id:'et2', name:'Daily Summary',         subject:'Your daily performance summary',  active:true  },
-  { id:'et3', name:'SLA Breach Alert',      subject:'⚠️ SLA breach detected',          active:false },
-  { id:'et4', name:'Weekly Report',         subject:'Weekly analytics report',         active:true  },
-];
-const INIT_SCHED = [
-  { id:'sr1', name:'Daily Summary',   freq:'daily',   time:'08:00', email:'ahmed@store.com',  active:true  },
-  { id:'sr2', name:'Weekly Report',   freq:'weekly',  time:'09:00', email:'team@store.com',   active:true  },
-  { id:'sr3', name:'Monthly Revenue', freq:'monthly', time:'08:00', email:'ceo@store.com',    active:false },
-];
-const RECYCLED = [
-  { id:'rc1', type:'conversation', name:'Ahmed Mohamed', info:'3 messages · WhatsApp', deletedAt:'Apr 9' },
-  { id:'rc2', type:'contact',      name:'Unknown User',  info:'+20 100 111 2222',       deletedAt:'Apr 8' },
-  { id:'rc3', type:'conversation', name:'Sara Test',     info:'1 message · Instagram',  deletedAt:'Apr 7' },
-];
-const USAGE_STATS = {
-  conversations: { used:1247, limit:5000 },
-  messages:      { used:18340, limit:50000 },
-  aiReplies:     { used:4210, limit:10000 },
-  contacts:      { used:156, limit:1000 },
-  storage:       { used:2.4, limit:10, unit:'GB' },
-  broadcast:     { used:909, limit:5000 },
-};
 
-const ROLES   = ['owner','admin','agent','viewer'];
-const COLORS  = ['#6366f1','#10b981','#f59e0b','#ef4444','#38bdf8','#ec4899','#8b5cf6','#06b6d4'];
-const CH_ICON = { whatsapp:'📱', instagram:'📸', messenger:'💬', livechat:'⚡', import:'📂' };
+const TRIGGER_CONDITION_FIELDS = [
+  { value: 'score',         label: 'Lead Score' },
+  { value: 'intent',        label: 'AI Intent' },
+  { value: 'channel',       label: 'Channel' },
+  { value: 'language',      label: 'Language' },
+  { value: 'message_count', label: 'Message Count' },
+  { value: 'wait_time',     label: 'Wait Time (sec)' },
+  { value: 'tag',           label: 'Tag' },
+];
 
-/* ═══════════════════════════════════════════════════════════════════════════ */
+const TRIGGER_CONDITION_OPS = [
+  { value: '>=',       label: '>=' },
+  { value: '<=',       label: '<=' },
+  { value: '=',        label: 'equals' },
+  { value: '!=',       label: 'not equals' },
+  { value: 'contains', label: 'contains' },
+];
+
+const TRIGGER_ACTION_TYPES = [
+  { value: 'add_tag',            label: 'Add Tag' },
+  { value: 'remove_tag',         label: 'Remove Tag' },
+  { value: 'assign_to',          label: 'Assign To' },
+  { value: 'send_message',       label: 'Send Message' },
+  { value: 'notify_agent',       label: 'Notify Agent' },
+  { value: 'close_conversation', label: 'Close Conversation' },
+  { value: 'update_score',       label: 'Adjust Score (+/-)' },
+];
+
+const ROUTING_CONDITION_FIELDS = [
+  { value: 'channel',  label: 'Channel' },
+  { value: 'language', label: 'Language' },
+  { value: 'intent',   label: 'AI Intent' },
+  { value: 'score',    label: 'Lead Score' },
+  { value: 'keyword',  label: 'Message Keyword' },
+  { value: 'country',  label: 'Country' },
+  { value: 'tag',      label: 'Tag' },
+];
+
+const ROUTING_CONDITION_OPS = [
+  { value: '=',        label: 'equals' },
+  { value: '!=',       label: 'not equals' },
+  { value: 'contains', label: 'contains' },
+  { value: '>=',       label: '>=' },
+  { value: '<=',       label: '<=' },
+];
+
+/* ── Main Component ─────────────────────────────────────────────────────── */
+
 export default function SettingsPage() {
-  const [activeId, setActiveId]   = useState('profile');
-  const [collapsed, setCollapsed] = useState({});
-  const [hydrated, setHydrated]   = useState(false);
-  const serverSyncRef             = useRef({ primed: false, snapshot: '' });
-
-  /* ── shared save simulation ── */
+  const [activeId, setActiveId] = useState('profile');
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [usageStats, setUsageStats] = useState(null);
-  const [usageLoading, setUsageLoading] = useState(true);
-  const [monitorData, setMonitorData] = useState({ summary: { active: 0, bot: 0, waiting: 0 }, conversations: [] });
-  const [monitorLoading, setMonitorLoading] = useState(true);
-  const [channelConnections, setChannelConnections] = useState({});
-  async function persistSettingsSnapshot(snapshot, options = {}) {
-    const { message = 'Changes saved', showToast = false, showSaving = false } = options;
-    const serialized = JSON.stringify(snapshot);
 
-    if (showSaving) setSaving(true);
+  /* Core data */
+  const [settings, setSettings] = useState({});
+  const [team, setTeam] = useState([]);
+  const [channels, setChannels] = useState([]);
+  const [usage, setUsage] = useState(null);
+  const [recycle, setRecycle] = useState([]);
+  const [activeData, setActiveData] = useState(null);
 
-    try {
-      await api.put('/api/settings', snapshot);
-      serverSyncRef.current = { primed: true, snapshot: serialized };
-      if (showToast) toast.success(message);
-      return true;
-    } catch (err) {
-      if (showToast) toast.error(err.message || 'Could not save settings');
-      return false;
-    } finally {
-      if (showSaving) setSaving(false);
-    }
-  }
+  /* Operator dialog state */
+  const [opDialog, setOpDialog] = useState(null); // null | 'invite' | { mode:'edit', member }
+  const [opForm, setOpForm] = useState({ name: '', email: '', role: 'agent', password: '', department: '' });
+  const [opSaving, setOpSaving] = useState(false);
 
-  async function save(msg = 'Changes saved', options = {}) {
-    if (options.persistUser && typeof window !== 'undefined') {
-      try {
-        const currentUser = JSON.parse(localStorage.getItem('airos_user') || '{}');
-        localStorage.setItem('airos_user', JSON.stringify({
-          ...currentUser,
-          name: profile.name,
-          email: profile.email,
-          phone: profile.phone,
-        }));
-      } catch {}
-    }
+  /* Live Chat widget setup dialog */
+  const [lcDialog, setLcDialog] = useState(false);
+  const [lcForm, setLcForm] = useState({ domain: '', color: '#ff5a1f' });
 
-    if (options.persistUser) {
-      try {
-        const response = await api.patch('/api/auth/me', {
-          name: profile.name,
-          email: profile.email,
-        });
+  /* New tag input */
+  const [tagInput, setTagInput] = useState('');
 
-        if (response?.user && typeof window !== 'undefined') {
-          try {
-            const currentUser = JSON.parse(localStorage.getItem('airos_user') || '{}');
-            localStorage.setItem('airos_user', JSON.stringify({
-              ...currentUser,
-              ...response.user,
-              phone: profile.phone,
-            }));
-          } catch {}
-        }
-      } catch (err) {
-        toast.error(err.message || 'Could not update profile');
-        return false;
-      }
-    }
+  /* Spammer input */
+  const [spamInput, setSpamInput] = useState('');
 
-    return persistSettingsSnapshot(buildSettingsSnapshot(), {
-      message: msg,
-      showToast: true,
-      showSaving: true,
-    });
-  }
+  /* Spammer add dialog */
+  const [spamDialog, setSpamDialog] = useState(false); // false | true
+  const [spamForm, setSpamForm] = useState({ value: '', type: 'phone', reason: '', severity: 'medium', temporary: false, expiresAt: '', whitelisted: false });
 
-  /* ── General: My Profile ── */
-  const [profile, setProfile] = useState(() => {
-    try {
-      const u = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('airos_user') || '{}') : {};
-      return {
-        name:     u.name     || 'Ahmed Mohamed',
-        email:    u.email    || 'ahmed@store.com',
-        phone:    u.phone    || '',
-        timezone: 'Africa/Cairo',
-        lang:     'ar',
-        avatar:   (u.name?.[0] || 'A').toUpperCase(),
-      };
-    } catch { return { name:'Ahmed Mohamed', email:'ahmed@store.com', phone:'', timezone:'Africa/Cairo', lang:'ar', avatar:'A' }; }
-  });
-  const [pwForm, setPwForm] = useState({ current:'', next:'', confirm:'' });
+  /* Monitor supervisor action loading */
+  const [monitorActionLoading, setMonitorActionLoading] = useState({});
 
-  /* ── General: Company ── */
-  const [company, setCompany] = useState({
-    name:'ChatOrAI Store', email:'hello@mystore.com', phone:'+20 100 000 0000',
-    website:'https://mystore.com', address:'Cairo, Egypt',
-    timezone:'Africa/Cairo', currency:'EGP', industry:'eCommerce',
-  });
+  /* Import CSV preview */
+  const [importPreview, setImportPreview] = useState(null);
 
-  /* ── General: Operators ── */
-  const [operators, setOperators] = useState(INIT_OPERATORS);
-  const [inviteModal, setInviteModal] = useState(false);
-  const [inviteForm, setInviteForm]   = useState({ name:'', email:'', role:'agent', dept:'Sales', password:'' });
+  /* Section loading (for activeData sections) */
+  const [sectionLoading, setSectionLoading] = useState(false);
 
-  /* ── General: Departments ── */
-  const [depts, setDepts]           = useState(INIT_DEPTS);
-  const [deptModal, setDeptModal]   = useState(false);
-  const [deptForm, setDeptForm]     = useState({ name:'', color:'#6366f1', sla:8 });
-
-  /* ── Personalize: Tags ── */
-  const [tags, setTags]         = useState(INIT_TAGS);
-  const [tagForm, setTagForm]   = useState({ name:'', color:'#6366f1' });
-
-  /* ── Personalize: Brands ── */
-  const [brands, setBrands]       = useState(INIT_BRANDS);
-  const [brandModal, setBrandModal]= useState(false);
-  const [brandForm, setBrandForm]  = useState({ name:'', tone:'Friendly', lang:'ar', primary:'#6366f1', domain:'' });
-
-  /* ── Personalize: Global Settings ── */
-  const [global, setGlobal] = useState({
-    autoClose:true, autoCloseHours:48, assignBot:true, workingHours:true,
-    defaultLang:'ar', soundNotifs:true, desktopNotifs:false,
-    workStart:'09:00', workEnd:'18:00', workDays:['Mon','Tue','Wed','Thu','Fri'],
-  });
-
-  /* ── Personalize: Profanity ── */
-  const [profanity, setProfanity] = useState(['spam','scam','fake','غش','نصب']);
-  const [profInput, setProfInput] = useState('');
-  const [profanityControls, setProfanityControls] = useState({
-    flagForReview: true,
-    autoBlockAfterThree: false,
-  });
-
-  /* ── Personalize: Email Templates ── */
-  const [emailTpls, setEmailTpls] = useState(INIT_EMAIL_TPLS);
-  const [emailEditor, setEmailEditor] = useState(null);
-  const [emailTestSendingId, setEmailTestSendingId] = useState('');
-
-  /* ── AI Configuration ── */
-  const [aiCfg, setAiCfg] = useState(() => {
-    return {
-      platformManaged: true,
-      tenantApiKeysAllowed: false,
-      agentName: 'Chator Assistant',
-      temperature: 0.4,
-      maxTokens: 300,
-      systemPrompt: 'You are a helpful assistant for an eCommerce business. Reply in the same language as the customer.',
-      autoReply: false,
-      suggestOnly: true,
-    };
-  });
-  function saveAiCfg() {
-    save('AI configuration saved');
-  }
-
-  /* ── Channels ── */
-  const [channels, setChannels] = useState({
-    whatsapp:  {
-      connected:false,
-      /* Meta Partner OAuth fields — populated after Embedded Signup */
-      wabaId:'', phoneNumberId:'',
-      displayName:'', phone:'',
-      businessName:'', businessId:'',
-      accessToken:'', verified:false,
-      /* partner notice acknowledged */
-      partnerAck:false,
-    },
-    instagram: { connected:false, token:'',              page:'',                  verified:false },
-    messenger: { connected:false, token:'',              page:'',                  verified:false },
-    livechat:  { connected:false,  widgetId:'WGT-001',   domain:'mystore.com',      color:'#6366f1' },
-  });
-  /* WhatsApp Meta OAuth state */
-  const [waOAuthStep, setWaOAuthStep] = useState('idle');
-  const [waOAuthModal, setWaOAuthModal] = useState(false);
-  const [waTab, setWaTab]               = useState('connection'); // connection|templates|messaging|analytics
-  const [waSettings, setWaSettings]     = useState({
-    welcome_msg:'أهلاً بك في متجرنا! كيف أقدر أساعدك؟ 👋',
-    away_msg:'شكراً على رسالتك! سنرد عليك في أقرب وقت خلال ساعات العمل.',
-    business_hours:true, hours_from:'09:00', hours_to:'22:00',
-    read_receipts:true, typing_indicator:true,
-  });
-  const [waTemplates, setWaTemplates]   = useState([
-    { id:1, name:'order_confirmed',  status:'approved', lang:'ar+en', preview:'Your order #{{1}} has been confirmed! 🎉' },
-    { id:2, name:'shipping_update',  status:'approved', lang:'ar+en', preview:'Your package is on the way! Expected: {{1}}' },
-    { id:3, name:'abandoned_cart',   status:'pending',  lang:'ar',    preview:'وجدنا عربيتك مليانة! هل تريد إكمال الطلب؟ 🛒' },
-    { id:4, name:'feedback_request', status:'approved', lang:'en',    preview:'How was your experience? Rate us ⭐⭐⭐⭐⭐' },
-  ]);
-
-  /* Instagram/Messenger/LiveChat channel state */
-  const [fbModal, setFbModal]           = useState(false);
-  const [igTab, setIgTab]               = useState('connection');
-  const [fbmTab, setFbmTab]             = useState('connection');
-  const [metaConnecting, setMetaConnecting] = useState('');
-  const [igSettings, setIgSettings] = useState({
-    storyMentionsAutoReply: true,
-    typingIndicator: true,
-    readReceipts: true,
-  });
-  const [messengerSettings, setMessengerSettings] = useState({
-    persistentMenu: true,
-    getStartedButton: true,
-    readReceipts: true,
-  });
-  const CHANNEL_STATS = {
-    whatsapp:  { conversations:0, deals:0, rate:'—', response:'—', satisfaction:'—' },
-    instagram: { conversations:0, deals:0, rate:'—', response:'—', satisfaction:'—' },
-    messenger: { conversations:0,   deals:0,  rate:'—',   response:'—',    satisfaction:'—'   },
-    livechat:  { conversations:0,  deals:0, rate:'—', response:'—', satisfaction:'—' },
-  };
-  const [channelStats, setChannelStats] = useState(CHANNEL_STATS);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadChannelConnections() {
-      try {
-        const rows = await api.get('/api/channels');
-        if (!Array.isArray(rows) || cancelled) return;
-        setChannelConnections(Object.fromEntries(rows.map((row) => [row.channel, row])));
-        setChannels((current) => buildChannelsFromConnectionDetails(current, rows));
-      } catch {}
-    }
-
-    loadChannelConnections();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const params = new URLSearchParams(window.location.search);
-    const connected = params.get('channel_connected');
-    const error = params.get('channel_error');
-    const channel = params.get('channel') || connected;
-
-    if (!connected && !error) return;
-
-    if (connected) {
-      const sectionByChannel = {
-        instagram: 'ch_instagram',
-        messenger: 'ch_messenger',
-        whatsapp: 'ch_whatsapp',
-      };
-      const labelByChannel = {
-        instagram: 'Instagram',
-        messenger: 'Messenger',
-        whatsapp: 'WhatsApp',
-      };
-
-      const sectionId = sectionByChannel[connected];
-      const label = labelByChannel[connected] || 'Meta channel';
-
-      if (sectionId) setActiveId(sectionId);
-      if (connected === 'whatsapp') {
-        setWaTab('connection');
-        setWaOAuthStep('success');
-        setWaOAuthModal(true);
-      }
-      refreshChannelConnections();
-      toast.success(`${label} connected successfully`);
-    }
-
-    if (error) {
-      const failedChannel = channel === 'messenger' || channel === 'whatsapp' ? channel : 'instagram';
-      const sectionByChannel = {
-        instagram: 'ch_instagram',
-        messenger: 'ch_messenger',
-        whatsapp: 'ch_whatsapp',
-      };
-      const labelByChannel = {
-        instagram: 'Instagram',
-        messenger: 'Messenger',
-        whatsapp: 'WhatsApp',
-      };
-
-      if (sectionByChannel[failedChannel]) setActiveId(sectionByChannel[failedChannel]);
-      if (failedChannel === 'whatsapp') {
-        setWaTab('connection');
-        setWaOAuthStep('idle');
-        setWaOAuthModal(false);
-      }
-      toast.error(`${labelByChannel[failedChannel]} connection failed: ${error}`);
-    }
-
-    params.delete('channel_connected');
-    params.delete('channel_error');
-    params.delete('channel');
-
-    const nextQuery = params.toString();
-    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', nextUrl);
-  }, []);
-
-  async function beginMetaOAuth(channel) {
-    try {
-      const token = localStorage.getItem('airos_token');
-      if (!token) throw new Error('Your session expired. Please sign in again.');
-      if (isDemo() || token === 'demo_token') {
-        throw new Error('Meta channel connection is disabled in the demo workspace. Sign in with a real account to connect channels.');
-      }
-
-      setMetaConnecting(channel);
-      if (channel === 'whatsapp') {
-        setWaOAuthStep('authorizing');
-        setWaOAuthModal(true);
-      }
-
-      const sectionByChannel = {
-        instagram: 'ch_instagram',
-        messenger: 'ch_messenger',
-        whatsapp: 'ch_whatsapp',
-      };
-      const returnTo = `/dashboard/settings#${sectionByChannel[channel] || 'ch_instagram'}`;
-      const query = new URLSearchParams({
-        channel,
-        return_to: returnTo,
-        token,
-      });
-
-      window.location.href = `${getApiBase()}/api/channels/meta/connect?${query.toString()}`;
-    } catch (err) {
-      setMetaConnecting('');
-      if (channel === 'whatsapp') {
-        setWaOAuthStep('idle');
-        setWaOAuthModal(false);
-      }
-      toast.error(err.message || 'Could not start Meta OAuth');
-    }
-  }
-
-  /* ── Conversation Layout ── */
-  const [layout, setLayout] = useState({
-    density:'comfortable', bubbleStyle:'rounded', showScore:true,
-    showIntent:true, showChannel:true, showTimestamp:true,
-    agentBubble:'#6366f1', customerBubble:'var(--bg3)',
-  });
-
-  /* ── Automate: Triggers ── */
-  const [triggers, setTriggers]       = useState(INIT_TRIGGERS);
-  const [trigModal, setTrigModal]     = useState(false);
-  const [trigForm, setTrigForm]       = useState({ name:'', event:'conversation_started', condition:'', action:'', active:true });
-
-  /* ── Automate: Routing ── */
-  const [routing, setRouting]     = useState(INIT_ROUTING);
-  const [visitorRouting, setVR]   = useState({ mode:'round_robin', fallback:'AI Bot', threshold:30 });
-
-  /* ── Automate: Lead Scoring ── */
-  const [leadRules, setLeadRules] = useState(INIT_LEAD_RULES);
-  const [compScore, setCompScore] = useState({ enabled:true, minRevenue:1000, minOrders:3, vipThreshold:5000 });
-
-  /* ── Automate: Schedule Report ── */
-  const [schedReports, setSchedReports] = useState(INIT_SCHED);
-  const [schedModal, setSchedModal]     = useState(false);
-  const [schedForm, setSchedForm]       = useState({ name:'', freq:'weekly', time:'08:00', email:'' });
-  const [reportRunningId, setReportRunningId] = useState('');
-
-  /* ── Controls: Spammers ── */
-  const [spammers, setSpammers]   = useState(INIT_SPAMMERS);
-  const [spamInput, setSpamInput] = useState({ type:'phone', value:'', reason:'' });
-
-  /* ── Controls: Profiles ── */
-  const [profileFields, setProfileFields] = useState(INIT_PROFILES);
-  const [pfForm, setPfForm]               = useState({ label:'', type:'text', required:false });
-
-  /* ── Controls: Import ── */
+  /* Import state */
+  const [importType, setImportType] = useState('conversations');
   const [importFile, setImportFile] = useState(null);
+  const [importUploading, setImportUploading] = useState(false);
+  const [importProcessing, setImportProcessing] = useState(false);
   const [importResult, setImportResult] = useState(null);
-  const [importing, setImporting]   = useState(false);
 
-  /* ── Controls: Recycle Bin ── */
-  const [recycled, setRecycled] = useState(RECYCLED);
-  const [recycleLoading, setRecycleLoading] = useState(false);
+  /* Mobile nav sheet */
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  /* ── Controls: Conversation Monitor ── */
-  const LIVE_CONVS = monitorData.conversations;
+  /* Password change (My Profile) */
+  const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' });
+  const [pwSaving, setPwSaving] = useState(false);
 
-  /* ─── helpers ─── */
-  function makeDeptId(name) {
-    return `dept-${String(name || 'general').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'general'}`;
-  }
+  /* Email template test-send */
+  const [tplTestSending, setTplTestSending] = useState(null); // null or index
 
-  function syncDepartmentsWithOperators(nextOperators, currentDepts = []) {
-    const deptMap = new Map(
-      (Array.isArray(currentDepts) ? currentDepts : []).map((dept) => [
-        String(dept.name || '').trim().toLowerCase(),
-        { ...dept, id: dept.id || makeDeptId(dept.name), operators: [] },
-      ]).filter(([key]) => key),
-    );
+  /* Profanity word add */
+  const [wordInput, setWordInput] = useState('');
+  const [wordSeverity, setWordSeverity] = useState('medium');
+  const [wordAction, setWordAction] = useState('flag');
 
-    nextOperators.forEach((operator, index) => {
-      const deptName = String(operator.dept || '').trim();
-      if (!deptName) return;
+  /* Tag add */
+  const [tagMeta, setTagMeta] = useState({}); // local mirror of settings.tagMeta
+  const [tagColor, setTagColor] = useState('#6366f1');
+  const [tagCategory, setTagCategory] = useState('');
+  const [tagDesc, setTagDesc] = useState('');
 
-      const key = deptName.toLowerCase();
-      if (!deptMap.has(key)) {
-        deptMap.set(key, {
-          id: makeDeptId(deptName),
-          name: deptName,
-          color: COLORS[index % COLORS.length],
-          sla: 8,
-          operators: [],
-        });
-      }
+  /* Channel config + health */
+  const [chConfig, setChConfig] = useState({});
+  const [chHealth, setChHealth] = useState(null);
+  const [chConfigSaving, setChConfigSaving] = useState(false);
+  const [chConfigLoading, setChConfigLoading] = useState(false);
 
-      deptMap.get(key).operators.push(operator.id);
-    });
+  /* AI Configuration section */
+  const [aiSection, setAiSection] = useState('identity');
+  const [aiConfig, setAiConfig] = useState(null);
+  const [aiMetrics, setAiMetrics] = useState(null);
+  const [aiPrompts, setAiPrompts] = useState([]);
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiSimInput, setAiSimInput] = useState('');
+  const [aiSimChannel, setAiSimChannel] = useState('livechat');
+  const [aiSimResult, setAiSimResult] = useState(null);
+  const [aiSimulating, setAiSimulating] = useState(false);
 
-    return Array.from(deptMap.values()).map((dept) => ({
-      ...dept,
-      operators: [...new Set(dept.operators)],
-    }));
-  }
+  /* Departments list (loaded with core, used for routing dropdowns) */
+  const [depts, setDepts] = useState([]);
 
-  function mergeOperatorsFromTeam(team, currentOperators = []) {
-    const byId = new Map(currentOperators.map((operator) => [operator.id, operator]));
-    const byEmail = new Map(currentOperators.map((operator) => [operator.email, operator]));
-    let currentUserId = null;
+  /* ── Load ─────────────────────────────────────────────────────────────── */
 
-    if (typeof window !== 'undefined') {
+  const loadCore = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [s, t, ch, usg, rec, dp] = await Promise.all([
+        api.get('/api/settings'),
+        api.get('/api/auth/team'),
+        api.get('/api/channels'),
+        api.get('/api/settings/usage').catch(() => null),
+        api.get('/api/settings/recycle-bin').catch(() => []),
+        api.get('/api/settings/departments').catch(() => []),
+      ]);
+
+      // Pre-populate profile from session user when JSONB profile is empty
+      let merged = s || {};
       try {
-        currentUserId = JSON.parse(localStorage.getItem('airos_user') || '{}')?.id || null;
-      } catch {}
-    }
+        const sessionUser = JSON.parse(localStorage.getItem('airos_user') || 'null');
+        if (sessionUser && (!merged.profile?.name || !merged.profile?.email)) {
+          merged = {
+            ...merged,
+            profile: {
+              name: sessionUser.name || '',
+              email: sessionUser.email || '',
+              ...(merged.profile || {}),
+            },
+          };
+        }
+      } catch { /* ignore localStorage parse errors */ }
 
-    return team.map((user) => {
-      const existing = byId.get(user.id) || byEmail.get(user.email) || {};
-      return {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        dept: existing.dept || 'Sales',
-        status: user.id === currentUserId ? 'online' : (existing.status || 'offline'),
-        avatar: (user.name?.[0] || 'U').toUpperCase(),
-      };
+      setSettings(merged);
+      setTagMeta(merged.tagMeta && typeof merged.tagMeta === 'object' && !Array.isArray(merged.tagMeta) ? merged.tagMeta : {});
+      setTeam(t || []);
+      setChannels(ch || []);
+      setUsage(usg);
+      setRecycle(rec || []);
+      setDepts(Array.isArray(dp) ? dp : []);
+    } catch {
+      toast.error('Failed to load settings');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  async function loadActiveSection(id) {
+    if (!ACTIVE_DATA_SECTIONS.has(id)) { setActiveData(null); return; }
+    setSectionLoading(true);
+    setActiveData(null);
+    try {
+      const data = await api.get(`/api/settings/${sectionUrl(id)}`);
+      setActiveData(data ?? null);
+    } catch (err) {
+      console.error('Section load error', id, err);
+      setActiveData(null);
+    } finally {
+      setSectionLoading(false);
+    }
+  }
+
+  useEffect(() => { loadCore(); }, [loadCore]);
+  useEffect(() => { loadActiveSection(activeId); }, [activeId]); // eslint-disable-line
+
+  /* Auto-refresh Conversation Monitor every 30 s while section is active */
+  useEffect(() => {
+    if (activeId !== 'monitor') return;
+    const id = setInterval(() => loadActiveSection('monitor'), 30_000);
+    return () => clearInterval(id);
+  }, [activeId]); // eslint-disable-line
+
+  /* Load channel config + health when switching to a channel section */
+  const CH_SECTION_MAP = { ch_messenger: 'messenger', ch_livechat: 'livechat', ch_instagram: 'instagram', ch_whatsapp: 'whatsapp' };
+  useEffect(() => {
+    const channelName = CH_SECTION_MAP[activeId];
+    if (channelName) loadChannelConfig(channelName);
+    else { setChConfig({}); setChHealth(null); }
+  }, [activeId]); // eslint-disable-line
+
+  /* Load AI config when switching to ai_config section */
+  useEffect(() => {
+    if (activeId === 'ai_config') { setAiSection('identity'); loadAiConfig(); }
+  }, [activeId]); // eslint-disable-line
+
+  /* ── Settings helpers ─────────────────────────────────────────────────── */
+
+  function updateNested(path, value) {
+    setSettings(prev => {
+      const next = { ...prev };
+      const parts = path.split('.');
+      let cur = next;
+      for (let i = 0; i < parts.length - 1; i++) {
+        cur[parts[i]] = { ...cur[parts[i]] };
+        cur = cur[parts[i]];
+      }
+      cur[parts[parts.length - 1]] = value;
+      return next;
     });
   }
 
-  async function loadUsageData() {
-    setUsageLoading(true);
-    try {
-      const data = await api.get('/api/settings/usage');
-      setUsageStats(data);
-    } catch {
-      setUsageStats(null);
-    } finally {
-      setUsageLoading(false);
-    }
-  }
-
-  async function loadMonitorData() {
-    setMonitorLoading(true);
-    try {
-      const data = await api.get('/api/settings/monitor');
-      setMonitorData(data || { summary: { active: 0, bot: 0, waiting: 0 }, conversations: [] });
-    } catch {
-      setMonitorData({ summary: { active: 0, bot: 0, waiting: 0 }, conversations: [] });
-    } finally {
-      setMonitorLoading(false);
-    }
-  }
-
-  async function refreshRecycleBin() {
-    setRecycleLoading(true);
-    try {
-      const items = await api.get('/api/settings/recycle-bin');
-      setRecycled(Array.isArray(items) ? items : []);
-    } catch (err) {
-      toast.error(err.message || 'Could not load recycle bin');
-    } finally {
-      setRecycleLoading(false);
-    }
-  }
-
-  async function restoreRecycleItem(itemId) {
-    try {
-      const response = await api.post(`/api/settings/recycle-bin/${itemId}/restore`, {});
-      setRecycled(Array.isArray(response?.recycled) ? response.recycled : []);
-      toast.success('Item restored');
-    } catch (err) {
-      toast.error(err.message || 'Could not restore item');
-    }
-  }
-
-  async function deleteRecycleItem(itemId) {
-    try {
-      const response = await api.delete(`/api/settings/recycle-bin/${itemId}`);
-      setRecycled(Array.isArray(response?.recycled) ? response.recycled : []);
-      toast.success('Item permanently deleted');
-    } catch (err) {
-      toast.error(err.message || 'Could not delete item');
-    }
-  }
-
-  async function emptyRecycleBin() {
-    try {
-      const response = await api.post('/api/settings/recycle-bin/empty', {});
-      setRecycled(Array.isArray(response?.recycled) ? response.recycled : []);
-      toast.success('Recycle bin emptied');
-    } catch (err) {
-      toast.error(err.message || 'Could not empty recycle bin');
-    }
-  }
-
-  async function sendTestEmail(template) {
-    if (!template?.id) return;
-
-    try {
-      setEmailTestSendingId(template.id);
-      await api.post('/api/settings/email-templates/send-test', {
-        templateId: template.id,
-      });
-      toast.success('Test email sent');
-    } catch (err) {
-      toast.error(err.message || 'Could not send test email');
-    } finally {
-      setEmailTestSendingId('');
-    }
-  }
-
-  async function runScheduledReport(schedule) {
-    if (!schedule?.id) return;
-
-    try {
-      setReportRunningId(schedule.id);
-      const response = await api.post('/api/settings/scheduled-reports/run', {
-        scheduleId: schedule.id,
-      });
-      const result = Array.isArray(response?.results)
-        ? response.results.find((entry) => entry.id === schedule.id)
-        : null;
-
-      setSchedReports((current) => current.map((entry) => (
-        entry.id === schedule.id
-          ? {
-              ...entry,
-              lastRunAt: new Date().toISOString(),
-              lastStatus: result?.status || 'sent',
-              lastError: result?.error || '',
-            }
-          : entry
-      )));
-
-      if (result?.status === 'failed') {
-        toast.error(result.error || 'Scheduled report failed');
-      } else {
-        toast.success('Scheduled report sent');
-      }
-    } catch (err) {
-      toast.error(err.message || 'Could not run scheduled report');
-    } finally {
-      setReportRunningId('');
-    }
-  }
-
-  async function loadChannelStats() {
-    try {
-      const rows = await api.get('/api/reports/channels');
-      if (!Array.isArray(rows) || rows.length === 0) return;
-
-      const next = { ...CHANNEL_STATS };
-      rows.forEach((row) => {
-        const channel = row.channel;
-        if (!next[channel]) return;
-        next[channel] = {
-          ...next[channel],
-          conversations: Number(row.conversations || 0),
-          deals: Number(row.deals_won || 0),
-          rate: row.conversion_rate != null ? `${Math.round(Number(row.conversion_rate))}%` : '—',
-          response: '—',
-          satisfaction: '—',
-        };
-      });
-      setChannelStats(next);
-    } catch {}
-  }
-
-  function buildChannelsFromConnectionDetails(currentChannels, rows = []) {
-    const registry = Object.fromEntries(rows.map((row) => [row.channel, row]));
-    return {
-      whatsapp: {
-        ...currentChannels.whatsapp,
-        connected: Boolean(registry.whatsapp),
-        wabaId: registry.whatsapp?.details?.wabaId || currentChannels.whatsapp.wabaId,
-        phoneNumberId: registry.whatsapp?.details?.phoneNumberId || currentChannels.whatsapp.phoneNumberId,
-        displayName: registry.whatsapp?.details?.displayName || currentChannels.whatsapp.displayName,
-        phone: registry.whatsapp?.details?.phone || currentChannels.whatsapp.phone,
-        businessName: registry.whatsapp?.details?.businessName || currentChannels.whatsapp.businessName,
-        businessId: registry.whatsapp?.details?.businessId || currentChannels.whatsapp.businessId,
-        accessToken: currentChannels.whatsapp.accessToken && !isMaskedSecret(currentChannels.whatsapp.accessToken)
-          ? currentChannels.whatsapp.accessToken
-          : (registry.whatsapp?.details?.accessTokenMasked || currentChannels.whatsapp.accessToken),
-        verified: Boolean(registry.whatsapp?.details?.verified),
-        partnerAck: Boolean(registry.whatsapp),
-      },
-      instagram: {
-        ...currentChannels.instagram,
-        connected: Boolean(registry.instagram),
-        page: registry.instagram?.details?.instagramBusinessAccountUsername
-          || registry.instagram?.details?.instagramBusinessAccountId
-          || currentChannels.instagram.page,
-        pageName: registry.instagram?.details?.pageName || currentChannels.instagram.pageName,
-        pageId: registry.instagram?.details?.pageId || currentChannels.instagram.pageId,
-        instagramBusinessAccountId: registry.instagram?.details?.instagramBusinessAccountId || currentChannels.instagram.instagramBusinessAccountId,
-        instagramBusinessAccountUsername: registry.instagram?.details?.instagramBusinessAccountUsername || currentChannels.instagram.instagramBusinessAccountUsername,
-        verified: Boolean(registry.instagram?.details?.verified),
-        token: currentChannels.instagram.token && !isMaskedSecret(currentChannels.instagram.token)
-          ? currentChannels.instagram.token
-          : (registry.instagram?.details?.accessTokenMasked || currentChannels.instagram.token),
-      },
-      messenger: {
-        ...currentChannels.messenger,
-        connected: Boolean(registry.messenger),
-        page: registry.messenger?.details?.pageName || registry.messenger?.details?.pageId || currentChannels.messenger.page,
-        verified: Boolean(registry.messenger?.details?.verified),
-        token: currentChannels.messenger.token && !isMaskedSecret(currentChannels.messenger.token)
-          ? currentChannels.messenger.token
-          : (registry.messenger?.details?.accessTokenMasked || currentChannels.messenger.token),
-      },
-      livechat: {
-        ...currentChannels.livechat,
-        connected: Boolean(registry.livechat),
-        widgetId: registry.livechat?.details?.widgetId || currentChannels.livechat.widgetId,
-        domain: registry.livechat?.details?.domain || currentChannels.livechat.domain,
-        color: registry.livechat?.details?.color || currentChannels.livechat.color,
-      },
-    };
-  }
-
-  async function refreshChannelConnections() {
-    try {
-      const rows = await api.get('/api/channels');
-      if (!Array.isArray(rows)) return;
-      setChannelConnections(Object.fromEntries(rows.map((row) => [row.channel, row])));
-      setChannels((current) => buildChannelsFromConnectionDetails(current, rows));
-    } catch {}
-  }
-
-  async function upsertChannelConnection(channel, credentials, successMessage) {
-    await api.post('/api/channels', { channel, credentials });
-    await refreshChannelConnections();
-    if (successMessage) toast.success(successMessage);
-  }
-
-  async function disconnectChannel(channel, fallbackState) {
-    const connection = channelConnections[channel];
-
-    try {
-      if (connection?.id) await api.delete(`/api/channels/${connection.id}`);
-
-      setChannelConnections((current) => {
-        const next = { ...current };
-        delete next[channel];
-        return next;
-      });
-      setChannels((current) => ({
-        ...current,
-        [channel]: {
-          ...current[channel],
-          ...fallbackState,
-          connected: false,
-          verified: false,
-        },
-      }));
-      toast.success(`${channel.charAt(0).toUpperCase() + channel.slice(1)} disconnected`);
-    } catch (err) {
-      toast.error(err.message || `Could not disconnect ${channel}`);
-    }
-  }
-
-  async function savePassword() {
-    if (!pwForm.current || !pwForm.next || !pwForm.confirm) {
-      toast.error('Fill all password fields');
-      return;
-    }
-    if (pwForm.next !== pwForm.confirm) {
-      toast.error('Passwords do not match');
-      return;
-    }
-
+  async function handleSaveSettings() {
     setSaving(true);
     try {
-      await api.patch('/api/auth/password', {
-        currentPassword: pwForm.current,
-        newPassword: pwForm.next,
-      });
-      setPwForm({ current:'', next:'', confirm:'' });
-      toast.success('Password updated');
+      // When the profile section is active, also update the real users table
+      if (activeId === 'profile' && settings.profile?.name && settings.profile?.email) {
+        try {
+          const updatedUser = await api.patch('/api/auth/me', {
+            name: settings.profile.name,
+            email: settings.profile.email,
+          });
+          // Sync the session user in localStorage so sidebar reflects the change
+          if (updatedUser?.user) {
+            const prev = JSON.parse(localStorage.getItem('airos_user') || '{}');
+            localStorage.setItem('airos_user', JSON.stringify({ ...prev, ...updatedUser.user }));
+          }
+        } catch { /* non-fatal — profile JSONB still saves */ }
+      }
+
+      const saved = await api.put('/api/settings', settings);
+      setSettings(saved);
+      toast.success('Saved');
     } catch (err) {
-      toast.error(err.message || 'Could not update password');
+      toast.error(err.message || 'Save failed');
     } finally {
       setSaving(false);
     }
   }
 
-  async function saveOp() {
-    if (!inviteForm.name || !inviteForm.email) { toast.error('Fill all fields'); return; }
-    if (inviteForm.password && inviteForm.password.length < 8) { toast.error('Operator password must be at least 8 characters'); return; }
-
+  async function handleSaveActiveData(payload) {
+    if (!ACTIVE_DATA_SECTIONS.has(activeId)) return;
+    const data = payload ?? activeData;
+    setSaving(true);
     try {
-      const response = await api.post('/api/auth/invite', {
-        name: inviteForm.name,
-        email: inviteForm.email,
-        role: inviteForm.role,
-        password: inviteForm.password,
+      const saved = await api.put(`/api/settings/${sectionUrl(activeId)}`, data);
+      setActiveData(saved ?? data);
+      toast.success('Saved');
+    } catch (err) {
+      toast.error(err.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /* ── Monitor supervisor actions ─────────────────────────────────────────── */
+
+  async function handleMonitorAssignMe(convId) {
+    const me = JSON.parse(localStorage.getItem('airos_user') || 'null');
+    if (!me?.id) { toast.error('No user session found'); return; }
+    const key = `${convId}_assign`;
+    setMonitorActionLoading(p => ({ ...p, [key]: true }));
+    try {
+      await api.patch(`/api/conversations/${convId}/assign`, { user_id: me.id });
+      toast.success('Assigned to you');
+      // Optimistic update in monitor list
+      setActiveData(prev => ({
+        ...prev,
+        conversations: (prev?.conversations || []).map(c =>
+          c.id === convId ? { ...c, assigned_to: me.id, agent_name: me.name } : c
+        ),
+      }));
+    } catch (err) {
+      toast.error(err.message || 'Assign failed');
+    } finally {
+      setMonitorActionLoading(p => ({ ...p, [key]: false }));
+    }
+  }
+
+  async function handleMonitorPauseAI(convId) {
+    const key = `${convId}_pause`;
+    setMonitorActionLoading(p => ({ ...p, [key]: true }));
+    try {
+      await api.patch(`/api/conversations/${convId}/ai-mode`, { ai_mode: 'manual' });
+      toast.success('AI paused — manual mode');
+      setActiveData(prev => ({
+        ...prev,
+        conversations: (prev?.conversations || []).map(c =>
+          c.id === convId ? { ...c, ai_mode: 'manual' } : c
+        ),
+      }));
+    } catch (err) {
+      toast.error(err.message || 'Failed to pause AI');
+    } finally {
+      setMonitorActionLoading(p => ({ ...p, [key]: false }));
+    }
+  }
+
+  async function handleMonitorEscalate(convId) {
+    const key = `${convId}_escalate`;
+    setMonitorActionLoading(p => ({ ...p, [key]: true }));
+    try {
+      // Pause AI + mark status escalated
+      await Promise.all([
+        api.patch(`/api/conversations/${convId}/ai-mode`, { ai_mode: 'manual' }),
+        api.patch(`/api/conversations/${convId}/status`, { status: 'open', priority: 'urgent' }).catch(() => {}),
+      ]);
+      toast.success('Escalated — AI paused, priority set to urgent');
+      setActiveData(prev => ({
+        ...prev,
+        conversations: (prev?.conversations || []).map(c =>
+          c.id === convId ? { ...c, ai_mode: 'manual', priority: 'urgent', is_urgent: true } : c
+        ),
+      }));
+    } catch (err) {
+      toast.error(err.message || 'Escalation failed');
+    } finally {
+      setMonitorActionLoading(p => ({ ...p, [key]: false }));
+    }
+  }
+
+  /* ── Import CSV preview ─────────────────────────────────────────────────── */
+
+  function previewCsvFile(file) {
+    if (!file || !file.name.endsWith('.csv')) { setImportPreview(null); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target.result;
+        const lines = text.split(/\r?\n/).filter(Boolean).slice(0, 6);
+        if (lines.length === 0) { setImportPreview(null); return; }
+        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+        const rows = lines.slice(1, 6).map(line =>
+          line.split(',').map(v => v.trim().replace(/^"|"$/g, ''))
+        );
+        setImportPreview({ headers, rows });
+      } catch { setImportPreview(null); }
+    };
+    reader.readAsText(file);
+  }
+
+  /* ── Operators CRUD ───────────────────────────────────────────────────── */
+
+  function openInvite() {
+    setOpForm({ name: '', email: '', role: 'agent', password: '', department: '' });
+    setOpDialog('invite');
+  }
+
+  function openEdit(member) {
+    setOpForm({ name: member.name, email: member.email, role: member.role, password: '', department: member.department || '' });
+    setOpDialog({ mode: 'edit', member });
+  }
+
+  async function handleInviteOperator() {
+    if (!opForm.name || !opForm.email) { toast.error('Name and email required'); return; }
+    setOpSaving(true);
+    try {
+      const res = await api.post('/api/auth/invite', {
+        name: opForm.name, email: opForm.email, role: opForm.role,
+        ...(opForm.password ? { password: opForm.password } : {}),
+        ...(opForm.department ? { department: opForm.department } : {}),
       });
-
-      if (response?.user) {
-        const team = await api.get('/api/auth/team');
-        if (Array.isArray(team) && team.length > 0) {
-          setOperators((current) => {
-            const merged = mergeOperatorsFromTeam(team, current);
-            return merged.map((operator) => (
-              operator.id === response.user.id
-                ? { ...operator, dept: inviteForm.dept, status: 'offline' }
-                : operator
-            ));
-          });
-        }
-      }
-
-      await save('Operator invited');
-      setInviteModal(false);
-      if (response?.tempPassword) {
-        toast.success(`Operator invited. Temporary password: ${response.tempPassword}`);
-      }
-      setInviteForm({ name:'', email:'', role:'agent', dept:'Sales', password:'' });
+      setTeam(prev => [...prev, res.user]);
+      if (res.tempPassword) toast.success(`Invited. Temp password: ${res.tempPassword}`);
+      else toast.success('Operator invited');
+      setOpDialog(null);
     } catch (err) {
-      toast.error(err.message || 'Could not invite operator');
+      toast.error(err.message || 'Invite failed');
+    } finally {
+      setOpSaving(false);
     }
   }
-  function saveDept() { if (!deptForm.name) { toast.error('Name required'); return; }
-    setDepts(d => [...d, { id:'d'+Date.now(), operators:[], ...deptForm }]);
-    setDeptModal(false); toast.success('Department created'); }
-  function saveTrigger() { if (!trigForm.name || !trigForm.action) { toast.error('Fill name & action'); return; }
-    setTriggers(t => [...t, { id:'tr'+Date.now(), ...trigForm }]);
-    setTrigModal(false); toast.success('Trigger created'); }
-  function saveSched() { if (!schedForm.name || !schedForm.email) { toast.error('Fill required fields'); return; }
-    setSchedReports(r => [...r, { id:'sr'+Date.now(), active:true, ...schedForm }]);
-    setSchedModal(false); toast.success('Schedule created'); }
 
-  function simulateImport() {
-    if (!importFile) { toast.error('Select a file first'); return; }
-    if (importFile.name.toLowerCase().endsWith('.xlsx')) {
-      toast.error('XLSX import is not supported yet. Please upload CSV.');
-      return;
-    }
-
-    setImporting(true);
-    readFileAsText(importFile)
-      .then((text) => {
-        const rows = parseCsvText(text);
-        if (rows.length === 0) throw new Error('The CSV file is empty or invalid');
-        return api.post('/api/settings/import/contacts', { rows });
-      })
-      .then(async (result) => {
-        setImportResult(result);
-        toast.success('Contacts imported');
-        await loadUsageData();
-      })
-      .catch((err) => {
-        toast.error(err.message || 'Could not import contacts');
-      })
-      .finally(() => {
-        setImporting(false);
-      });
-  }
-
-  async function updateOperatorRole(operatorId, role) {
-    setOperators((current) => current.map((operator) => (
-      operator.id === operatorId ? { ...operator, role } : operator
-    )));
-
+  async function handleEditOperator() {
+    const id = opDialog?.member?.id;
+    if (!id) return;
+    setOpSaving(true);
     try {
-      await api.patch(`/api/auth/team/${operatorId}`, { role });
-      toast.success('Operator role updated');
+      const payload = { name: opForm.name, role: opForm.role };
+      if (opForm.password) payload.password = opForm.password;
+      if (opForm.department !== undefined) payload.department = opForm.department;
+      const res = await api.patch(`/api/auth/team/${id}`, payload);
+      setTeam(prev => prev.map(m => m.id === id ? res.user : m));
+      toast.success('Updated');
+      setOpDialog(null);
     } catch (err) {
-      toast.error(err.message || 'Could not update operator role');
+      toast.error(err.message || 'Update failed');
+    } finally {
+      setOpSaving(false);
     }
   }
 
-  async function resetOperatorPassword(operatorId) {
-    const nextPassword = window.prompt('Enter a new password for this operator (minimum 8 characters).');
-    if (!nextPassword) return;
-    if (nextPassword.length < 8) {
-      toast.error('Password must be at least 8 characters');
-      return;
-    }
-
+  async function handleDeleteOperator(id) {
+    if (!window.confirm('Remove this operator from the tenant? This cannot be undone.')) return;
     try {
-      await api.patch(`/api/auth/team/${operatorId}`, { password: nextPassword });
-      toast.success('Operator password updated');
-    } catch (err) {
-      toast.error(err.message || 'Could not update operator password');
-    }
-  }
-
-  function updateOperatorDept(operatorId, deptName) {
-    setOperators((current) => current.map((operator) => (
-      operator.id === operatorId ? { ...operator, dept: deptName } : operator
-    )));
-    toast.success('Operator department updated');
-  }
-
-  async function removeOperator(operatorId) {
-    try {
-      await api.delete(`/api/auth/team/${operatorId}`);
-      setOperators((current) => current.filter((operator) => operator.id !== operatorId));
+      await api.delete(`/api/auth/team/${id}`);
+      setTeam(prev => prev.filter(m => m.id !== id));
       toast.success('Operator removed');
     } catch (err) {
-      toast.error(err.message || 'Could not remove operator');
+      toast.error(err.message || 'Delete failed');
     }
   }
 
-  async function saveInstagramSettings() {
-    await save('Instagram settings saved');
-  }
+  /* ── Channel actions ─────────────────────────────────────────────────── */
 
-  async function saveMessengerSettings() {
-    await save('Messenger settings saved');
-  }
-
-  async function saveLiveChatSettings() {
+  async function handleConnectMeta(channel) {
     try {
-      await upsertChannelConnection('livechat', {
-        widget_id: channels.livechat.widgetId,
-        domain: channels.livechat.domain,
-        color: channels.livechat.color,
-      }, channels.livechat.connected ? 'Live Chat updated' : 'Live Chat enabled');
-      await save('Live Chat settings saved');
+      const res = await api.get(`/api/channels/meta/oauth-url?channel=${channel}&return_to=/dashboard/settings`);
+      if (res?.url) window.location.href = res.url;
     } catch (err) {
-      toast.error(err.message || 'Could not save Live Chat settings');
+      toast.error(err.message || 'OAuth failed');
     }
   }
 
-  async function saveWhatsAppConnection() {
-    await beginMetaOAuth('whatsapp');
-  }
-
-  async function takeOverConversation(conversationId) {
-    let currentUserId = null;
+  async function handleDisconnectChannel(id) {
+    if (!window.confirm('Disconnect this channel?')) return;
     try {
-      currentUserId = JSON.parse(localStorage.getItem('airos_user') || '{}')?.id || null;
-    } catch {}
-
-    if (!currentUserId) {
-      toast.error('Could not identify current operator');
-      return;
-    }
-
-    try {
-      await api.patch(`/api/conversations/${conversationId}/assign`, { user_id: currentUserId });
-      toast.success('Conversation assigned to you');
-      await loadMonitorData();
+      await api.delete(`/api/channels/${id}`);
+      setChannels(prev => prev.filter(c => c.id !== id));
+      toast.success('Disconnected');
     } catch (err) {
-      toast.error(err.message || 'Could not take over conversation');
+      toast.error(err.message || 'Failed');
     }
   }
 
-  function applySettingsSnapshot(saved) {
-    if (!isRecord(saved)) return;
-
-    if (isRecord(saved.profile)) {
-      setProfile((current) => {
-        const merged = mergeSavedObject(current, saved.profile);
-        return { ...merged, avatar: (merged.name?.[0] || 'A').toUpperCase() };
+  async function handleConnectLivechat() {
+    try {
+      const res = await api.post('/api/channels', {
+        channel: 'livechat',
+        credentials: { domain: lcForm.domain, color: lcForm.color },
       });
+      setChannels(prev => {
+        const next = prev.filter(c => c.channel !== 'livechat');
+        return [...next, res];
+      });
+      toast.success('Live Chat configured');
+      setLcDialog(false);
+    } catch (err) {
+      toast.error(err.message || 'Failed');
     }
-    if (isRecord(saved.company)) setCompany((current) => mergeSavedObject(current, saved.company));
-    if (Array.isArray(saved.operators)) setOperators(mergeSavedArray(INIT_OPERATORS, saved.operators));
-    if (Array.isArray(saved.depts)) setDepts(mergeSavedArray(INIT_DEPTS, saved.depts));
-    if (Array.isArray(saved.tags)) setTags(mergeSavedArray(INIT_TAGS, saved.tags));
-    if (Array.isArray(saved.brands)) setBrands(mergeSavedArray(INIT_BRANDS, saved.brands));
-    if (isRecord(saved.global)) setGlobal((current) => mergeSavedObject(current, saved.global));
-    if (Array.isArray(saved.profanity)) setProfanity(mergeSavedArray(['spam','scam','fake','غش','نصب'], saved.profanity));
-    if (isRecord(saved.profanityControls)) {
-      setProfanityControls((current) => mergeSavedObject(current, saved.profanityControls));
-    }
-    if (Array.isArray(saved.emailTpls)) setEmailTpls(mergeSavedArray(INIT_EMAIL_TPLS, saved.emailTpls));
-    if (isRecord(saved.layout)) setLayout((current) => mergeSavedObject(current, saved.layout));
-    if (isRecord(saved.channels)) setChannels((current) => mergeSavedChannels(current, saved.channels));
-    if (isRecord(saved.waSettings)) setWaSettings((current) => mergeSavedObject(current, saved.waSettings));
-    if (Array.isArray(saved.waTemplates)) setWaTemplates(saved.waTemplates);
-    if (isRecord(saved.igSettings)) setIgSettings((current) => mergeSavedObject(current, saved.igSettings));
-    if (isRecord(saved.messengerSettings)) {
-      setMessengerSettings((current) => mergeSavedObject(current, saved.messengerSettings));
-    }
-    if (Array.isArray(saved.triggers)) setTriggers(mergeSavedArray(INIT_TRIGGERS, saved.triggers));
-    if (Array.isArray(saved.routing)) setRouting(mergeSavedArray(INIT_ROUTING, saved.routing));
-    if (isRecord(saved.visitorRouting)) setVR((current) => mergeSavedObject(current, saved.visitorRouting));
-    if (Array.isArray(saved.leadRules)) setLeadRules(mergeSavedArray(INIT_LEAD_RULES, saved.leadRules));
-    if (isRecord(saved.compScore)) setCompScore((current) => mergeSavedObject(current, saved.compScore));
-    if (Array.isArray(saved.schedReports)) setSchedReports(mergeSavedArray(INIT_SCHED, saved.schedReports));
-    if (Array.isArray(saved.spammers)) setSpammers(mergeSavedArray(INIT_SPAMMERS, saved.spammers));
-    if (Array.isArray(saved.profileFields)) setProfileFields(mergeSavedArray(INIT_PROFILES, saved.profileFields));
-    if (Array.isArray(saved.recycled)) setRecycled(mergeSavedArray(RECYCLED, saved.recycled));
-    if (isRecord(saved.aiConfig)) setAiCfg((current) => ({ ...current, ...saved.aiConfig }));
   }
 
-  function buildSettingsSnapshot() {
-    const { apiKey, provider, model, ...persistedAiConfig } = aiCfg;
-    const persistedChannels = {
-      whatsapp: {
-        connected: channels.whatsapp.connected,
-        wabaId: channels.whatsapp.wabaId,
-        phoneNumberId: channels.whatsapp.phoneNumberId,
-        displayName: channels.whatsapp.displayName,
-        phone: channels.whatsapp.phone,
-        businessName: channels.whatsapp.businessName,
-        businessId: channels.whatsapp.businessId,
-        verified: channels.whatsapp.verified,
-        partnerAck: channels.whatsapp.partnerAck,
-      },
-      instagram: {
-        connected: channels.instagram.connected,
-        page: channels.instagram.page,
-        verified: channels.instagram.verified,
-      },
-      messenger: {
-        connected: channels.messenger.connected,
-        page: channels.messenger.page,
-        verified: channels.messenger.verified,
-      },
-      livechat: {
-        connected: channels.livechat.connected,
-        widgetId: channels.livechat.widgetId,
-        domain: channels.livechat.domain,
-        color: channels.livechat.color,
-      },
-    };
+  /* ── Recycle bin ─────────────────────────────────────────────────────── */
 
-    return {
-      profile: { ...profile, avatar: (profile.name?.[0] || 'A').toUpperCase() },
-      company,
-      operators,
-      depts,
-      tags,
-      brands,
-      global,
-      profanity,
-      profanityControls,
-      emailTpls,
-      layout,
-      channels: persistedChannels,
-      waSettings,
-      waTemplates,
-      igSettings,
-      messengerSettings,
-      triggers,
-      routing,
-      visitorRouting,
-      leadRules,
-      compScore,
-      schedReports,
-      spammers,
-      profileFields,
-      recycled,
-      aiConfig: persistedAiConfig,
-    };
+  async function handleClearRecycleBin() {
+    if (!window.confirm('Permanently delete all recycled items?')) return;
+    try {
+      await api.delete('/api/settings/recycle-bin');
+      setRecycle([]);
+      toast.success('Recycle bin cleared');
+    } catch (err) {
+      toast.error(err.message || 'Failed');
+    }
   }
 
-  /* ─── sidebar helpers ─── */
-  const allItems = NAV.flatMap(g => g.items);
-  const activeGroup = NAV.find(g => g.items.some(i => i.id === activeId));
-  const activeLabel = allItems.find(i => i.id === activeId)?.label || '';
+  async function handleRemoveRecycleItem(itemId) {
+    try {
+      await api.delete(`/api/settings/recycle-bin/${itemId}`);
+      setRecycle(prev => prev.filter(r => r.id !== itemId));
+    } catch (err) {
+      toast.error(err.message || 'Failed');
+    }
+  }
 
-  useEffect(() => {
-    let cancelled = false;
+  /* ── Schedule report: run now ─────────────────────────────────────────── */
 
-    async function loadPersistedSettings() {
-      const saved = readSettingsStorage();
+  async function handleRunReport(reportId) {
+    try {
+      const res = await api.post(`/api/settings/schedule-report/${reportId}/run`, {});
+      const status = res?.[0]?.status;
+      if (status === 'sent') toast.success('Report sent');
+      else if (status === 'failed') toast.error(`Send failed: ${res?.[0]?.error}`);
+      else toast.success('Triggered');
+    } catch (err) {
+      toast.error(err.message || 'Failed');
+    }
+  }
 
-      if (typeof window !== 'undefined' && !window.location.hash && ALL_SETTINGS_IDS.has(saved.activeId)) {
-        setActiveId(saved.activeId);
+  /* ── Import: file upload ─────────────────────────────────────────────── */
+
+  async function handleImportUpload() {
+    if (!importFile) { toast.error('Select a file first'); return; }
+    setImportUploading(true);
+    setImportResult(null);
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.onerror = () => reject(new Error('File read failed'));
+        reader.readAsDataURL(importFile);
+      });
+
+      const uploadRes = await api.post('/api/uploads', {
+        data: base64,
+        mime_type: importFile.type || 'text/csv',
+        file_name: importFile.name,
+      });
+
+      // Immediately process after upload
+      setImportUploading(false);
+      setImportProcessing(true);
+
+      const result = await api.post('/api/settings/import/process', {
+        importType,
+        filePath: uploadRes.path,
+      });
+
+      setImportResult(result);
+
+      // Refresh importConfig to get lastResult persisted
+      const saved = await api.get('/api/settings/import');
+      setActiveData(saved ?? activeData);
+
+      setImportFile(null);
+      const el = document.getElementById('import-file-input');
+      if (el) el.value = '';
+
+      if (result.inserted > 0) {
+        toast.success(`Import complete: ${result.inserted} rows inserted.`);
+      } else {
+        toast.error('No rows were inserted. Check the errors below.');
       }
-
-      if (isRecord(saved.collapsed)) setCollapsed(saved.collapsed);
-      applySettingsSnapshot(saved);
-
-      try {
-        const remoteSettings = await api.get('/api/settings');
-        if (!cancelled && remoteSettings) applySettingsSnapshot(remoteSettings);
-      } catch {}
-
-      if (!cancelled) setHydrated(true);
+    } catch (err) {
+      toast.error(err.message || 'Import failed');
+    } finally {
+      setImportUploading(false);
+      setImportProcessing(false);
     }
+  }
 
-    loadPersistedSettings();
+  /* ── Password change (My Profile) ────────────────────────────────────── */
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  async function handleChangePassword() {
+    const { current, next, confirm } = pwForm;
+    if (!current || !next || !confirm) { toast.error('All password fields are required'); return; }
+    if (next.length < 8) { toast.error('New password must be at least 8 characters'); return; }
+    if (next !== confirm) { toast.error('New passwords do not match'); return; }
+    setPwSaving(true);
+    try {
+      await api.patch('/api/auth/password', { currentPassword: current, newPassword: next });
+      setPwForm({ current: '', next: '', confirm: '' });
+      toast.success('Password changed successfully');
+    } catch (err) {
+      toast.error(err.message || 'Password change failed');
+    } finally {
+      setPwSaving(false);
+    }
+  }
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+  /* ── Tags: save tags + tagMeta together ───────────────────────────────── */
 
-    const syncFromHash = () => {
-      const nextId = getSettingsIdFromHash(window.location.hash);
-      if (nextId) setActiveId(nextId);
-    };
+  async function handleSaveTags() {
+    setSaving(true);
+    try {
+      const saved = await api.put('/api/settings', { ...settings, tagMeta });
+      setSettings(saved);
+      setTagMeta(saved.tagMeta && typeof saved.tagMeta === 'object' ? saved.tagMeta : {});
+      toast.success('Tags saved');
+    } catch (err) {
+      toast.error(err.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
 
-    syncFromHash();
-    window.addEventListener('hashchange', syncFromHash);
-    return () => window.removeEventListener('hashchange', syncFromHash);
-  }, []);
+  /* ── Email template: test-send ─────────────────────────────────────────── */
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || !activeId) return;
+  async function handleTestSendTemplate(tpl, idx) {
+    setTplTestSending(idx);
+    try {
+      const res = await api.post('/api/settings/email-templates/test-send', { template: tpl });
+      toast.success(`Test email sent to ${res.sentTo}`);
+    } catch (err) {
+      toast.error(err.message || 'Test send failed');
+    } finally {
+      setTplTestSending(null);
+    }
+  }
 
-    const nextHash = `#${activeId}`;
-    if (window.location.hash === nextHash) return;
+  /* ── Channel config: load + save ────────────────────────────────────── */
 
-    const nextUrl = `${window.location.pathname}${window.location.search}${nextHash}`;
-    window.history.replaceState({}, '', nextUrl);
-  }, [activeId]);
+  async function loadChannelConfig(channelName) {
+    setChConfig({});
+    setChHealth(null);
+    setChConfigLoading(true);
+    try {
+      const [cfg, health] = await Promise.all([
+        api.get(`/api/channels/${channelName}/config`).catch(() => ({})),
+        api.get(`/api/channels/${channelName}/health`).catch(() => null),
+      ]);
+      setChConfig(cfg || {});
+      setChHealth(health);
+    } catch {
+      // non-fatal
+    } finally {
+      setChConfigLoading(false);
+    }
+  }
 
-  useEffect(() => {
-    if (!hydrated) return;
+  async function handleSaveChConfig(channelName) {
+    setChConfigSaving(true);
+    try {
+      const saved = await api.put(`/api/channels/${channelName}/config`, chConfig);
+      setChConfig(saved || chConfig);
+      toast.success('Channel settings saved');
+    } catch (err) {
+      toast.error(err.message || 'Save failed');
+    } finally {
+      setChConfigSaving(false);
+    }
+  }
 
-    writeSettingsStorage({
-      activeId,
-      collapsed,
-      ...buildSettingsSnapshot(),
+  /* ── AI Configuration helpers ────────────────────────────────────────── */
+
+  async function loadAiConfig() {
+    setAiLoading(true);
+    setAiConfig(null);
+    setAiMetrics(null);
+    setAiPrompts([]);
+    try {
+      const [cfg, metrics, prompts] = await Promise.all([
+        api.get('/api/settings/ai').catch(() => null),
+        api.get('/api/settings/ai/metrics').catch(() => null),
+        api.get('/api/settings/ai/prompts').catch(() => []),
+      ]);
+      setAiConfig(cfg || {});
+      setAiMetrics(metrics);
+      setAiPrompts(prompts || []);
+    } catch { /* non-fatal */ } finally {
+      setAiLoading(false);
+    }
+  }
+
+  function updateAiConfig(path, value) {
+    setAiConfig(prev => {
+      if (!prev) return prev;
+      const next = { ...prev };
+      const parts = path.split('.');
+      let cur = next;
+      for (let i = 0; i < parts.length - 1; i++) {
+        cur[parts[i]] = { ...(cur[parts[i]] || {}) };
+        cur = cur[parts[i]];
+      }
+      cur[parts[parts.length - 1]] = value;
+      return next;
     });
-  }, [
-    hydrated,
-    activeId,
-    collapsed,
-    profile,
-    company,
-    operators,
-    depts,
-    tags,
-    brands,
-    global,
-    profanity,
-    profanityControls,
-    emailTpls,
-    layout,
-    channels,
-    waSettings,
-    waTemplates,
-    igSettings,
-    messengerSettings,
-    triggers,
-    routing,
-    visitorRouting,
-    leadRules,
-    compScore,
-    schedReports,
-    spammers,
-    profileFields,
-    recycled,
-  ]);
+  }
 
-  useEffect(() => {
-    loadUsageData();
-    loadMonitorData();
-    loadChannelStats();
-  }, []);
-
-  useEffect(() => {
-    if (activeId !== 'conv_monitor') return undefined;
-
-    loadMonitorData();
-    const timer = setInterval(() => {
-      loadMonitorData();
-    }, 15000);
-
-    return () => clearInterval(timer);
-  }, [activeId]);
-
-  useEffect(() => {
-    if (activeId !== 'recycle') return undefined;
-    refreshRecycleBin();
-    return undefined;
-  }, [activeId]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    setDepts((current) => syncDepartmentsWithOperators(operators, current));
-  }, [hydrated, operators]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    let cancelled = false;
-
-    async function loadOperatorsFromBackend() {
-      try {
-        const team = await api.get('/api/auth/team');
-        if (!cancelled && Array.isArray(team) && team.length > 0) {
-          setOperators((current) => mergeOperatorsFromTeam(team, current));
-        }
-      } catch {}
+  async function handleSaveAiConfig(patch) {
+    const payload = patch ?? aiConfig;
+    setAiSaving(true);
+    try {
+      const saved = await api.put('/api/settings/ai', payload);
+      setAiConfig(saved || payload);
+      toast.success('AI configuration saved');
+    } catch (err) {
+      toast.error(err.message || 'Save failed');
+    } finally {
+      setAiSaving(false);
     }
+  }
 
-    loadOperatorsFromBackend();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [hydrated]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-
-    const snapshot = buildSettingsSnapshot();
-    const serialized = JSON.stringify(snapshot);
-
-    if (!serverSyncRef.current.primed) {
-      serverSyncRef.current = { primed: true, snapshot: serialized };
-      return;
+  async function handlePinPrompt(promptId, version) {
+    try {
+      const updated = await api.post(`/api/settings/ai/prompts/${encodeURIComponent(promptId)}/pin`, { version });
+      setAiPrompts(prev => prev.map(p => p.id === promptId ? (updated || p) : p));
+      toast.success('Prompt version pinned');
+    } catch (err) {
+      toast.error(err.message || 'Failed to pin prompt');
     }
+  }
 
-    if (serialized === serverSyncRef.current.snapshot) return;
+  async function handleAiSimulate() {
+    if (!aiSimInput.trim()) return;
+    setAiSimulating(true);
+    setAiSimResult(null);
+    try {
+      const result = await api.post('/api/settings/ai/simulate', { message: aiSimInput, channel: aiSimChannel });
+      setAiSimResult(result);
+    } catch (err) {
+      toast.error(err.message || 'Simulation failed');
+    } finally {
+      setAiSimulating(false);
+    }
+  }
 
-    const timer = setTimeout(() => {
-      persistSettingsSnapshot(snapshot);
-    }, 900);
+  /* ── Sidebar helpers ─────────────────────────────────────────────────── */
 
-    return () => clearTimeout(timer);
-  }, [
-    hydrated,
-    profile,
-    company,
-    operators,
-    depts,
-    tags,
-    brands,
-    global,
-    profanity,
-    profanityControls,
-    emailTpls,
-    layout,
-    channels,
-    waSettings,
-    waTemplates,
-    igSettings,
-    messengerSettings,
-    triggers,
-    routing,
-    visitorRouting,
-    leadRules,
-    compScore,
-    schedReports,
-    spammers,
-    profileFields,
-    recycled,
-    aiCfg,
-  ]);
+  const activeLabel = useMemo(() =>
+    STRUCTURE.flatMap(g => g.items).find(i => i.id === activeId)?.label || 'Settings',
+  [activeId]);
 
-  /* ═══════════════════════════════════════════════════
-     SECTION RENDERERS
-     ═══════════════════════════════════════════════════ */
+  const ActiveIcon = useMemo(() =>
+    STRUCTURE.flatMap(g => g.items).find(i => i.id === activeId)?.icon || Settings,
+  [activeId]);
 
-  function renderSection() {
-    switch (activeId) {
+  function channelRecord(ch) {
+    return channels.find(c => c?.channel === ch) || null;
+  }
 
-      /* ────── My Profile ────── */
-      case 'profile': return (
-        <div>
-          <Section title="Personal Information" sub="Update your name, email and contact details">
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
-              <Field label="Full Name"><input className="input" style={{ fontSize:13 }} value={profile.name} onChange={e => setProfile(p=>({...p,name:e.target.value}))} /></Field>
-              <Field label="Email Address"><input className="input" style={{ fontSize:13 }} value={profile.email} onChange={e => setProfile(p=>({...p,email:e.target.value}))} /></Field>
-              <Field label="Phone"><input className="input" style={{ fontSize:13 }} value={profile.phone} onChange={e => setProfile(p=>({...p,phone:e.target.value}))} /></Field>
-              <Field label="Timezone">
-                <select className="input" style={{ fontSize:13 }} value={profile.timezone} onChange={e => setProfile(p=>({...p,timezone:e.target.value}))}>
-                  {['Africa/Cairo','Asia/Dubai','Asia/Riyadh','Europe/London','UTC'].map(z=><option key={z}>{z}</option>)}
-                </select>
-              </Field>
-              <Field label="Language">
-                <select className="input" style={{ fontSize:13 }} value={profile.lang} onChange={e => setProfile(p=>({...p,lang:e.target.value}))}>
-                  <option value="ar">العربية (Arabic)</option>
-                  <option value="en">English</option>
-                </select>
-              </Field>
-            </div>
-            <SaveRow onSave={() => save('Profile updated', { persistUser: true })} saving={saving} />
-          </Section>
+  /* ── Loading gate ────────────────────────────────────────────────────── */
 
-          <Section title="Change Password" sub="Use a strong password of at least 8 characters">
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16 }}>
-              <Field label="Current Password"><input className="input" type="password" placeholder="••••••••" value={pwForm.current} onChange={e=>setPwForm(p=>({...p,current:e.target.value}))} /></Field>
-              <Field label="New Password"><input className="input" type="password" placeholder="••••••••" value={pwForm.next} onChange={e=>setPwForm(p=>({...p,next:e.target.value}))} /></Field>
-              <Field label="Confirm New Password"><input className="input" type="password" placeholder="••••••••" value={pwForm.confirm} onChange={e=>setPwForm(p=>({...p,confirm:e.target.value}))} /></Field>
-            </div>
-            <SaveRow onSave={savePassword} saving={saving} />
-          </Section>
-
-          <Section title="Notification Preferences">
-            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-              <Toggle value={global.soundNotifs} onChange={v=>setGlobal(g=>({...g,soundNotifs:v}))} label="Sound notifications for new messages" />
-              <Toggle value={global.desktopNotifs} onChange={v=>setGlobal(g=>({...g,desktopNotifs:v}))} label="Desktop browser notifications" />
-            </div>
-          </Section>
+  if (loading && Object.keys(settings).length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <RefreshCcw className="h-8 w-8 text-primary animate-spin opacity-20" />
+          <p className="text-[11px] font-medium tracking-widest uppercase text-muted-foreground">Loading…</p>
         </div>
-      );
+      </div>
+    );
+  }
 
-      /* ────── Company Profile ────── */
-      case 'company': return (
-        <div>
-          <Section title="Company Details" sub="This information is used in AI replies and reports">
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
-              <Field label="Company Name"><input className="input" style={{ fontSize:13 }} value={company.name} onChange={e=>setCompany(c=>({...c,name:e.target.value}))} /></Field>
-              <Field label="Business Email"><input className="input" style={{ fontSize:13 }} value={company.email} onChange={e=>setCompany(c=>({...c,email:e.target.value}))} /></Field>
-              <Field label="Phone"><input className="input" style={{ fontSize:13 }} value={company.phone} onChange={e=>setCompany(c=>({...c,phone:e.target.value}))} /></Field>
-              <Field label="Website"><input className="input" style={{ fontSize:13 }} value={company.website} onChange={e=>setCompany(c=>({...c,website:e.target.value}))} /></Field>
-              <Field label="Address" sub="City, Country"><input className="input" style={{ fontSize:13 }} value={company.address} onChange={e=>setCompany(c=>({...c,address:e.target.value}))} /></Field>
-              <Field label="Industry">
-                <select className="input" style={{ fontSize:13 }} value={company.industry} onChange={e=>setCompany(c=>({...c,industry:e.target.value}))}>
-                  {['eCommerce','Fashion','Electronics','Food & Beverage','Real Estate','Services','Other'].map(i=><option key={i}>{i}</option>)}
-                </select>
-              </Field>
-              <Field label="Currency">
-                <select className="input" style={{ fontSize:13 }} value={company.currency} onChange={e=>setCompany(c=>({...c,currency:e.target.value}))}>
-                  {['EGP','USD','AED','SAR','EUR'].map(c=><option key={c}>{c}</option>)}
-                </select>
-              </Field>
-              <Field label="Timezone">
-                <select className="input" style={{ fontSize:13 }} value={company.timezone} onChange={e=>setCompany(c=>({...c,timezone:e.target.value}))}>
-                  {['Africa/Cairo','Asia/Dubai','Asia/Riyadh','UTC'].map(z=><option key={z}>{z}</option>)}
-                </select>
-              </Field>
-            </div>
-            <SaveRow onSave={() => save('Company profile saved')} saving={saving} />
-          </Section>
-        </div>
-      );
+  /* ── Render ──────────────────────────────────────────────────────────── */
 
-      /* ────── Operators ────── */
-      case 'operators': return (
-        <div>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
-            <p style={{ fontSize:13, color:'var(--t4)' }}>{operators.length} operators · {operators.filter(o=>o.status==='online').length} online</p>
-            <button className="btn btn-primary btn-sm" onClick={()=>setInviteModal(true)}>+ Invite Operator</button>
+  /* ── Reusable nav item renderer (shared desktop + mobile) ──────────── */
+  function NavItems({ onSelect }) {
+    return (
+      <div className="space-y-6 pb-20">
+        {STRUCTURE.map(group => (
+          <div key={group.group} className="space-y-0.5">
+            <p className="px-3 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-widest mb-1.5">
+              {group.group}
+            </p>
+            {group.items.map(item => (
+              <button
+                key={item.id}
+                onClick={() => { setActiveId(item.id); onSelect?.(); }}
+                className={cn(
+                  'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all group',
+                  activeId === item.id
+                    ? 'bg-primary/5 text-primary'
+                    : 'text-muted-foreground/80 hover:bg-muted hover:text-foreground',
+                )}
+              >
+                <item.icon className={cn('h-4 w-4 shrink-0', activeId === item.id ? 'text-primary' : 'opacity-40 group-hover:opacity-100')} />
+                <span className="truncate">{item.label}</span>
+                {activeId === item.id && <div className="ml-auto w-1 h-4 bg-primary rounded-full" />}
+              </button>
+            ))}
           </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-            {operators.map(op => (
-              <div key={op.id} style={{ padding:'14px 18px', borderRadius:12, background:'var(--bg2)',
-                border:'1px solid var(--b1)', display:'flex', alignItems:'center', gap:14 }}>
-                <div style={{ width:40, height:40, borderRadius:'50%', flexShrink:0,
-                  background:'linear-gradient(135deg,rgba(99,102,241,0.22),rgba(139,92,246,0.18))',
-                  display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:15 }}>
-                  {op.avatar}
-                </div>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
-                    <span style={{ fontSize:14, fontWeight:600, color:'var(--t1)' }}>{op.name}</span>
-                    <Badge color={op.role==='owner'?'#fbbf24':op.role==='admin'?'#818cf8':'#34d399'}>{op.role}</Badge>
-                    <span style={{ width:7, height:7, borderRadius:'50%', flexShrink:0,
-                      background: op.status==='online'?'#34d399':op.status==='away'?'#fbbf24':'var(--t4)',
-                      display:'inline-block' }} />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full bg-background overflow-hidden">
+
+      {/* Desktop Sidebar — lg and above */}
+      <aside className="w-[268px] border-r bg-card flex-col shrink-0 hidden lg:flex">
+        <header className="h-14 border-b px-6 flex items-center shrink-0 bg-muted/5">
+          <div className="flex items-center gap-3 text-primary">
+            <Settings className="h-4 w-4" />
+            <h1 className="text-sm font-semibold">Settings</h1>
+          </div>
+        </header>
+        <ScrollArea className="flex-1 px-3 py-4">
+          <NavItems />
+        </ScrollArea>
+      </aside>
+
+      {/* Mobile nav Sheet — below lg */}
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent side="left" className="w-[300px] p-0 flex flex-col">
+          <SheetHeader className="bg-muted/5">
+            <div className="flex items-center gap-3 text-primary">
+              <Settings className="h-4 w-4" />
+              <SheetTitle>Settings</SheetTitle>
+            </div>
+          </SheetHeader>
+          <ScrollArea className="flex-1 px-3 py-4">
+            <NavItems onSelect={() => setMobileNavOpen(false)} />
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
+
+      {/* Content */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-muted/5">
+        <header className="h-14 border-b px-4 lg:px-8 flex items-center justify-between shrink-0 bg-background/80 backdrop-blur-md sticky top-0 z-10">
+          <div className="flex items-center gap-3">
+            {/* Mobile menu trigger — hidden on desktop */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 lg:hidden text-muted-foreground hover:text-foreground shrink-0"
+              onClick={() => setMobileNavOpen(true)}
+            >
+              <Menu className="h-5 w-5" />
+              <span className="sr-only">Open navigation</span>
+            </Button>
+            <ActiveIcon className="h-5 w-5 text-primary" />
+            <h2 className="text-sm font-semibold truncate">{activeLabel}</h2>
+          </div>
+          <Badge variant="outline" className="h-6 font-mono text-[10px] opacity-40 shrink-0">STABLE</Badge>
+        </header>
+
+        <ScrollArea className="flex-1">
+          <div className="p-8 max-w-4xl mx-auto pb-40 space-y-8">
+
+            {/* ── 1. MY PROFILE ─────────────────────────────────────────── */}
+            {activeId === 'profile' && (() => {
+              let sessionRole = '';
+              try { sessionRole = JSON.parse(localStorage.getItem('airos_user') || '{}')?.role || ''; } catch { /* ignore */ }
+              return (
+              <div className="space-y-6">
+                <SettingSection title="My Profile" description="Your operator identity and display preferences." onSave={handleSaveSettings} saving={saving}>
+                  <div className="grid grid-cols-2 gap-6">
+                    <Field label="Full Name">
+                      <Input value={settings.profile?.name || ''} onChange={e => updateNested('profile.name', e.target.value)} />
+                    </Field>
+                    <Field label="Work Email">
+                      <Input type="email" value={settings.profile?.email || ''} onChange={e => updateNested('profile.email', e.target.value)} />
+                    </Field>
+                    <Field label="Phone Number">
+                      <Input value={settings.profile?.phone || ''} onChange={e => updateNested('profile.phone', e.target.value)} placeholder="+1 555 000 0000" />
+                    </Field>
+                    <Field label="Job Title">
+                      <Input value={settings.profile?.jobTitle || ''} onChange={e => updateNested('profile.jobTitle', e.target.value)} placeholder="e.g. Support Lead" />
+                    </Field>
+                    <Field label="Timezone">
+                      <Input value={settings.profile?.timezone || ''} onChange={e => updateNested('profile.timezone', e.target.value)} placeholder="e.g. Asia/Dubai" />
+                    </Field>
+                    <Field label="Display Language">
+                      <Select value={settings.profile?.lang || 'en'} onValueChange={v => updateNested('profile.lang', v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="en">English</SelectItem>
+                          <SelectItem value="ar">Arabic</SelectItem>
+                          <SelectItem value="fr">French</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Date Format">
+                      <Select value={settings.profile?.dateFormat || 'DD/MM/YYYY'} onValueChange={v => updateNested('profile.dateFormat', v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
+                          <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
+                          <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Time Format">
+                      <Select value={settings.profile?.timeFormat || '24h'} onValueChange={v => updateNested('profile.timeFormat', v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="12h">12-hour (AM/PM)</SelectItem>
+                          <SelectItem value="24h">24-hour</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    {sessionRole && (
+                      <div className="col-span-2">
+                        <Label className="text-muted-foreground text-xs">Role &amp; Permissions</Label>
+                        <div className="mt-2 flex items-center gap-2">
+                          <Badge variant="outline" className="capitalize">{sessionRole}</Badge>
+                          <span className="text-xs text-muted-foreground">Contact your workspace owner to change role.</span>
+                        </div>
+                      </div>
+                    )}
+                    <div className="col-span-2">
+                      <Field label="Email Signature">
+                        <Textarea
+                          value={settings.profile?.signature || ''}
+                          onChange={e => updateNested('profile.signature', e.target.value)}
+                          placeholder="Appended to outbound emails…"
+                          rows={3}
+                        />
+                      </Field>
+                    </div>
                   </div>
-                  <p style={{ fontSize:12, color:'var(--t4)' }}>{op.email} · {op.dept}</p>
+                </SettingSection>
+
+                {/* Notifications */}
+                <Card className="border shadow-sm bg-card">
+                  <CardHeader className="border-b bg-muted/5">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <CardTitle className="flex items-center gap-2"><Mail className="h-4 w-4 text-muted-foreground" /> Notifications</CardTitle>
+                        <CardDescription>Choose which events trigger email or browser alerts.</CardDescription>
+                      </div>
+                      <Button onClick={handleSaveSettings} disabled={saving} className="h-9 gap-2 px-6 bg-primary font-medium">
+                        <Save className="h-4 w-4" />{saving ? 'Saving…' : 'Save Changes'}
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-8 space-y-0">
+                    {[
+                      { key: 'profile.notif.emailNewMessage',   label: 'Email — New message assigned to me' },
+                      { key: 'profile.notif.emailDailyDigest',  label: 'Email — Daily digest summary' },
+                      { key: 'profile.notif.emailAssigned',     label: 'Email — Conversation assigned to me' },
+                      { key: 'profile.notif.browserNewMessage', label: 'Browser — New message' },
+                      { key: 'profile.notif.browserAssigned',   label: 'Browser — Conversation assigned' },
+                    ].map(({ key, label }) => (
+                      <div key={key} className="flex items-center justify-between py-3 border-b last:border-0">
+                        <span className="text-sm">{label}</span>
+                        <Toggle
+                          value={!!(key.split('.').reduce((o, k) => o?.[k], settings))}
+                          onChange={v => updateNested(key, v)}
+                        />
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                {/* Work Preferences */}
+                <Card className="border shadow-sm bg-card">
+                  <CardHeader className="border-b bg-muted/5">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <CardTitle className="flex items-center gap-2"><Settings className="h-4 w-4 text-muted-foreground" /> Work Preferences</CardTitle>
+                        <CardDescription>Personalise your inbox and chat experience.</CardDescription>
+                      </div>
+                      <Button onClick={handleSaveSettings} disabled={saving} className="h-9 gap-2 px-6 bg-primary font-medium">
+                        <Save className="h-4 w-4" />{saving ? 'Saving…' : 'Save Changes'}
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-8 space-y-0">
+                    {[
+                      { key: 'profile.prefs.soundNotifications', label: 'Sound on new message' },
+                      { key: 'profile.prefs.autoReadOnOpen',     label: 'Mark conversation as read on open' },
+                      { key: 'profile.prefs.compactView',        label: 'Compact conversation list' },
+                    ].map(({ key, label }) => (
+                      <div key={key} className="flex items-center justify-between py-3 border-b last:border-0">
+                        <span className="text-sm">{label}</span>
+                        <Toggle
+                          value={!!(key.split('.').reduce((o, k) => o?.[k], settings))}
+                          onChange={v => updateNested(key, v)}
+                        />
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                {/* Password Change */}
+                <Card className="border shadow-sm bg-card">
+                  <CardHeader className="border-b bg-muted/5">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <CardTitle className="flex items-center gap-2">
+                          <KeyRound className="h-4 w-4 text-muted-foreground" />
+                          Change Password
+                        </CardTitle>
+                        <CardDescription>Choose a strong password of at least 8 characters.</CardDescription>
+                      </div>
+                      <Button onClick={handleChangePassword} disabled={pwSaving} className="h-9 gap-2 px-6 bg-primary font-medium">
+                        <Save className="h-4 w-4" />
+                        {pwSaving ? 'Saving…' : 'Update Password'}
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-8">
+                    <div className="grid grid-cols-1 gap-5 max-w-sm">
+                      <Field label="Current Password">
+                        <Input
+                          type="password"
+                          value={pwForm.current}
+                          onChange={e => setPwForm(f => ({ ...f, current: e.target.value }))}
+                          placeholder="••••••••"
+                          autoComplete="current-password"
+                        />
+                      </Field>
+                      <Field label="New Password">
+                        <Input
+                          type="password"
+                          value={pwForm.next}
+                          onChange={e => setPwForm(f => ({ ...f, next: e.target.value }))}
+                          placeholder="Min. 8 characters"
+                          autoComplete="new-password"
+                        />
+                      </Field>
+                      <Field label="Confirm New Password">
+                        <Input
+                          type="password"
+                          value={pwForm.confirm}
+                          onChange={e => setPwForm(f => ({ ...f, confirm: e.target.value }))}
+                          placeholder="Re-enter new password"
+                          autoComplete="new-password"
+                        />
+                      </Field>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+              );
+            })()}
+
+            {/* ── 2. COMPANY PROFILE ────────────────────────────────────── */}
+            {activeId === 'company' && (
+              <div className="space-y-6">
+                <SettingSection title="Company Profile" description="Business identity and contact details." onSave={handleSaveSettings} saving={saving}>
+                  <div className="grid grid-cols-2 gap-6">
+                    <Field label="Legal / Brand Name">
+                      <Input value={settings.company?.name || ''} onChange={e => updateNested('company.name', e.target.value)} />
+                    </Field>
+                    <Field label="Support Email">
+                      <Input type="email" value={settings.company?.email || ''} onChange={e => updateNested('company.email', e.target.value)} />
+                    </Field>
+                    <Field label="Support Phone">
+                      <Input value={settings.company?.supportPhone || ''} onChange={e => updateNested('company.supportPhone', e.target.value)} placeholder="+1 555 000 0000" />
+                    </Field>
+                    <Field label="Website">
+                      <Input value={settings.company?.website || ''} onChange={e => updateNested('company.website', e.target.value)} placeholder="https://example.com" />
+                    </Field>
+                    <Field label="Industry">
+                      <Input value={settings.company?.industry || ''} onChange={e => updateNested('company.industry', e.target.value)} placeholder="e.g. E-commerce, Retail" />
+                    </Field>
+                    <Field label="Business Type">
+                      <Select value={settings.company?.businessType || 'b2c'} onValueChange={v => updateNested('company.businessType', v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="b2c">B2C — Consumer</SelectItem>
+                          <SelectItem value="b2b">B2B — Business</SelectItem>
+                          <SelectItem value="marketplace">Marketplace</SelectItem>
+                          <SelectItem value="saas">SaaS / Software</SelectItem>
+                          <SelectItem value="services">Services</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Country">
+                      <Input value={settings.company?.country || ''} onChange={e => updateNested('company.country', e.target.value)} placeholder="e.g. Saudi Arabia" />
+                    </Field>
+                    <Field label="City">
+                      <Input value={settings.company?.city || ''} onChange={e => updateNested('company.city', e.target.value)} placeholder="e.g. Riyadh" />
+                    </Field>
+                    <Field label="Address">
+                      <Input value={settings.company?.address || ''} onChange={e => updateNested('company.address', e.target.value)} />
+                    </Field>
+                    <Field label="VAT / Tax Number">
+                      <Input value={settings.company?.vatNumber || ''} onChange={e => updateNested('company.vatNumber', e.target.value)} placeholder="Optional" />
+                    </Field>
+                    <Field label="Timezone">
+                      <Input value={settings.company?.timezone || ''} onChange={e => updateNested('company.timezone', e.target.value)} placeholder="e.g. Asia/Dubai" />
+                    </Field>
+                    <Field label="Currency">
+                      <Input value={settings.company?.currency || ''} onChange={e => updateNested('company.currency', e.target.value)} placeholder="e.g. SAR, AED, USD" />
+                    </Field>
+                    <div className="col-span-2">
+                      <Field label="Company Description">
+                        <Textarea
+                          value={settings.company?.description || ''}
+                          onChange={e => updateNested('company.description', e.target.value)}
+                          placeholder="Brief description of what your business does…"
+                          rows={3}
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                </SettingSection>
+
+                {/* AI Context */}
+                <Card className="border shadow-sm bg-card">
+                  <CardHeader className="border-b bg-muted/5">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <CardTitle className="flex items-center gap-2"><Bot className="h-4 w-4 text-muted-foreground" /> AI Context</CardTitle>
+                        <CardDescription>Shapes the tone and boundaries of every AI reply for this workspace.</CardDescription>
+                      </div>
+                      <Button onClick={handleSaveSettings} disabled={saving} className="h-9 gap-2 px-6 bg-primary font-medium">
+                        <Save className="h-4 w-4" />{saving ? 'Saving…' : 'Save Changes'}
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-8">
+                    <div className="grid grid-cols-2 gap-6">
+                      <Field label="Brand Tone">
+                        <Select value={settings.company?.brandTone || 'professional'} onValueChange={v => updateNested('company.brandTone', v)}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="professional">Professional</SelectItem>
+                            <SelectItem value="friendly">Friendly &amp; Casual</SelectItem>
+                            <SelectItem value="formal">Formal</SelectItem>
+                            <SelectItem value="enthusiastic">Enthusiastic</SelectItem>
+                            <SelectItem value="empathetic">Empathetic</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field label="Default Language">
+                        <Select value={settings.company?.defaultLanguage || 'en'} onValueChange={v => updateNested('company.defaultLanguage', v)}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="en">English</SelectItem>
+                            <SelectItem value="ar">Arabic</SelectItem>
+                            <SelectItem value="fr">French</SelectItem>
+                            <SelectItem value="es">Spanish</SelectItem>
+                            <SelectItem value="tr">Turkish</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <div className="col-span-2">
+                        <Field label="Forbidden Topics / Replies">
+                          <Textarea
+                            value={settings.company?.forbiddenTopics || ''}
+                            onChange={e => updateNested('company.forbiddenTopics', e.target.value)}
+                            placeholder="List topics the AI must never discuss (e.g. competitor prices, refund guarantees)…"
+                            rows={3}
+                          />
+                        </Field>
+                      </div>
+                      <div className="col-span-2">
+                        <Field label="Escalation Rules">
+                          <Textarea
+                            value={settings.company?.escalationRules || ''}
+                            onChange={e => updateNested('company.escalationRules', e.target.value)}
+                            placeholder="When should AI hand off to a human? (e.g. angry customer, complaint about order)…"
+                            rows={3}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Social Links */}
+                <Card className="border shadow-sm bg-card">
+                  <CardHeader className="border-b bg-muted/5">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <CardTitle>Social Links</CardTitle>
+                        <CardDescription>Displayed in chat widgets and email signatures.</CardDescription>
+                      </div>
+                      <Button onClick={handleSaveSettings} disabled={saving} className="h-9 gap-2 px-6 bg-primary font-medium">
+                        <Save className="h-4 w-4" />{saving ? 'Saving…' : 'Save Changes'}
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-8">
+                    <div className="grid grid-cols-2 gap-6">
+                      {[
+                        { key: 'company.social.instagram', label: 'Instagram', placeholder: 'https://instagram.com/yourhandle' },
+                        { key: 'company.social.facebook',  label: 'Facebook',  placeholder: 'https://facebook.com/yourpage' },
+                        { key: 'company.social.twitter',   label: 'X / Twitter', placeholder: 'https://x.com/yourhandle' },
+                        { key: 'company.social.linkedin',  label: 'LinkedIn',  placeholder: 'https://linkedin.com/company/your-co' },
+                      ].map(({ key, label, placeholder }) => (
+                        <Field key={key} label={label}>
+                          <Input
+                            value={key.split('.').reduce((o, k) => o?.[k], settings) || ''}
+                            onChange={e => updateNested(key, e.target.value)}
+                            placeholder={placeholder}
+                          />
+                        </Field>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* ── 3. OPERATORS ──────────────────────────────────────────── */}
+            {activeId === 'operators' && (
+              <div className="space-y-6">
+                <SectionHeader title="Operators" description="Team members who access the platform.">
+                  <Button size="sm" onClick={openInvite} className="h-9 gap-2">
+                    <Plus className="h-3.5 w-3.5" /> Invite Operator
+                  </Button>
+                </SectionHeader>
+                <Card className="border shadow-sm bg-card overflow-hidden">
+                  {team.length === 0 ? (
+                    <EmptyState icon={Users} text="No operators found." />
+                  ) : (
+                    <div className="divide-y">
+                      {/* Header row */}
+                      <div className="px-6 py-2.5 bg-muted/5 grid grid-cols-[2fr_2fr_1fr_1fr_1fr_auto] gap-4 items-center text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                        <span>Name</span>
+                        <span>Email</span>
+                        <span>Department</span>
+                        <span>Role</span>
+                        <span>Status</span>
+                        <span />
+                      </div>
+                      {team.map(m => {
+                        const isVerified = !!m.email_verified_at;
+                        const deptName = m.department || '—';
+                        const joined = m.created_at ? new Date(m.created_at).toLocaleDateString() : '—';
+                        return (
+                          <div key={m.id} className="px-6 py-3 grid grid-cols-[2fr_2fr_1fr_1fr_1fr_auto] gap-4 items-center group hover:bg-muted/5 transition-colors">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center font-semibold text-primary text-sm shrink-0">
+                                {m.name?.[0]?.toUpperCase() || '?'}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm truncate">{m.name}</p>
+                                <p className="text-[10px] text-muted-foreground">Joined {joined}</p>
+                              </div>
+                            </div>
+                            <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+                            <p className="text-xs text-muted-foreground truncate">{deptName}</p>
+                            <Badge variant="outline" className="capitalize text-xs w-fit">{m.role}</Badge>
+                            <Badge
+                              className={cn('text-xs w-fit', isVerified
+                                ? 'bg-emerald-500/10 text-emerald-700 border-emerald-200'
+                                : 'bg-amber-500/10 text-amber-700 border-amber-200')}
+                            >
+                              {isVerified ? 'Active' : 'Invited'}
+                            </Badge>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(m)}>
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDeleteOperator(m.id)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </Card>
+              </div>
+            )}
+
+            {/* ── 4. DEPARTMENTS ────────────────────────────────────────── */}
+            {activeId === 'departments' && (
+              <div className="space-y-6">
+                <SectionHeader title="Departments" description="Specialized support units for routing and reporting.">
+                  <Button size="sm" onClick={() => setActiveData(prev => [...(prev || []), { name: 'New Department', description: '', manager: '', slaTarget: 60, priority: 'normal', active: true }])} className="h-9 gap-2">
+                    <Plus className="h-3.5 w-3.5" /> Add Department
+                  </Button>
+                </SectionHeader>
+                {(!activeData || activeData.length === 0) ? (
+                  <Card className="border"><EmptyState icon={Layers} text="No departments defined." /></Card>
+                ) : (
+                  <div className="space-y-4">
+                    {activeData.map((d, i) => {
+                      const updateDept = (patch) => {
+                        const next = [...activeData];
+                        next[i] = { ...next[i], ...patch };
+                        setActiveData(next);
+                      };
+                      return (
+                        <Card key={i} className="border shadow-sm bg-card">
+                          <CardContent className="p-6 space-y-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-lg bg-primary/5 flex items-center justify-center font-bold text-primary text-sm shrink-0">
+                                {d.name?.[0] || 'D'}
+                              </div>
+                              <Input
+                                value={d.name}
+                                onChange={e => updateDept({ name: e.target.value })}
+                                className="h-9 font-medium max-w-xs"
+                                placeholder="Department name"
+                              />
+                              <Badge
+                                variant={d.active ? 'default' : 'outline'}
+                                className="cursor-pointer ml-auto"
+                                onClick={() => updateDept({ active: !d.active })}
+                              >
+                                {d.active ? 'Active' : 'Inactive'}
+                              </Badge>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="col-span-2">
+                                <Field label="Description">
+                                  <Input
+                                    value={d.description || ''}
+                                    onChange={e => updateDept({ description: e.target.value })}
+                                    placeholder="What this department handles…"
+                                  />
+                                </Field>
+                              </div>
+                              <Field label="Manager">
+                                <Select value={d.manager || '__none__'} onValueChange={v => updateDept({ manager: v === '__none__' ? '' : v })}>
+                                  <SelectTrigger className="h-9"><SelectValue placeholder="None" /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="__none__">None</SelectItem>
+                                    {team.map(m => (
+                                      <SelectItem key={m.id} value={m.id}>{m.name} ({m.role})</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </Field>
+                              <Field label="Priority">
+                                <Select value={d.priority || 'normal'} onValueChange={v => updateDept({ priority: v })}>
+                                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="low">Low</SelectItem>
+                                    <SelectItem value="normal">Normal</SelectItem>
+                                    <SelectItem value="high">High</SelectItem>
+                                    <SelectItem value="urgent">Urgent</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </Field>
+                              <Field label="SLA Target (minutes)">
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={d.slaTarget ?? 60}
+                                  onChange={e => updateDept({ slaTarget: Number(e.target.value) })}
+                                  className="h-9"
+                                />
+                              </Field>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                    <div className="flex justify-end">
+                      <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 font-medium bg-primary px-8">
+                        {saving ? 'Saving…' : 'Save Departments'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── 5. USAGE STATISTICS ───────────────────────────────────── */}
+            {activeId === 'usage' && !usage && (
+              <EmptyState icon={BarChart3} text="Usage data unavailable." />
+            )}
+            {activeId === 'usage' && usage && (
+              <div className="space-y-6">
+                <SectionHeader title="Usage Statistics" description="Live counts across this billing cycle." />
+
+                {/* Plan + billing summary */}
+                <div className="grid grid-cols-3 gap-4">
+                  <Card className="border shadow-sm bg-card">
+                    <CardContent className="p-5 space-y-1">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Current Plan</p>
+                      <p className="text-xl font-bold capitalize">{usage.plan || 'Growth'}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border shadow-sm bg-card">
+                    <CardContent className="p-5 space-y-1">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Cycle Ends</p>
+                      <p className="text-xl font-bold">{usage.cycleEnd || '—'}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border shadow-sm bg-card">
+                    <CardContent className="p-5 space-y-1">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Operators</p>
+                      <p className="text-xl font-bold">{team.length}</p>
+                    </CardContent>
+                  </Card>
                 </div>
-                <div style={{ display:'flex', gap:6 }}>
-                  <button onClick={()=>resetOperatorPassword(op.id)}
-                    style={{ fontSize:12, padding:'4px 10px', borderRadius:8, cursor:'pointer', fontWeight:600,
-                      background:'rgba(6,182,212,0.08)', color:'#67e8f9', border:'1px solid rgba(6,182,212,0.16)' }}>
-                    Reset password
-                  </button>
-                  <select className="input" style={{ fontSize:12, padding:'4px 8px', width:120 }}
-                    value={op.dept || ''}
-                    onChange={e => updateOperatorDept(op.id, e.target.value)}>
-                    <option value="">Unassigned</option>
-                    {depts.map(d=><option key={d.id} value={d.name}>{d.name}</option>)}
-                  </select>
-                  <select className="input" style={{ fontSize:12, padding:'4px 8px', width:90 }}
-                    value={op.role} onChange={e => updateOperatorRole(op.id, e.target.value)}>
-                    {ROLES.map(r=><option key={r}>{r}</option>)}
-                  </select>
-                  {op.role !== 'owner' && (
-                    <button onClick={()=>removeOperator(op.id)}
-                      style={{ fontSize:12, padding:'4px 10px', borderRadius:8, cursor:'pointer', fontWeight:600,
-                        background:'rgba(239,68,68,0.08)', color:'#fca5a5', border:'1px solid rgba(239,68,68,0.15)' }}>
-                      Remove
-                    </button>
+
+                {/* Usage bars */}
+                <Card className="border shadow-sm bg-card">
+                  <CardHeader className="border-b bg-muted/5 pb-4">
+                    <CardTitle className="text-sm font-semibold">Resource Usage</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-8 space-y-6">
+                    <UsageBar label="Conversations" used={usage.conversations?.used || 0} limit={usage.conversations?.limit || 1} />
+                    <UsageBar label="Messages" used={usage.messages?.used || 0} limit={usage.messages?.limit || 1} />
+                    <UsageBar label="AI Replies" used={usage.aiReplies?.used || 0} limit={usage.aiReplies?.limit || 1} />
+                    <UsageBar label="Contacts" used={usage.contacts?.used || 0} limit={usage.contacts?.limit || 1} />
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* ── 6. RECYCLE BIN ────────────────────────────────────────── */}
+            {activeId === 'recycle_bin' && (
+              <div className="space-y-6">
+                <SectionHeader title="Recycle Bin" description="Soft-deleted records. Permanently delete from here.">
+                  {recycle.length > 0 && (
+                    <Button variant="outline" size="sm" className="h-9 gap-2 border-destructive/30 text-destructive hover:bg-destructive/5" onClick={handleClearRecycleBin}>
+                      <Trash2 className="h-3.5 w-3.5" /> Clear All
+                    </Button>
+                  )}
+                </SectionHeader>
+                <Card className="border shadow-sm bg-card overflow-hidden">
+                  {recycle.length === 0 ? (
+                    <EmptyState icon={Trash2} text="Recycle bin is empty." />
+                  ) : (
+                    <div className="divide-y">
+                      {recycle.map(r => (
+                        <div key={r.id} className="p-4 px-6 flex items-center gap-4 group">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">{r.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {r.entityType} · deleted {new Date(r.deletedAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100" onClick={() => handleRemoveRecycleItem(r.id)}>
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              </div>
+            )}
+
+            {/* ── 7. CONVERSATION LAYOUT ────────────────────────────────── */}
+            {activeId === 'layout' && (
+              <SettingSection title="Conversation Layout" description="Chat view density and display preferences." onSave={() => handleSaveActiveData()} saving={saving} loading={sectionLoading}>
+                {activeData && (
+                  <div className="space-y-8">
+                    <div className="grid grid-cols-2 gap-6">
+                      <Field label="Density">
+                        <Select value={activeData.density || 'comfortable'} onValueChange={v => setActiveData(d => ({ ...d, density: v }))}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="compact">Compact</SelectItem>
+                            <SelectItem value="comfortable">Comfortable</SelectItem>
+                            <SelectItem value="spacious">Spacious</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field label="Bubble Style">
+                        <Select value={activeData.bubbleStyle || 'rounded'} onValueChange={v => setActiveData(d => ({ ...d, bubbleStyle: v }))}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="rounded">Rounded</SelectItem>
+                            <SelectItem value="square">Square</SelectItem>
+                            <SelectItem value="flat">Flat</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field label="Agent Bubble Color">
+                        <div className="flex items-center gap-2">
+                          <div className="w-9 h-9 rounded-lg border shrink-0 shadow-sm" style={{ backgroundColor: activeData.agentBubble || '#6366f1' }} />
+                          <Input value={activeData.agentBubble || '#6366f1'} onChange={e => setActiveData(d => ({ ...d, agentBubble: e.target.value }))} />
+                        </div>
+                      </Field>
+                      <Field label="Customer Bubble Color">
+                        <div className="flex items-center gap-2">
+                          <div className="w-9 h-9 rounded-lg border shrink-0 shadow-sm" style={{ backgroundColor: activeData.customerBubble || '#0f172a' }} />
+                          <Input value={activeData.customerBubble || '#0f172a'} onChange={e => setActiveData(d => ({ ...d, customerBubble: e.target.value }))} />
+                        </div>
+                      </Field>
+                    </div>
+                    <div className="space-y-4">
+                      <p className="text-sm font-medium">Display Options</p>
+                      {[
+                        { key: 'showScore',           label: 'Show Lead Score badge' },
+                        { key: 'showIntent',           label: 'Show AI Intent badge' },
+                        { key: 'showChannel',          label: 'Show Channel badge' },
+                        { key: 'showTimestamp',        label: 'Show message timestamps' },
+                        { key: 'showAvatars',          label: 'Show operator avatars in thread' },
+                        { key: 'showReadReceipts',     label: 'Show read receipts' },
+                        { key: 'typingIndicator',      label: 'Show typing indicator' },
+                        { key: 'soundNotifications',   label: 'Sound on new message' },
+                        { key: 'autoScrollToBottom',   label: 'Auto-scroll to latest message on open' },
+                      ].map(({ key, label }) => (
+                        <div key={key} className="flex items-center justify-between py-2 border-b last:border-0">
+                          <span className="text-sm">{label}</span>
+                          <Toggle value={!!activeData[key]} onChange={v => setActiveData(d => ({ ...d, [key]: v }))} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </SettingSection>
+            )}
+
+            {/* ── 8. BRANDS ─────────────────────────────────────────────── */}
+            {activeId === 'brands' && (
+              <div className="space-y-6">
+                <SectionHeader title="Brands" description="Visual identities and AI personalities for each brand you operate.">
+                  <Button size="sm" onClick={() => setActiveData(prev => [...(prev || []), {
+                    name: 'New Brand', slug: '', color: '#6366f1', secondaryColor: '#8b5cf6',
+                    tone: 'professional', lang: 'en', rtl: false, active: true, status: 'active',
+                    website: '', email: '', phone: '', country: '',
+                    forbiddenPhrases: '', vipHandling: '', complaintStyle: '',
+                  }])} className="h-9 gap-2">
+                    <Plus className="h-3.5 w-3.5" /> Add Brand
+                  </Button>
+                </SectionHeader>
+                {(!activeData || activeData.length === 0) ? (
+                  <Card className="border">
+                    <EmptyState icon={Palette} text="No brands. AI uses tenant default identity." />
+                  </Card>
+                ) : activeData.map((brand, i) => {
+                  function updateBrand(patch) {
+                    const next = [...activeData]; next[i] = { ...next[i], ...patch }; setActiveData(next);
+                  }
+                  return (
+                    <Card key={i} className="border shadow-sm bg-card">
+                      {/* Card header with color swatch + name + status + delete */}
+                      <CardHeader className="border-b bg-muted/5 pb-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl border-2 shadow-sm flex-shrink-0" style={{ backgroundColor: brand.color || '#6366f1' }} />
+                            <div>
+                              <p className="font-semibold text-sm">{brand.name || 'Untitled Brand'}</p>
+                              {brand.slug && <p className="text-xs text-muted-foreground font-mono">/{brand.slug}</p>}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={brand.active ? 'default' : 'outline'}
+                              className="cursor-pointer select-none"
+                              onClick={() => updateBrand({ active: !brand.active })}
+                            >
+                              {brand.active ? 'Active' : 'Inactive'}
+                            </Badge>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="p-6 space-y-6">
+
+                        {/* ── Identity ── */}
+                        <div>
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">Identity</p>
+                          <div className="grid grid-cols-2 gap-4">
+                            <Field label="Display Name">
+                              <Input value={brand.name || ''} onChange={e => updateBrand({ name: e.target.value })} />
+                            </Field>
+                            <Field label="Slug">
+                              <Input value={brand.slug || ''} onChange={e => updateBrand({ slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })} placeholder="my-brand" />
+                            </Field>
+                            <Field label="Website">
+                              <Input value={brand.website || ''} onChange={e => updateBrand({ website: e.target.value })} placeholder="https://brand.com" />
+                            </Field>
+                            <Field label="Contact Email">
+                              <Input type="email" value={brand.email || ''} onChange={e => updateBrand({ email: e.target.value })} placeholder="support@brand.com" />
+                            </Field>
+                            <Field label="Phone">
+                              <Input value={brand.phone || ''} onChange={e => updateBrand({ phone: e.target.value })} placeholder="+1 555 000 0000" />
+                            </Field>
+                            <Field label="Country">
+                              <Input value={brand.country || ''} onChange={e => updateBrand({ country: e.target.value })} placeholder="e.g. Saudi Arabia" />
+                            </Field>
+                          </div>
+                        </div>
+
+                        {/* ── Visual Identity ── */}
+                        <div>
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">Visual Identity</p>
+                          <div className="grid grid-cols-2 gap-4">
+                            <Field label="Primary Color">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="color"
+                                  value={brand.color || '#6366f1'}
+                                  onChange={e => updateBrand({ color: e.target.value })}
+                                  className="h-9 w-9 cursor-pointer rounded border border-input bg-background p-0.5 flex-shrink-0"
+                                />
+                                <Input value={brand.color || '#6366f1'} onChange={e => updateBrand({ color: e.target.value })} className="font-mono" />
+                              </div>
+                            </Field>
+                            <Field label="Secondary Color">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="color"
+                                  value={brand.secondaryColor || '#8b5cf6'}
+                                  onChange={e => updateBrand({ secondaryColor: e.target.value })}
+                                  className="h-9 w-9 cursor-pointer rounded border border-input bg-background p-0.5 flex-shrink-0"
+                                />
+                                <Input value={brand.secondaryColor || '#8b5cf6'} onChange={e => updateBrand({ secondaryColor: e.target.value })} className="font-mono" />
+                              </div>
+                            </Field>
+                          </div>
+                        </div>
+
+                        {/* ── Language ── */}
+                        <div>
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">Language</p>
+                          <div className="grid grid-cols-2 gap-4">
+                            <Field label="Primary Language">
+                              <Select value={brand.lang || 'en'} onValueChange={v => updateBrand({ lang: v })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="en">English</SelectItem>
+                                  <SelectItem value="ar">Arabic</SelectItem>
+                                  <SelectItem value="fr">French</SelectItem>
+                                  <SelectItem value="es">Spanish</SelectItem>
+                                  <SelectItem value="tr">Turkish</SelectItem>
+                                  <SelectItem value="de">German</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </Field>
+                            <div className="flex items-center justify-between pt-6">
+                              <div>
+                                <p className="text-sm font-medium">Right-to-left (RTL)</p>
+                                <p className="text-xs text-muted-foreground">Enable for Arabic, Hebrew, etc.</p>
+                              </div>
+                              <Toggle value={!!brand.rtl} onChange={v => updateBrand({ rtl: v })} />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* ── AI Personality ── */}
+                        <div>
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-1">AI Personality</p>
+                          <p className="text-[11px] text-muted-foreground mb-3">Tone and language are used live by the AI engine. Other fields stored for future use.</p>
+                          <div className="grid grid-cols-2 gap-4">
+                            <Field label="Tone">
+                              <Select value={brand.tone || 'professional'} onValueChange={v => updateBrand({ tone: v })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="professional">Professional</SelectItem>
+                                  <SelectItem value="friendly">Friendly &amp; Casual</SelectItem>
+                                  <SelectItem value="formal">Formal</SelectItem>
+                                  <SelectItem value="casual">Casual</SelectItem>
+                                  <SelectItem value="enthusiastic">Enthusiastic</SelectItem>
+                                  <SelectItem value="empathetic">Empathetic</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </Field>
+                            <Field label="Complaint Handling Style">
+                              <Select value={brand.complaintStyle || '__none__'} onValueChange={v => updateBrand({ complaintStyle: v === '__none__' ? '' : v })}>
+                                <SelectTrigger><SelectValue placeholder="Default" /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__none__">Default</SelectItem>
+                                  <SelectItem value="apologetic">Apologetic &amp; empathetic</SelectItem>
+                                  <SelectItem value="direct">Direct &amp; solution-focused</SelectItem>
+                                  <SelectItem value="escalate">Always escalate to human</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </Field>
+                            <div className="col-span-2">
+                              <Field label="Forbidden Phrases">
+                                <Textarea
+                                  value={brand.forbiddenPhrases || ''}
+                                  onChange={e => updateBrand({ forbiddenPhrases: e.target.value })}
+                                  placeholder="Words or phrases this brand's AI must never say (one per line)…"
+                                  rows={3}
+                                />
+                              </Field>
+                            </div>
+                            <div className="col-span-2">
+                              <Field label="VIP Customer Handling">
+                                <Textarea
+                                  value={brand.vipHandling || ''}
+                                  onChange={e => updateBrand({ vipHandling: e.target.value })}
+                                  placeholder="Special instructions for high-value or VIP customers…"
+                                  rows={2}
+                                />
+                              </Field>
+                            </div>
+                          </div>
+                        </div>
+
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+                {activeData?.length > 0 && (
+                  <div className="flex justify-end">
+                    <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                      {saving ? 'Saving…' : 'Save Brands'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── 9. GLOBAL SETTINGS ────────────────────────────────────── */}
+            {activeId === 'global' && (
+              <div className="space-y-6">
+                {/* Workspace Defaults */}
+                <SettingSection title="Workspace Defaults" description="Locale, currency and calendar preferences for the whole workspace." onSave={handleSaveSettings} saving={saving}>
+                  <div className="grid grid-cols-2 gap-6">
+                    <Field label="Default Language">
+                      <Select value={settings.global?.defaultLang || 'ar'} onValueChange={v => updateNested('global.defaultLang', v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="en">English</SelectItem>
+                          <SelectItem value="ar">Arabic</SelectItem>
+                          <SelectItem value="fr">French</SelectItem>
+                          <SelectItem value="es">Spanish</SelectItem>
+                          <SelectItem value="tr">Turkish</SelectItem>
+                          <SelectItem value="de">German</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Timezone">
+                      <Input value={settings.global?.timezone || ''} onChange={e => updateNested('global.timezone', e.target.value)} placeholder="e.g. Asia/Dubai" />
+                    </Field>
+                    <Field label="Currency">
+                      <Select value={settings.global?.currency || 'USD'} onValueChange={v => updateNested('global.currency', v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="USD">USD — US Dollar</SelectItem>
+                          <SelectItem value="EUR">EUR — Euro</SelectItem>
+                          <SelectItem value="GBP">GBP — British Pound</SelectItem>
+                          <SelectItem value="SAR">SAR — Saudi Riyal</SelectItem>
+                          <SelectItem value="AED">AED — UAE Dirham</SelectItem>
+                          <SelectItem value="EGP">EGP — Egyptian Pound</SelectItem>
+                          <SelectItem value="MAD">MAD — Moroccan Dirham</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Week Starts On">
+                      <Select value={settings.global?.weekStart || 'Mon'} onValueChange={v => updateNested('global.weekStart', v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Mon">Monday</SelectItem>
+                          <SelectItem value="Sun">Sunday</SelectItem>
+                          <SelectItem value="Sat">Saturday</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Date Format">
+                      <Select value={settings.global?.dateFormat || 'DD/MM/YYYY'} onValueChange={v => updateNested('global.dateFormat', v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
+                          <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
+                          <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  </div>
+                </SettingSection>
+
+                {/* Working Hours */}
+                <SettingSection title="Working Hours" description="AI and auto-responses respect these hours for your team's availability." onSave={handleSaveSettings} saving={saving}>
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-6">
+                      <Field label="Working Hours From">
+                        <Input type="time" value={settings.global?.workStart || '09:00'} onChange={e => updateNested('global.workStart', e.target.value)} />
+                      </Field>
+                      <Field label="Working Hours To">
+                        <Input type="time" value={settings.global?.workEnd || '18:00'} onChange={e => updateNested('global.workEnd', e.target.value)} />
+                      </Field>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Working Days</p>
+                      <div className="flex flex-wrap gap-2">
+                        {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => {
+                          const active = (settings.global?.workDays || []).includes(d);
+                          return (
+                            <button key={d} type="button" onClick={() => {
+                              const current = settings.global?.workDays || [];
+                              updateNested('global.workDays', active ? current.filter(x => x !== d) : [...current, d]);
+                            }} className={cn('h-8 w-12 rounded-lg text-xs font-medium border transition-colors', active ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground hover:border-primary/50')}>
+                              {d}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="space-y-0">
+                      {[
+                        { key: 'global.autoClose',   label: 'Auto-close inactive conversations', desc: `After ${settings.global?.autoCloseHours ?? 48}h of inactivity` },
+                        { key: 'global.workingHours', label: 'Enforce working hours',              desc: 'AI and bot reply only within working hours' },
+                        { key: 'global.soundNotifs',  label: 'Sound notifications',                desc: 'Play a sound on incoming messages' },
+                        { key: 'global.desktopNotifs',label: 'Desktop notifications',              desc: 'Show browser push notifications' },
+                      ].map(({ key, label, desc }) => (
+                        <div key={key} className="flex items-center justify-between py-3 border-b last:border-0">
+                          <div>
+                            <p className="text-sm font-medium">{label}</p>
+                            {desc && <p className="text-xs text-muted-foreground">{desc}</p>}
+                          </div>
+                          <Toggle value={!!key.split('.').reduce((o, k) => o?.[k], settings)} onChange={v => updateNested(key, v)} />
+                        </div>
+                      ))}
+                    </div>
+                    <Field label="Auto-close After (hours)">
+                      <Input type="number" min={1} max={720} className="max-w-[140px]" value={settings.global?.autoCloseHours ?? 48} onChange={e => updateNested('global.autoCloseHours', parseInt(e.target.value) || 48)} />
+                    </Field>
+                  </div>
+                </SettingSection>
+
+                {/* Conversation Defaults */}
+                <SettingSection title="Conversation Defaults" description="Behaviour applied when a new conversation opens." onSave={handleSaveSettings} saving={saving}>
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-6">
+                      <Field label="Default Priority">
+                        <Select value={settings.global?.defaultPriority || 'normal'} onValueChange={v => updateNested('global.defaultPriority', v)}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="low">Low</SelectItem>
+                            <SelectItem value="normal">Normal</SelectItem>
+                            <SelectItem value="high">High</SelectItem>
+                            <SelectItem value="urgent">Urgent</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    </div>
+                    <div className="space-y-0">
+                      {[
+                        { key: 'global.assignBot',    label: 'Auto-assign AI bot',    desc: 'New conversations are assigned to the AI bot immediately' },
+                        { key: 'global.autoAssign',   label: 'Auto-assign to agent',  desc: 'Round-robin assignment to available agents' },
+                        { key: 'global.autoTagging',  label: 'AI auto-tagging',        desc: 'AI suggests and applies tags based on conversation content' },
+                      ].map(({ key, label, desc }) => (
+                        <div key={key} className="flex items-center justify-between py-3 border-b last:border-0">
+                          <div>
+                            <p className="text-sm font-medium">{label}</p>
+                            {desc && <p className="text-xs text-muted-foreground">{desc}</p>}
+                          </div>
+                          <Toggle value={!!key.split('.').reduce((o, k) => o?.[k], settings)} onChange={v => updateNested(key, v)} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </SettingSection>
+
+                {/* AI Global Rules */}
+                <SettingSection title="AI Global Rules" description="Platform-wide constraints applied to every AI reply." onSave={handleSaveSettings} saving={saving}>
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-6">
+                      <Field label="Escalation Score Threshold">
+                        <Input
+                          type="number" min={0} max={100}
+                          value={settings.global?.aiEscalationThreshold ?? 80}
+                          onChange={e => updateNested('global.aiEscalationThreshold', parseInt(e.target.value) || 80)}
+                          placeholder="0–100"
+                        />
+                      </Field>
+                      <Field label="Min Score for Qualified Lead">
+                        <Input
+                          type="number" min={0} max={100}
+                          value={settings.global?.minScoreForQualification ?? 60}
+                          onChange={e => updateNested('global.minScoreForQualification', parseInt(e.target.value) || 60)}
+                          placeholder="0–100"
+                        />
+                      </Field>
+                    </div>
+                    <div className="space-y-0">
+                      {[
+                        { key: 'global.aiEnabled',              label: 'AI Replies Enabled',              desc: 'Master switch — disabling stops all AI auto-replies' },
+                        { key: 'global.humanApprovalRequired',  label: 'Human Approval Required',          desc: 'Every AI reply must be approved by an agent before sending' },
+                        { key: 'global.autoCreateLead',         label: 'Auto-create Lead from Contact',    desc: 'Automatically create a deal when a new customer is scored' },
+                      ].map(({ key, label, desc }) => (
+                        <div key={key} className="flex items-center justify-between py-3 border-b last:border-0">
+                          <div>
+                            <p className="text-sm font-medium">{label}</p>
+                            {desc && <p className="text-xs text-muted-foreground">{desc}</p>}
+                          </div>
+                          <Toggle value={!!key.split('.').reduce((o, k) => o?.[k], settings)} onChange={v => updateNested(key, v)} />
+                        </div>
+                      ))}
+                    </div>
+                    <Field label="Global Forbidden Topics">
+                      <Textarea
+                        value={settings.global?.globalForbiddenTopics || ''}
+                        onChange={e => updateNested('global.globalForbiddenTopics', e.target.value)}
+                        placeholder="Topics the AI must never discuss across all brands (e.g. competitor pricing, medical advice)…"
+                        rows={3}
+                      />
+                    </Field>
+                  </div>
+                </SettingSection>
+              </div>
+            )}
+
+            {/* ── 10. EMAIL TEMPLATES ───────────────────────────────────── */}
+            {activeId === 'email_tpl' && (
+              <div className="space-y-6">
+                <SectionHeader title="Email Templates" description="Reusable email bodies for notifications and reports.">
+                  <Button size="sm" onClick={() => setActiveData(prev => [
+                    ...(prev || []),
+                    { id: `tpl_${Date.now()}`, name: 'New Template', subject: '', body: '', category: 'system', event: '', status: 'draft' },
+                  ])} className="h-9 gap-2">
+                    <Plus className="h-3.5 w-3.5" /> Add Template
+                  </Button>
+                </SectionHeader>
+
+                {/* Variables reference */}
+                <Card className="border bg-muted/20">
+                  <CardContent className="p-4">
+                    <p className="text-xs font-semibold text-muted-foreground mb-2">Available variables</p>
+                    <div className="flex flex-wrap gap-2">
+                      {['{{operator_name}}','{{company_name}}','{{customer}}','{{agent}}','{{date}}'].map(v => (
+                        <code key={v} className="px-2 py-0.5 rounded bg-background border text-xs font-mono text-muted-foreground">{v}</code>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {(!activeData || activeData.length === 0) ? (
+                  <Card className="border"><EmptyState icon={Mail} text="No email templates configured." /></Card>
+                ) : activeData.map((tpl, i) => (
+                  <Card key={i} className="border shadow-sm bg-card">
+                    <CardContent className="p-6 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-sm">{tpl.name || 'Untitled'}</p>
+                          <Badge variant={tpl.status === 'active' ? 'default' : 'outline'} className="text-[10px]">
+                            {tpl.status === 'active' ? 'Active' : 'Draft'}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1.5 text-xs"
+                            disabled={tplTestSending === i || !tpl.subject || !tpl.body}
+                            onClick={() => handleTestSendTemplate(tpl, i)}
+                          >
+                            {tplTestSending === i ? <RefreshCcw className="h-3 w-3 animate-spin" /> : <Mail className="h-3 w-3" />}
+                            {tplTestSending === i ? 'Sending…' : 'Test Send'}
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Field label="Template Name">
+                          <Input value={tpl.name} onChange={e => {
+                            const next = [...activeData]; next[i] = { ...next[i], name: e.target.value }; setActiveData(next);
+                          }} />
+                        </Field>
+                        <Field label="Status">
+                          <Select value={tpl.status || 'draft'} onValueChange={v => {
+                            const next = [...activeData]; next[i] = { ...next[i], status: v }; setActiveData(next);
+                          }}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="active">Active</SelectItem>
+                              <SelectItem value="draft">Draft</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                        <Field label="Category">
+                          <Select value={tpl.category || 'system'} onValueChange={v => {
+                            const next = [...activeData]; next[i] = { ...next[i], category: v }; setActiveData(next);
+                          }}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="system">System</SelectItem>
+                              <SelectItem value="marketing">Marketing</SelectItem>
+                              <SelectItem value="support">Support</SelectItem>
+                              <SelectItem value="report">Report</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                        <Field label="Trigger Event">
+                          <Select value={tpl.event || '__none__'} onValueChange={v => {
+                            const next = [...activeData]; next[i] = { ...next[i], event: v === '__none__' ? '' : v }; setActiveData(next);
+                          }}>
+                            <SelectTrigger><SelectValue placeholder="Select event…" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">None (manual)</SelectItem>
+                              <SelectItem value="new_ticket">New Ticket Created</SelectItem>
+                              <SelectItem value="ticket_resolved">Ticket Resolved</SelectItem>
+                              <SelectItem value="conversation_closed">Conversation Closed</SelectItem>
+                              <SelectItem value="lead_qualified">Lead Qualified</SelectItem>
+                              <SelectItem value="daily_digest">Daily Digest</SelectItem>
+                              <SelectItem value="scheduled_report">Scheduled Report</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      </div>
+                      <Field label="Subject">
+                        <Input value={tpl.subject} onChange={e => {
+                          const next = [...activeData]; next[i] = { ...next[i], subject: e.target.value }; setActiveData(next);
+                        }} placeholder="Email subject line — supports {{variables}}" />
+                      </Field>
+                      <Field label="Body">
+                        <Textarea rows={6} value={tpl.body} onChange={e => {
+                          const next = [...activeData]; next[i] = { ...next[i], body: e.target.value }; setActiveData(next);
+                        }} placeholder="Email body. Use {{operator_name}}, {{company_name}}, {{customer}}, {{agent}}, {{date}} as placeholders." className="font-mono text-sm" />
+                      </Field>
+                    </CardContent>
+                  </Card>
+                ))}
+                {activeData?.length > 0 && (
+                  <div className="flex justify-end">
+                    <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                      {saving ? 'Saving…' : 'Save Templates'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── 11. PROFANITY LIBRARY ─────────────────────────────────── */}
+            {activeId === 'profanity' && (
+              <div className="space-y-6">
+                <SettingSection title="Profanity Library" description="Words and phrases that trigger moderation actions in incoming messages." onSave={() => handleSaveActiveData()} saving={saving} loading={sectionLoading}>
+                  {activeData && (
+                    <div className="space-y-6">
+                      {/* Add word row */}
+                      <div className="p-4 border rounded-lg bg-muted/20 space-y-3">
+                        <p className="text-sm font-medium">Add Word or Phrase</p>
+                        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-end">
+                          <Field label="Word / Phrase">
+                            <Input
+                              value={wordInput}
+                              onChange={e => setWordInput(e.target.value)}
+                              placeholder="e.g. profanity, slur…"
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' && wordInput.trim()) {
+                                  const w = wordInput.trim().toLowerCase();
+                                  if (!(activeData.words || []).includes(w)) {
+                                    const wordMeta = { ...(activeData.controls?.wordMeta || {}) };
+                                    wordMeta[w] = { severity: wordSeverity, action: wordAction };
+                                    setActiveData(d => ({
+                                      ...d,
+                                      words: [...(d.words || []), w],
+                                      controls: { ...(d.controls || {}), wordMeta },
+                                    }));
+                                  }
+                                  setWordInput('');
+                                }
+                              }}
+                            />
+                          </Field>
+                          <Field label="Severity">
+                            <Select value={wordSeverity} onValueChange={setWordSeverity}>
+                              <SelectTrigger className="w-[110px]"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="low">Low</SelectItem>
+                                <SelectItem value="medium">Medium</SelectItem>
+                                <SelectItem value="high">High</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                          <Field label="Action">
+                            <Select value={wordAction} onValueChange={setWordAction}>
+                              <SelectTrigger className="w-[110px]"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="flag">Flag</SelectItem>
+                                <SelectItem value="block">Block</SelectItem>
+                                <SelectItem value="review">Review</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                          <Button
+                            className="h-9"
+                            onClick={() => {
+                              const w = wordInput.trim().toLowerCase();
+                              if (!w || (activeData.words || []).includes(w)) { setWordInput(''); return; }
+                              const wordMeta = { ...(activeData.controls?.wordMeta || {}) };
+                              wordMeta[w] = { severity: wordSeverity, action: wordAction };
+                              setActiveData(d => ({
+                                ...d,
+                                words: [...(d.words || []), w],
+                                controls: { ...(d.controls || {}), wordMeta },
+                              }));
+                              setWordInput('');
+                            }}
+                          >
+                            <Plus className="h-3.5 w-3.5 mr-1" /> Add
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Word list */}
+                      {(activeData.words || []).length === 0 ? (
+                        <EmptyState icon={ShieldAlert} text="No blocked words. Add words above to start filtering." />
+                      ) : (
+                        <div className="space-y-1">
+                          <div className="grid grid-cols-[1fr_100px_100px_36px] gap-3 px-3 pb-2 text-[11px] font-medium text-muted-foreground uppercase tracking-wide border-b">
+                            <span>Word / Phrase</span>
+                            <span>Severity</span>
+                            <span>Action</span>
+                            <span></span>
+                          </div>
+                          {(activeData.words || []).map((word, wi) => {
+                            const meta = activeData.controls?.wordMeta?.[word] || {};
+                            const severityColor = meta.severity === 'high' ? 'text-destructive' : meta.severity === 'medium' ? 'text-amber-600' : 'text-muted-foreground';
+                            return (
+                              <div key={wi} className="grid grid-cols-[1fr_100px_100px_36px] gap-3 items-center px-3 py-2 rounded-lg hover:bg-muted/30">
+                                <span className="text-sm font-mono">{word}</span>
+                                <Select value={meta.severity || 'medium'} onValueChange={v => {
+                                  const wordMeta = { ...(activeData.controls?.wordMeta || {}) };
+                                  wordMeta[word] = { ...wordMeta[word], severity: v };
+                                  setActiveData(d => ({ ...d, controls: { ...(d.controls || {}), wordMeta } }));
+                                }}>
+                                  <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="low">Low</SelectItem>
+                                    <SelectItem value="medium">Medium</SelectItem>
+                                    <SelectItem value="high">High</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <Select value={meta.action || 'flag'} onValueChange={v => {
+                                  const wordMeta = { ...(activeData.controls?.wordMeta || {}) };
+                                  wordMeta[word] = { ...wordMeta[word], action: v };
+                                  setActiveData(d => ({ ...d, controls: { ...(d.controls || {}), wordMeta } }));
+                                }}>
+                                  <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="flag">Flag</SelectItem>
+                                    <SelectItem value="block">Block</SelectItem>
+                                    <SelectItem value="review">Review</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => {
+                                  const wordMeta = { ...(activeData.controls?.wordMeta || {}) };
+                                  delete wordMeta[word];
+                                  setActiveData(d => ({
+                                    ...d,
+                                    words: (d.words || []).filter(w => w !== word),
+                                    controls: { ...(d.controls || {}), wordMeta },
+                                  }));
+                                }}>
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            );
+                          })}
+                          <p className="text-xs text-muted-foreground px-3 pt-2">{(activeData.words || []).length} word{(activeData.words || []).length !== 1 ? 's' : ''} in library</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </SettingSection>
+
+                {/* Controls card */}
+                {activeData && (
+                  <Card className="border shadow-sm bg-card">
+                    <CardHeader className="border-b bg-muted/5">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <CardTitle className="flex items-center gap-2"><ShieldAlert className="h-4 w-4 text-muted-foreground" /> Enforcement Controls</CardTitle>
+                          <CardDescription>What happens when a blocked word is detected</CardDescription>
+                        </div>
+                        <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 gap-2 px-6 bg-primary font-medium">
+                          <Save className="h-4 w-4" />{saving ? 'Saving…' : 'Save Changes'}
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-8 space-y-0">
+                      {[
+                        { key: 'flagForReview',       label: 'Flag for review',              desc: 'Route conversations containing blocked words to manual review' },
+                        { key: 'autoBlockAfterThree', label: 'Auto-block after 3 violations', desc: 'Add customer to spammers list after 3 profanity detections' },
+                      ].map(({ key, label, desc }) => (
+                        <div key={key} className="flex items-center justify-between py-3 border-b last:border-0">
+                          <div>
+                            <p className="text-sm font-medium">{label}</p>
+                            <p className="text-xs text-muted-foreground">{desc}</p>
+                          </div>
+                          <Toggle value={!!activeData.controls?.[key]} onChange={v => setActiveData(d => ({ ...d, controls: { ...(d.controls || {}), [key]: v } }))} />
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
+
+            {/* ── 12. TAGS ──────────────────────────────────────────────── */}
+            {activeId === 'tags' && (
+              <div className="space-y-6">
+                <SettingSection title="Tags" description="Labels applied to customers and conversations. Tags are searchable and filterable across the platform." onSave={handleSaveTags} saving={saving}>
+                  <div className="space-y-6">
+                    {/* Add tag form */}
+                    <div className="p-4 border rounded-lg bg-muted/20 space-y-3">
+                      <p className="text-sm font-medium">Add New Tag</p>
+                      <div className="grid grid-cols-[1fr_auto_1fr_1fr] gap-3 items-end">
+                        <Field label="Tag Name">
+                          <Input
+                            placeholder="e.g. vip, hot-lead…"
+                            value={tagInput}
+                            onChange={e => setTagInput(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' && tagInput.trim()) {
+                                const t = tagInput.trim().toLowerCase().replace(/\s+/g, '-');
+                                if (!(settings.tags || []).includes(t)) {
+                                  updateNested('tags', [...(settings.tags || []), t]);
+                                  setTagMeta(prev => ({ ...prev, [t]: { color: tagColor, category: tagCategory, description: tagDesc } }));
+                                }
+                                setTagInput('');
+                              }
+                            }}
+                          />
+                        </Field>
+                        <Field label="Color">
+                          <input
+                            type="color"
+                            value={tagColor}
+                            onChange={e => setTagColor(e.target.value)}
+                            className="h-9 w-9 cursor-pointer rounded border border-input bg-background p-0.5"
+                          />
+                        </Field>
+                        <Field label="Category">
+                          <Select value={tagCategory || '__none__'} onValueChange={v => setTagCategory(v === '__none__' ? '' : v)}>
+                            <SelectTrigger><SelectValue placeholder="Category…" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">None</SelectItem>
+                              <SelectItem value="lead">Lead</SelectItem>
+                              <SelectItem value="support">Support</SelectItem>
+                              <SelectItem value="segment">Segment</SelectItem>
+                              <SelectItem value="campaign">Campaign</SelectItem>
+                              <SelectItem value="other">Other</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                        <Button
+                          onClick={() => {
+                            const t = tagInput.trim().toLowerCase().replace(/\s+/g, '-');
+                            if (!t || (settings.tags || []).includes(t)) { setTagInput(''); return; }
+                            updateNested('tags', [...(settings.tags || []), t]);
+                            setTagMeta(prev => ({ ...prev, [t]: { color: tagColor, category: tagCategory, description: tagDesc } }));
+                            setTagInput('');
+                          }}
+                          className="h-9"
+                        >
+                          <Plus className="h-3.5 w-3.5 mr-1" /> Add
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Tag list */}
+                    {(settings.tags || []).length === 0 ? (
+                      <EmptyState icon={TagsIcon} text="No tags yet. Add your first tag above." />
+                    ) : (
+                      <div className="space-y-1">
+                        <div className="grid grid-cols-[auto_1fr_100px_36px] gap-3 px-3 pb-2 text-[11px] font-medium text-muted-foreground uppercase tracking-wide border-b">
+                          <span>Color</span>
+                          <span>Tag Name / Description</span>
+                          <span>Category</span>
+                          <span></span>
+                        </div>
+                        {(settings.tags || []).map((tag, ti) => {
+                          const meta = tagMeta[tag] || {};
+                          return (
+                            <div key={ti} className="grid grid-cols-[auto_1fr_100px_36px] gap-3 items-center px-3 py-2 rounded-lg hover:bg-muted/30 group">
+                              <input
+                                type="color"
+                                value={meta.color || '#6366f1'}
+                                onChange={e => setTagMeta(prev => ({ ...prev, [tag]: { ...prev[tag], color: e.target.value } }))}
+                                className="h-7 w-7 cursor-pointer rounded border border-input bg-background p-0.5"
+                              />
+                              <div className="space-y-0.5 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-white"
+                                    style={{ backgroundColor: meta.color || '#6366f1' }}>
+                                    {tag}
+                                  </span>
+                                </div>
+                                <Input
+                                  className="h-6 text-xs border-0 bg-transparent p-0 text-muted-foreground focus-visible:ring-0 placeholder:text-muted-foreground/40"
+                                  placeholder="Add a description…"
+                                  value={meta.description || ''}
+                                  onChange={e => setTagMeta(prev => ({ ...prev, [tag]: { ...prev[tag], description: e.target.value } }))}
+                                />
+                              </div>
+                              <Select value={meta.category || '__none__'} onValueChange={v => setTagMeta(prev => ({ ...prev, [tag]: { ...prev[tag], category: v === '__none__' ? '' : v } }))}>
+                                <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__none__">—</SelectItem>
+                                  <SelectItem value="lead">Lead</SelectItem>
+                                  <SelectItem value="support">Support</SelectItem>
+                                  <SelectItem value="segment">Segment</SelectItem>
+                                  <SelectItem value="campaign">Campaign</SelectItem>
+                                  <SelectItem value="other">Other</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => {
+                                updateNested('tags', (settings.tags || []).filter(t => t !== tag));
+                                setTagMeta(prev => { const n = { ...prev }; delete n[tag]; return n; });
+                              }}>
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          );
+                        })}
+                        <p className="text-xs text-muted-foreground px-3 pt-2">{(settings.tags || []).length} tag{(settings.tags || []).length !== 1 ? 's' : ''} in library</p>
+                      </div>
+                    )}
+                  </div>
+                </SettingSection>
+              </div>
+            )}
+
+            {/* ── 13-16. MESSAGING CHANNELS ─────────────────────────────── */}
+            {['ch_messenger', 'ch_livechat', 'ch_instagram', 'ch_whatsapp'].includes(activeId) && (() => {
+              const CH_LABELS = { ch_messenger: 'Facebook Messenger', ch_livechat: 'Live Chat', ch_instagram: 'Instagram', ch_whatsapp: 'WhatsApp' };
+              const channelKey = CH_SECTION_MAP[activeId];
+              const label = CH_LABELS[activeId];
+              const rec = channelRecord(channelKey);
+              const cfg = chConfig;
+
+              function upCfg(key, val) { setChConfig(prev => ({ ...prev, [key]: val })); }
+
+              function formatTs(iso) {
+                if (!iso) return 'Never';
+                try { return new Date(iso).toLocaleString(); } catch { return '—'; }
+              }
+
+              const chBrands = Array.isArray(settings.brands) ? settings.brands : [];
+              const chDepts = Array.isArray(depts) ? depts : [];
+              const chOps = Array.isArray(team) ? team : [];
+
+              // normalizeChannelConnection: single source of truth for connection status.
+              // Uses channel_connections.status — never derives from credential decryption.
+              const { isConnected, details: chDetails, detailsAvailable } = normalizeChannelConnection(rec);
+
+              function renderConnectionDetails() {
+                if (!rec) return null;
+                if (!detailsAvailable) {
+                  return (
+                    <p className="text-xs text-muted-foreground italic">
+                      Connected — credential details unavailable (may require reconnect)
+                    </p>
+                  );
+                }
+                const d = chDetails;
+                if (channelKey === 'messenger') return (
+                  <div className="space-y-0.5">
+                    {d.pageName && <p className="text-sm font-medium">{d.pageName}</p>}
+                    {d.pageId && <p className="text-xs font-mono text-muted-foreground">Page ID: {d.pageId}</p>}
+                  </div>
+                );
+                if (channelKey === 'instagram') return (
+                  <div className="space-y-0.5">
+                    {d.instagramBusinessAccountUsername && <p className="text-sm font-medium">@{d.instagramBusinessAccountUsername}</p>}
+                    {d.instagramBusinessAccountId && <p className="text-xs font-mono text-muted-foreground">IG ID: {d.instagramBusinessAccountId}</p>}
+                    {d.pageName && <p className="text-xs text-muted-foreground">Page: {d.pageName}</p>}
+                  </div>
+                );
+                if (channelKey === 'whatsapp') return (
+                  <div className="space-y-0.5">
+                    {d.displayName && <p className="text-sm font-medium">{d.displayName}</p>}
+                    {d.phone && <p className="text-xs text-muted-foreground">{d.phone}</p>}
+                    {d.wabaId && <p className="text-xs font-mono text-muted-foreground">WABA: {d.wabaId}</p>}
+                    {d.qualityRating && <Badge variant="outline" className="text-xs mt-1">{d.qualityRating} quality</Badge>}
+                  </div>
+                );
+                if (channelKey === 'livechat') return (
+                  <div className="space-y-0.5">
+                    {d.widgetId && <p className="text-xs font-mono text-muted-foreground">Widget ID: {d.widgetId}</p>}
+                    {d.domain && <p className="text-xs text-muted-foreground">Domain: {d.domain}</p>}
+                  </div>
+                );
+                return null;
+              }
+
+              return (
+                <div className="space-y-6">
+                  <SectionHeader title={label} description={`Manage your ${label} integration, AI behavior, and routing settings.`} />
+
+                  {/* 1 · Connection Status */}
+                  <Card className="border shadow-sm bg-card">
+                    <CardHeader className="border-b bg-muted/5 pb-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <CardTitle className="text-base">Connection Status</CardTitle>
+                        <ChannelStatus connected={isConnected} />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-6 space-y-4">
+                      {rec ? (
+                        <div className="space-y-3">
+                          {renderConnectionDetails()}
+                          {rec.created_at && (
+                            <p className="text-xs text-muted-foreground">
+                              Connected {new Date(rec.created_at).toLocaleDateString()}
+                            </p>
+                          )}
+                          {channelKey === 'livechat' && chDetails.widgetId && (
+                            <div className="mt-2 p-3 bg-muted/50 rounded-lg space-y-1">
+                              <p className="text-xs font-medium">Embed snippet</p>
+                              <pre className="text-xs text-muted-foreground whitespace-pre-wrap break-all">{`<script src="https://cdn.chatorai.com/widget.js" data-widget="${chDetails.widgetId}"></script>`}</pre>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Not connected. Set up this channel to start receiving messages.</p>
+                      )}
+                      <div className="flex gap-2 pt-1">
+                        {channelKey === 'livechat' ? (
+                          <Button onClick={() => setLcDialog(true)} variant={rec ? 'outline' : 'default'} className="h-9">
+                            {rec ? 'Reconfigure Widget' : 'Set Up Widget'}
+                          </Button>
+                        ) : (
+                          <Button onClick={() => handleConnectMeta(channelKey)} variant={rec ? 'outline' : 'default'} className="h-9">
+                            {rec ? 'Reconnect via Meta' : 'Connect via Meta'}
+                          </Button>
+                        )}
+                        {rec && (
+                          <Button
+                            variant="ghost"
+                            className="h-9 text-destructive hover:text-destructive"
+                            onClick={() => handleDisconnectChannel(rec.id)}
+                          >
+                            Disconnect
+                          </Button>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Config cards — always shown, save to settings.channels[channel] independently of connection */}
+                  {chConfigLoading ? (
+                    <div className="flex justify-center py-12">
+                      <RefreshCcw className="h-5 w-5 animate-spin text-muted-foreground/30" />
+                    </div>
+                  ) : (
+                    <>
+                      {/* 2 · Behavior Settings */}
+                        <Card className="border shadow-sm bg-card">
+                          <CardHeader className="border-b bg-muted/5">
+                            <CardTitle className="text-base">Behavior Settings</CardTitle>
+                            <CardDescription>Automated messages and business hours enforcement for this channel.</CardDescription>
+                          </CardHeader>
+                          <CardContent className="p-6 space-y-5">
+                            <Field label="Welcome Message">
+                              <Textarea rows={3} value={cfg.welcomeMessage || ''} onChange={e => upCfg('welcomeMessage', e.target.value)} placeholder="Sent when a new conversation starts on this channel" />
+                            </Field>
+                            <Field label="Away Message">
+                              <Textarea rows={3} value={cfg.awayMessage || ''} onChange={e => upCfg('awayMessage', e.target.value)} placeholder="Sent when a message arrives outside business hours" />
+                            </Field>
+                            <Field label="Business Hours Mode">
+                              <Select value={cfg.businessHoursMode || 'global'} onValueChange={v => upCfg('businessHoursMode', v)}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="global">Use global workspace hours</SelectItem>
+                                  <SelectItem value="always">Always available (24/7)</SelectItem>
+                                  <SelectItem value="off">Off — never enforce hours</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </Field>
+                            <Field label="Fallback Reply">
+                              <Textarea rows={2} value={cfg.fallbackReply || ''} onChange={e => upCfg('fallbackReply', e.target.value)} placeholder="Reply sent when AI cannot generate a response" />
+                            </Field>
+                            <Field label="Human Takeover Policy">
+                              <Input value={cfg.humanTakeoverPolicy || ''} onChange={e => upCfg('humanTakeoverPolicy', e.target.value)} placeholder="e.g. Escalate after 2 unanswered turns" />
+                            </Field>
+                            {channelKey === 'whatsapp' && (
+                              <div className="space-y-3 pt-2 border-t">
+                                <div className="flex items-center justify-between py-2">
+                                  <div>
+                                    <p className="text-sm">Read Receipts</p>
+                                    <p className="text-xs text-muted-foreground">Send read receipts to customers</p>
+                                  </div>
+                                  <Toggle value={cfg.readReceipts !== false} onChange={v => upCfg('readReceipts', v)} />
+                                </div>
+                                <div className="flex items-center justify-between py-2">
+                                  <div>
+                                    <p className="text-sm">Typing Indicator</p>
+                                    <p className="text-xs text-muted-foreground">Show typing status while composing</p>
+                                  </div>
+                                  <Toggle value={cfg.typingIndicator !== false} onChange={v => upCfg('typingIndicator', v)} />
+                                </div>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+
+                        {/* 3 · AI Controls */}
+                        <Card className="border shadow-sm bg-card">
+                          <CardHeader className="border-b bg-muted/5">
+                            <CardTitle className="text-base">AI Controls</CardTitle>
+                            <CardDescription>Override global AI settings for this channel specifically.</CardDescription>
+                          </CardHeader>
+                          <CardContent className="p-6 space-y-4">
+                            <div className="flex items-center justify-between py-2 border-b">
+                              <div>
+                                <p className="text-sm font-medium">AI Enabled</p>
+                                <p className="text-xs text-muted-foreground">Allow AI to process and respond on this channel</p>
+                              </div>
+                              <Toggle value={cfg.aiEnabled !== false} onChange={v => upCfg('aiEnabled', v)} />
+                            </div>
+                            <div className="flex items-center justify-between py-2 border-b">
+                              <div>
+                                <p className="text-sm font-medium">Suggest Only</p>
+                                <p className="text-xs text-muted-foreground">AI drafts suggestions — agent reviews before sending</p>
+                              </div>
+                              <Toggle value={!!cfg.suggestOnly} onChange={v => upCfg('suggestOnly', v)} />
+                            </div>
+                            <div className="flex items-center justify-between py-2 border-b">
+                              <div>
+                                <p className="text-sm font-medium">Require Approval</p>
+                                <p className="text-xs text-muted-foreground">Block all auto-replies — every message needs human approval</p>
+                              </div>
+                              <Toggle value={!!cfg.requireApproval} onChange={v => upCfg('requireApproval', v)} />
+                            </div>
+                            <Field label={`Confidence Threshold: ${cfg.confidenceThreshold ?? 70}%`}>
+                              <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={5}
+                                value={cfg.confidenceThreshold ?? 70}
+                                onChange={e => upCfg('confidenceThreshold', Number(e.target.value))}
+                                className="w-full h-2 accent-primary"
+                              />
+                              <p className="text-xs text-muted-foreground mt-1">AI only replies when confidence exceeds this threshold</p>
+                            </Field>
+                          </CardContent>
+                        </Card>
+
+                        {/* 4 · Routing Ownership */}
+                        <Card className="border shadow-sm bg-card">
+                          <CardHeader className="border-b bg-muted/5">
+                            <CardTitle className="text-base">Routing Ownership</CardTitle>
+                            <CardDescription>Default assignment for conversations arriving via this channel.</CardDescription>
+                          </CardHeader>
+                          <CardContent className="p-6 space-y-5">
+                            <div className="grid grid-cols-2 gap-5">
+                              {chBrands.length > 0 && (
+                                <Field label="Brand">
+                                  <Select value={cfg.brandId || '__none__'} onValueChange={v => upCfg('brandId', v === '__none__' ? '' : v)}>
+                                    <SelectTrigger><SelectValue placeholder="No brand override" /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="__none__">No brand override</SelectItem>
+                                      {chBrands.map((b, i) => (
+                                        <SelectItem key={b.id || i} value={String(b.id || b.name || i)}>{b.name}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </Field>
+                              )}
+                              {chDepts.length > 0 && (
+                                <Field label="Department">
+                                  <Select value={cfg.departmentId || '__none__'} onValueChange={v => upCfg('departmentId', v === '__none__' ? '' : v)}>
+                                    <SelectTrigger><SelectValue placeholder="No department" /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="__none__">No department</SelectItem>
+                                      {chDepts.map((d, i) => (
+                                        <SelectItem key={d.id || i} value={String(d.id || d.name || i)}>{d.name}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </Field>
+                              )}
+                              {chOps.length > 0 && (
+                                <Field label="Default Operator">
+                                  <Select value={cfg.defaultOperatorId || '__none__'} onValueChange={v => upCfg('defaultOperatorId', v === '__none__' ? '' : v)}>
+                                    <SelectTrigger><SelectValue placeholder="No default operator" /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="__none__">No default operator</SelectItem>
+                                      {chOps.map(op => (
+                                        <SelectItem key={op.id} value={String(op.id)}>{op.name} ({op.role})</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </Field>
+                              )}
+                              <Field label="SLA Target (minutes)">
+                                <Input type="number" min={1} value={cfg.slaTargetMinutes ?? 480} onChange={e => upCfg('slaTargetMinutes', Number(e.target.value))} />
+                              </Field>
+                            </div>
+                          </CardContent>
+                          <CardFooter className="border-t px-6 py-4 bg-muted/5 flex justify-end">
+                            <Button onClick={() => handleSaveChConfig(channelKey)} disabled={chConfigSaving} className="h-9 gap-2 px-6 bg-primary font-medium">
+                              <Save className="h-4 w-4" />
+                              {chConfigSaving ? 'Saving…' : 'Save Channel Settings'}
+                            </Button>
+                          </CardFooter>
+                        </Card>
+
+                        {/* 5 · Operational Health */}
+                        {chHealth && (
+                          <Card className="border shadow-sm bg-card">
+                            <CardHeader className="border-b bg-muted/5">
+                              <CardTitle className="text-base">Operational Health</CardTitle>
+                              <CardDescription>Live message activity metrics for this channel.</CardDescription>
+                            </CardHeader>
+                            <CardContent className="p-6">
+                              <div className="grid grid-cols-2 gap-6">
+                                <div className="space-y-1">
+                                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Last Inbound</p>
+                                  <p className="text-sm font-medium">{formatTs(chHealth.lastInboundAt)}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Last Outbound</p>
+                                  <p className="text-sm font-medium">{formatTs(chHealth.lastOutboundAt)}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Messages Today</p>
+                                  <p className="text-sm font-medium">{(chHealth.messagesToday ?? 0).toLocaleString()}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Conversations</p>
+                                  <p className="text-sm font-medium">{(chHealth.totalConversations ?? 0).toLocaleString()}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Failed Sends (7d)</p>
+                                  <p className="text-sm font-medium">{chHealth.failedSends7d ?? 0}</p>
+                                  {(chHealth.failedSends7d ?? 0) === 0 && (
+                                    <p className="text-xs text-muted-foreground italic">Send-error tracking pending</p>
+                                  )}
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        )}
+                      </>
+                    )}
+                </div>
+              );
+            })()}
+
+            {/* ── 17. AI CONFIGURATION ──────────────────────────────────── */}
+            {activeId === 'ai_config' && (() => {
+              const AI_TABS = [
+                { id: 'identity',    label: 'Identity' },
+                { id: 'response',    label: 'Response Control' },
+                { id: 'prompts',     label: 'Prompt Governance' },
+                { id: 'forbidden',   label: 'Forbidden Actions' },
+                { id: 'handoff',     label: 'Handoff Rules' },
+                { id: 'knowledge',   label: 'Knowledge Sources' },
+                { id: 'performance', label: 'Performance' },
+                { id: 'safety',      label: 'Safety' },
+                { id: 'model',       label: 'Model' },
+                { id: 'simulator',   label: 'Simulator' },
+              ];
+              const ac = aiConfig || {};
+              const identity = ac.identity || {};
+              const responseControl = ac.responseControl || {};
+              const knowledgeSources = ac.knowledgeSources || {};
+              const safety = ac.safety || {};
+              const forbiddenActions = Array.isArray(ac.forbiddenActions) ? ac.forbiddenActions : [];
+              const handoffRules = Array.isArray(ac.handoffRules) ? ac.handoffRules : [];
+
+              return (
+                <div className="space-y-6">
+                  {/* Header */}
+                  <Card className="border shadow-sm bg-card">
+                    <CardHeader className="border-b bg-muted/5">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="space-y-1">
+                          <CardTitle>AI Configuration</CardTitle>
+                          <CardDescription>Enterprise AI control center. Every setting affects live AI behavior. Provider API keys are platform-managed.</CardDescription>
+                        </div>
+                        <Button onClick={() => handleSaveAiConfig(aiConfig)} disabled={aiSaving || aiLoading} className="h-9 gap-2 px-6 bg-primary font-medium">
+                          <Save className="h-4 w-4" />
+                          {aiSaving ? 'Saving…' : 'Save Changes'}
+                        </Button>
+                      </div>
+                      {/* Sub-nav tabs */}
+                      <div className="flex flex-wrap gap-1 pt-3 mt-1">
+                        {AI_TABS.map(tab => (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setAiSection(tab.id)}
+                            className={cn(
+                              'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                              aiSection === tab.id
+                                ? 'bg-primary text-primary-foreground'
+                                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                            )}
+                          >{tab.label}</button>
+                        ))}
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-8">
+                      {aiLoading ? (
+                        <div className="flex justify-center py-12">
+                          <RefreshCcw className="h-5 w-5 animate-spin text-muted-foreground/30" />
+                        </div>
+                      ) : (
+                        <>
+                          {/* ── 1. IDENTITY ── */}
+                          {aiSection === 'identity' && (
+                            <div className="space-y-6">
+                              <div className="grid grid-cols-2 gap-6">
+                                <Field label="Assistant Name">
+                                  <Input value={ac.agentName || ''} onChange={e => updateAiConfig('agentName', e.target.value)} placeholder="Chator Assistant" />
+                                </Field>
+                                <Field label="Default Language">
+                                  <Select value={identity.defaultLanguage || 'ar'} onValueChange={v => updateAiConfig('identity.defaultLanguage', v)}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="ar">Arabic</SelectItem>
+                                      <SelectItem value="en">English</SelectItem>
+                                      <SelectItem value="fr">French</SelectItem>
+                                      <SelectItem value="es">Spanish</SelectItem>
+                                      <SelectItem value="auto">Auto-detect</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </Field>
+                                <Field label="Secondary Language">
+                                  <Select value={identity.secondaryLanguage || '__none__'} onValueChange={v => updateAiConfig('identity.secondaryLanguage', v === '__none__' ? '' : v)}>
+                                    <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="__none__">None</SelectItem>
+                                      <SelectItem value="en">English</SelectItem>
+                                      <SelectItem value="ar">Arabic</SelectItem>
+                                      <SelectItem value="fr">French</SelectItem>
+                                      <SelectItem value="es">Spanish</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </Field>
+                                <Field label="Tone">
+                                  <Select value={identity.tone || 'friendly and professional'} onValueChange={v => updateAiConfig('identity.tone', v)}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="friendly and professional">Friendly & Professional</SelectItem>
+                                      <SelectItem value="formal">Formal</SelectItem>
+                                      <SelectItem value="casual">Casual</SelectItem>
+                                      <SelectItem value="empathetic">Empathetic</SelectItem>
+                                      <SelectItem value="direct">Direct & Concise</SelectItem>
+                                      <SelectItem value="enthusiastic">Enthusiastic</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </Field>
+                                <Field label="Formality">
+                                  <Select value={identity.formality || 'semi-formal'} onValueChange={v => updateAiConfig('identity.formality', v)}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="formal">Formal</SelectItem>
+                                      <SelectItem value="semi-formal">Semi-formal</SelectItem>
+                                      <SelectItem value="informal">Informal</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </Field>
+                              </div>
+                              <Field label="Persona / Character Description">
+                                <Textarea rows={3} value={identity.persona || ''} onChange={e => updateAiConfig('identity.persona', e.target.value)} placeholder="e.g. A knowledgeable fashion advisor who speaks warmly and always suggests the best style for the customer…" />
+                              </Field>
+                              <div className="grid grid-cols-2 gap-6">
+                                <Field label="Greeting Style">
+                                  <Input value={identity.greetingStyle || ''} onChange={e => updateAiConfig('identity.greetingStyle', e.target.value)} placeholder="e.g. Hello! How can I help you today?" />
+                                </Field>
+                                <Field label="Closing Style">
+                                  <Input value={identity.closingStyle || ''} onChange={e => updateAiConfig('identity.closingStyle', e.target.value)} placeholder="e.g. Let me know if you need anything else!" />
+                                </Field>
+                              </div>
+                              <Field label="System Prompt (Base Instructions)">
+                                <Textarea rows={5} value={ac.systemPrompt || ''} onChange={e => updateAiConfig('systemPrompt', e.target.value)} placeholder="Instructions for the AI assistant…" />
+                                <p className="text-xs text-muted-foreground mt-1">This is the foundation prompt injected into every AI call. Persona, tone and language fields above are appended automatically.</p>
+                              </Field>
+                            </div>
+                          )}
+
+                          {/* ── 2. RESPONSE CONTROL ── */}
+                          {aiSection === 'response' && (
+                            <div className="space-y-6">
+                              <div className="rounded-xl border bg-amber-50 dark:bg-amber-950/20 border-amber-200 p-4 text-sm text-amber-800 dark:text-amber-200">
+                                <strong>Auto-reply gate:</strong> The real auto-reply gate per conversation is <code className="font-mono text-xs bg-amber-100 dark:bg-amber-900 px-1 rounded">conversation.ai_mode</code>, set from the live conversations panel. The global Auto-reply toggle below is an additional layer — it bypasses per-conversation mode and forces suggest-only for all conversations when disabled.
+                              </div>
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between py-3 border-b">
+                                  <div>
+                                    <p className="text-sm font-medium">Global Auto-Reply</p>
+                                    <p className="text-xs text-muted-foreground">When OFF, AI never sends automatically regardless of conversation mode</p>
+                                  </div>
+                                  <Toggle value={!!ac.autoReply} onChange={v => updateAiConfig('autoReply', v)} />
+                                </div>
+                                <div className="flex items-center justify-between py-3 border-b">
+                                  <div>
+                                    <p className="text-sm font-medium">Suggest Only (Global)</p>
+                                    <p className="text-xs text-muted-foreground">AI generates suggestions for agents to review — never sends directly</p>
+                                  </div>
+                                  <Toggle value={!!ac.suggestOnly} onChange={v => updateAiConfig('suggestOnly', v)} />
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-6">
+                                <Field label={`Confidence Threshold: ${responseControl.confidenceThreshold ?? 50}%`}>
+                                  <input
+                                    type="range" min={0} max={100} step={5}
+                                    value={responseControl.confidenceThreshold ?? 50}
+                                    onChange={e => updateAiConfig('responseControl.confidenceThreshold', Number(e.target.value))}
+                                    className="w-full accent-primary"
+                                  />
+                                  <p className="text-xs text-muted-foreground">Derived from lead score. Auto-replies with confidence below this threshold are skipped.</p>
+                                </Field>
+                                <Field label="Max Consecutive AI Replies">
+                                  <Input type="number" min={1} max={20} value={responseControl.maxConsecutiveReplies ?? 5} onChange={e => updateAiConfig('responseControl.maxConsecutiveReplies', Number(e.target.value))} />
+                                  <p className="text-xs text-muted-foreground">AI stops auto-replying after this many consecutive messages without human intervention.</p>
+                                </Field>
+                                <Field label="Escalation Threshold (messages)">
+                                  <Input type="number" min={1} max={10} value={responseControl.escalationThreshold ?? 3} onChange={e => updateAiConfig('responseControl.escalationThreshold', Number(e.target.value))} />
+                                  <p className="text-xs text-muted-foreground">Trigger escalation after N unanswered/failed AI replies.</p>
+                                </Field>
+                                <Field label="Business Hours AI Behavior">
+                                  <Select value={responseControl.businessHoursAiBehavior || 'auto'} onValueChange={v => updateAiConfig('responseControl.businessHoursAiBehavior', v)}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="auto">Auto-reply (full)</SelectItem>
+                                      <SelectItem value="suggest">Suggest only</SelectItem>
+                                      <SelectItem value="off">AI off</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </Field>
+                                <Field label="After-Hours AI Behavior">
+                                  <Select value={responseControl.afterHoursAiBehavior || 'suggest'} onValueChange={v => updateAiConfig('responseControl.afterHoursAiBehavior', v)}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="auto">Auto-reply (full)</SelectItem>
+                                      <SelectItem value="suggest">Suggest only</SelectItem>
+                                      <SelectItem value="off">AI off</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </Field>
+                              </div>
+                              <Field label="Silent Mode Conditions">
+                                <Input value={responseControl.silentModeConditions || ''} onChange={e => updateAiConfig('responseControl.silentModeConditions', e.target.value)} placeholder="e.g. when tag=vip, when channel=whatsapp" />
+                                <p className="text-xs text-muted-foreground">Comma-separated conditions under which AI stays completely silent.</p>
+                              </Field>
+                            </div>
+                          )}
+
+                          {/* ── 3. PROMPT GOVERNANCE ── */}
+                          {aiSection === 'prompts' && (
+                            <div className="space-y-6">
+                              <div className="rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+                                Prompt versions are code-defined and managed by the platform. You can pin a specific version to ensure stability during platform updates. Content changes require a platform release.
+                              </div>
+                              {aiPrompts.length === 0 ? (
+                                <EmptyState icon={Bot} text="No prompt definitions found." />
+                              ) : aiPrompts.map(p => (
+                                <Card key={p.id} className="border">
+                                  <CardContent className="p-5 space-y-4">
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div>
+                                        <p className="font-medium text-sm">{p.id}</p>
+                                        <p className="text-xs text-muted-foreground">Latest: v{p.version} · Pinned: v{p.pinnedVersion}</p>
+                                      </div>
+                                      <Badge variant={p.pinnedVersion === p.version ? 'default' : 'secondary'}>
+                                        {p.pinnedVersion === p.version ? 'Latest' : `Pinned v${p.pinnedVersion}`}
+                                      </Badge>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Available versions</p>
+                                      <div className="flex flex-wrap gap-2">
+                                        {(p.versions || []).map(v => (
+                                          <div key={v.version} className={cn('flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs', p.pinnedVersion === v.version ? 'border-primary/30 bg-primary/5 text-primary' : 'bg-muted/20')}>
+                                            <span>v{v.version}</span>
+                                            {p.pinnedVersion !== v.version && (
+                                              <button type="button" onClick={() => handlePinPrompt(p.id, v.version)} className="underline text-muted-foreground hover:text-foreground ml-1">pin</button>
+                                            )}
+                                            {p.pinnedVersion === v.version && <CheckCircle2 className="h-3 w-3" />}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    {(p.versions || []).find(v => v.version === p.pinnedVersion)?.content && (
+                                      <details className="text-xs">
+                                        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Preview pinned prompt</summary>
+                                        <pre className="mt-2 whitespace-pre-wrap bg-muted/20 rounded-lg p-3 text-muted-foreground leading-relaxed max-h-40 overflow-auto">
+                                          {(p.versions || []).find(v => v.version === p.pinnedVersion)?.content}
+                                        </pre>
+                                      </details>
+                                    )}
+                                  </CardContent>
+                                </Card>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* ── 4. FORBIDDEN ACTIONS ── */}
+                          {aiSection === 'forbidden' && (
+                            <div className="space-y-4">
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm text-muted-foreground">Define topics and actions the AI must never engage with. These rules are checked before every auto-reply.</p>
+                                <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => updateAiConfig('forbiddenActions', [...forbiddenActions, { id: `fa_${Date.now()}`, pattern: '', severity: 'high', enforcement: 'block', escalate: true }])}>
+                                  <Plus className="h-3.5 w-3.5" /> Add Rule
+                                </Button>
+                              </div>
+                              {forbiddenActions.length === 0 ? (
+                                <Card className="border"><EmptyState icon={Shield} text="No forbidden action rules." /></Card>
+                              ) : forbiddenActions.map((fa, i) => (
+                                <Card key={fa.id || i} className="border">
+                                  <CardContent className="p-4 space-y-3">
+                                    <div className="flex items-start gap-3">
+                                      <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                        <Field label="Pattern / Keyword">
+                                          <Input value={fa.pattern || ''} onChange={e => { const next = [...forbiddenActions]; next[i] = { ...next[i], pattern: e.target.value }; updateAiConfig('forbiddenActions', next); }} placeholder="e.g. competitor, refund policy" />
+                                        </Field>
+                                        <Field label="Severity">
+                                          <Select value={fa.severity || 'high'} onValueChange={v => { const next = [...forbiddenActions]; next[i] = { ...next[i], severity: v }; updateAiConfig('forbiddenActions', next); }}>
+                                            <SelectTrigger><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="low">Low</SelectItem>
+                                              <SelectItem value="medium">Medium</SelectItem>
+                                              <SelectItem value="high">High</SelectItem>
+                                              <SelectItem value="critical">Critical</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                        </Field>
+                                        <Field label="Enforcement">
+                                          <Select value={fa.enforcement || 'block'} onValueChange={v => { const next = [...forbiddenActions]; next[i] = { ...next[i], enforcement: v }; updateAiConfig('forbiddenActions', next); }}>
+                                            <SelectTrigger><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="block">Block reply</SelectItem>
+                                              <SelectItem value="warn">Warn agent</SelectItem>
+                                              <SelectItem value="log">Log only</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                        </Field>
+                                      </div>
+                                      <div className="flex items-center gap-3 pt-6">
+                                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                          <Toggle value={!!fa.escalate} onChange={v => { const next = [...forbiddenActions]; next[i] = { ...next[i], escalate: v }; updateAiConfig('forbiddenActions', next); }} />
+                                          Escalate
+                                        </div>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => updateAiConfig('forbiddenActions', forbiddenActions.filter((_, j) => j !== i))}>
+                                          <X className="h-3.5 w-3.5" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* ── 5. HANDOFF RULES ── */}
+                          {aiSection === 'handoff' && (
+                            <div className="space-y-4">
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm text-muted-foreground">Define when AI must escalate to a human agent. Rules are evaluated after each message.</p>
+                                <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => updateAiConfig('handoffRules', [...handoffRules, { id: `hr_${Date.now()}`, condition: 'score_below', threshold: 30, channel: '__all__', action: 'notify_agent', message: '' }])}>
+                                  <Plus className="h-3.5 w-3.5" /> Add Rule
+                                </Button>
+                              </div>
+                              {handoffRules.length === 0 ? (
+                                <Card className="border"><EmptyState icon={Users} text="No handoff rules configured." /></Card>
+                              ) : handoffRules.map((hr, i) => (
+                                <Card key={hr.id || i} className="border">
+                                  <CardContent className="p-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                                      <Field label="Condition">
+                                        <Select value={hr.condition || 'score_below'} onValueChange={v => { const next = [...handoffRules]; next[i] = { ...next[i], condition: v }; updateAiConfig('handoffRules', next); }}>
+                                          <SelectTrigger><SelectValue /></SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="score_below">Score below</SelectItem>
+                                            <SelectItem value="intent_detected">Intent detected</SelectItem>
+                                            <SelectItem value="consecutive_failures">Consecutive failures</SelectItem>
+                                            <SelectItem value="customer_requests_human">Customer requests human</SelectItem>
+                                            <SelectItem value="negative_sentiment">Negative sentiment</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </Field>
+                                      <Field label="Threshold / Value">
+                                        <Input value={hr.threshold ?? ''} onChange={e => { const next = [...handoffRules]; next[i] = { ...next[i], threshold: e.target.value }; updateAiConfig('handoffRules', next); }} placeholder="30 or 'complaint'" />
+                                      </Field>
+                                      <Field label="Action">
+                                        <Select value={hr.action || 'notify_agent'} onValueChange={v => { const next = [...handoffRules]; next[i] = { ...next[i], action: v }; updateAiConfig('handoffRules', next); }}>
+                                          <SelectTrigger><SelectValue /></SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="notify_agent">Notify agent</SelectItem>
+                                            <SelectItem value="assign_to_dept">Assign to dept</SelectItem>
+                                            <SelectItem value="send_away_message">Send away message</SelectItem>
+                                            <SelectItem value="create_ticket">Create ticket</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </Field>
+                                      <div className="flex items-end gap-2">
+                                        <Field label="Handoff Message" className="flex-1">
+                                          <Input value={hr.message || ''} onChange={e => { const next = [...handoffRules]; next[i] = { ...next[i], message: e.target.value }; updateAiConfig('handoffRules', next); }} placeholder="Optional message to send on handoff" />
+                                        </Field>
+                                        <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive mb-0.5" onClick={() => updateAiConfig('handoffRules', handoffRules.filter((_, j) => j !== i))}>
+                                          <X className="h-3.5 w-3.5" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* ── 6. KNOWLEDGE SOURCES ── */}
+                          {aiSection === 'knowledge' && (
+                            <div className="space-y-4">
+                              <p className="text-sm text-muted-foreground">Control which data sources the AI uses when composing replies. Disabling a source removes it from the prompt context entirely.</p>
+                              {[
+                                { key: 'companyProfile', label: 'Company Profile', desc: 'Business name, industry, website, contact info' },
+                                { key: 'knowledgeBase', label: 'Knowledge Base', desc: 'Uploaded FAQs, policies, and support articles' },
+                                { key: 'productCatalog', label: 'Product Catalog', desc: 'Active products with pricing, stock and categories' },
+                                { key: 'faq', label: 'Offers & Promotions', desc: 'Active discount codes, sales and promotional offers' },
+                                { key: 'policies', label: 'Shipping Policies', desc: 'Shipping zones and rate information' },
+                              ].map(({ key, label, desc }) => (
+                                <div key={key} className="flex items-center justify-between py-3 border-b last:border-0">
+                                  <div>
+                                    <p className="text-sm font-medium">{label}</p>
+                                    <p className="text-xs text-muted-foreground">{desc}</p>
+                                  </div>
+                                  <Toggle value={knowledgeSources[key] !== false} onChange={v => updateAiConfig(`knowledgeSources.${key}`, v)} />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* ── 7. PERFORMANCE METRICS ── */}
+                          {aiSection === 'performance' && (
+                            <div className="space-y-6">
+                              {!aiMetrics ? (
+                                <EmptyState icon={BarChart3} text="No performance data yet." />
+                              ) : (
+                                <>
+                                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                    {[
+                                      { label: 'Total Suggestions', value: (aiMetrics.totalSuggestions || 0).toLocaleString() },
+                                      { label: 'Auto-Replied', value: (aiMetrics.autoReplied || 0).toLocaleString() },
+                                      { label: 'Auto-Reply Rate', value: `${aiMetrics.autoReplyRate ?? 0}%` },
+                                      { label: 'Avg Confidence', value: `${Math.round((aiMetrics.avgConfidence || 0) * 100)}%` },
+                                    ].map(({ label, value }) => (
+                                      <Card key={label} className="border">
+                                        <CardContent className="p-4 text-center">
+                                          <p className="text-2xl font-bold">{value}</p>
+                                          <p className="text-xs text-muted-foreground mt-1">{label}</p>
+                                        </CardContent>
+                                      </Card>
+                                    ))}
+                                  </div>
+                                  {(aiMetrics.intentBreakdown || []).length > 0 && (
+                                    <Card className="border">
+                                      <CardHeader className="pb-3"><CardTitle className="text-sm">Intent Distribution</CardTitle></CardHeader>
+                                      <CardContent className="space-y-2">
+                                        {aiMetrics.intentBreakdown.map(({ intent, count }) => {
+                                          const max = Math.max(...aiMetrics.intentBreakdown.map(r => r.count), 1);
+                                          return (
+                                            <div key={intent} className="flex items-center gap-3">
+                                              <span className="text-xs w-28 text-muted-foreground truncate">{intent}</span>
+                                              <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                                                <div className="h-full bg-primary rounded-full" style={{ width: `${Math.round((count / max) * 100)}%` }} />
+                                              </div>
+                                              <span className="text-xs text-muted-foreground w-8 text-right">{count}</span>
+                                            </div>
+                                          );
+                                        })}
+                                      </CardContent>
+                                    </Card>
+                                  )}
+                                  <p className="text-xs text-muted-foreground">
+                                    Note: Per-request token counts and cost breakdowns require platform-level observability infrastructure (not exposed per-tenant).
+                                  </p>
+                                </>
+                              )}
+                              <Button variant="outline" size="sm" onClick={loadAiConfig} className="h-8 gap-2">
+                                <RefreshCcw className="h-3.5 w-3.5" /> Refresh metrics
+                              </Button>
+                            </div>
+                          )}
+
+                          {/* ── 8. SAFETY & COMPLIANCE ── */}
+                          {aiSection === 'safety' && (
+                            <div className="space-y-4">
+                              <div className="rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+                                Core safety restrictions (financial data, private customer records, database queries, system internals) are platform-enforced and cannot be disabled. These toggles add compliance overlays on top.
+                              </div>
+                              {[
+                                { key: 'piiRestriction', label: 'PII Restriction', desc: 'AI refuses to output personally identifiable information from the system context' },
+                                { key: 'gdprMode', label: 'GDPR Mode', desc: 'AI explicitly acknowledges data handling rights when customers ask' },
+                                { key: 'legalComplianceMode', label: 'Legal Compliance Mode', desc: 'AI appends standard legal disclaimers to financial advice replies' },
+                                { key: 'promptInjectionProtection', label: 'Prompt Injection Protection', desc: 'Input is screened for injection patterns before entering AI context' },
+                              ].map(({ key, label, desc }) => (
+                                <div key={key} className="flex items-center justify-between py-3 border-b last:border-0">
+                                  <div>
+                                    <p className="text-sm font-medium">{label}</p>
+                                    <p className="text-xs text-muted-foreground">{desc}</p>
+                                  </div>
+                                  <Toggle value={safety[key] !== false} onChange={v => updateAiConfig(`safety.${key}`, v)} />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* ── 9. MODEL MANAGEMENT ── */}
+                          {aiSection === 'model' && (
+                            <div className="space-y-6">
+                              <div className="rounded-xl border bg-muted/5 p-4 space-y-2">
+                                <div className="flex items-center gap-2 text-sm font-medium"><Lock className="h-4 w-4 text-muted-foreground" />Platform-Managed Provider</div>
+                                <p className="text-xs text-muted-foreground">The AI provider (Anthropic / OpenAI), model version, and API keys are managed by the platform for stability and security. You control generation parameters below.</p>
+                              </div>
+                              <div className="grid grid-cols-2 gap-6">
+                                <Field label="Creativity (Temperature)">
+                                  <Select value={String(ac.temperature ?? '0.4')} onValueChange={v => updateAiConfig('temperature', parseFloat(v))}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="0.1">Very Precise (0.1)</SelectItem>
+                                      <SelectItem value="0.2">Precise (0.2)</SelectItem>
+                                      <SelectItem value="0.4">Balanced (0.4)</SelectItem>
+                                      <SelectItem value="0.6">Creative (0.6)</SelectItem>
+                                      <SelectItem value="0.7">Very Creative (0.7)</SelectItem>
+                                      <SelectItem value="0.9">Experimental (0.9)</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </Field>
+                                <Field label="Max Tokens per Reply">
+                                  <Input type="number" min={50} max={2000} step={50} value={ac.maxTokens ?? 300} onChange={e => updateAiConfig('maxTokens', parseInt(e.target.value))} />
+                                  <p className="text-xs text-muted-foreground mt-1">Longer replies = higher cost. Keep under 500 for chat.</p>
+                                </Field>
+                              </div>
+                              <div className="rounded-xl border bg-muted/5 p-4 text-xs text-muted-foreground space-y-1">
+                                <p><strong>Platform defaults:</strong> Provider: Anthropic claude-sonnet (latest) · Safety mode: enabled · Top-P: 0.9</p>
+                                <p>Contact platform admin to change provider or model version.</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* ── 10. AI SIMULATOR ── */}
+                          {aiSection === 'simulator' && (
+                            <div className="space-y-6">
+                              <div className="rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+                                Send a test message through the AI engine using your current settings. No message is saved, no reply is sent to any customer.
+                              </div>
+                              <div className="grid grid-cols-4 gap-4">
+                                <div className="col-span-3">
+                                  <Field label="Customer Message">
+                                    <Textarea rows={3} value={aiSimInput} onChange={e => setAiSimInput(e.target.value)} placeholder="e.g. Do you have this in blue? Can I get a discount?" />
+                                  </Field>
+                                </div>
+                                <Field label="Channel">
+                                  <Select value={aiSimChannel} onValueChange={setAiSimChannel}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="livechat">Live Chat</SelectItem>
+                                      <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                                      <SelectItem value="instagram">Instagram</SelectItem>
+                                      <SelectItem value="messenger">Messenger</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </Field>
+                              </div>
+                              <Button onClick={handleAiSimulate} disabled={aiSimulating || !aiSimInput.trim()} className="h-9 gap-2">
+                                <Play className="h-4 w-4" />
+                                {aiSimulating ? 'Simulating…' : 'Run Simulation'}
+                              </Button>
+                              {aiSimResult && (
+                                <Card className={cn('border', aiSimResult.blocked ? 'border-destructive/30 bg-destructive/5' : 'border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20')}>
+                                  <CardContent className="p-5 space-y-3">
+                                    {aiSimResult.blocked ? (
+                                      <div className="flex items-center gap-2 text-destructive text-sm font-medium">
+                                        <ShieldAlert className="h-4 w-4" />
+                                        Blocked: {aiSimResult.blockedReason}
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 text-sm font-medium">
+                                        <CheckCircle2 className="h-4 w-4" />
+                                        Reply generated — {aiSimResult.agentName} · {aiSimResult.tone} · {aiSimResult.channel}
+                                      </div>
+                                    )}
+                                    <div className="rounded-lg bg-background border p-4 text-sm whitespace-pre-wrap">
+                                      {aiSimResult.simulatedReply}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">Simulation only — not saved, not sent.</p>
+                                  </CardContent>
+                                </Card>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              );
+            })()}
+
+            {/* ── 18. TRIGGERS ──────────────────────────────────────────── */}
+            {activeId === 'triggers' && (
+              <div className="space-y-6">
+                <SectionHeader title="Triggers" description="Automation rules that fire when events occur. WHEN event + condition is met → THEN run action.">
+                  <Button size="sm" onClick={() => setActiveData(prev => [
+                    ...(prev || []),
+                    { id: `trg_${Date.now()}`, name: 'New Trigger', event: 'message_received', conditionField: 'score', conditionOp: '>=', conditionValue: '70', actionType: 'add_tag', actionValue: '', active: true },
+                  ])} className="h-9 gap-2">
+                    <Plus className="h-3.5 w-3.5" /> Add Trigger
+                  </Button>
+                </SectionHeader>
+                {(!activeData || activeData.length === 0) ? (
+                  <Card className="border"><EmptyState icon={Zap} text="No triggers configured." /></Card>
+                ) : activeData.map((t, i) => {
+                  function updateTrigger(patch) {
+                    const next = [...activeData]; next[i] = { ...next[i], ...patch }; setActiveData(next);
+                  }
+                  return (
+                    <Card key={i} className="border shadow-sm bg-card">
+                      <CardContent className="p-6 space-y-5">
+                        {/* Header row */}
+                        <div className="flex items-center justify-between gap-3">
+                          <Input
+                            className="h-8 font-semibold border-0 px-0 text-sm bg-transparent shadow-none focus-visible:ring-0 w-auto min-w-0 flex-1"
+                            value={t.name}
+                            onChange={e => updateTrigger({ name: e.target.value })}
+                          />
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Toggle value={!!t.active} onChange={v => updateTrigger({ active: v })} />
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* WHEN block */}
+                        <div className="rounded-xl border bg-muted/5 p-4 space-y-3">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">When</p>
+                          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                            <Field label="Event">
+                              <Select value={t.event || 'message_received'} onValueChange={v => updateTrigger({ event: v })}>
+                                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {TRIGGER_EVENTS.map(ev => (
+                                    <SelectItem key={ev.value} value={ev.value}>{ev.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </Field>
+                            <Field label="Condition Field">
+                              <Select value={t.conditionField || 'score'} onValueChange={v => updateTrigger({ conditionField: v })}>
+                                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {TRIGGER_CONDITION_FIELDS.map(f => (
+                                    <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </Field>
+                            <Field label="Operator">
+                              <Select value={t.conditionOp || '>='} onValueChange={v => updateTrigger({ conditionOp: v })}>
+                                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {TRIGGER_CONDITION_OPS.map(o => (
+                                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </Field>
+                            <Field label="Value">
+                              <Input
+                                className="h-9"
+                                value={t.conditionValue ?? ''}
+                                onChange={e => updateTrigger({ conditionValue: e.target.value })}
+                                placeholder="e.g. 70 or whatsapp"
+                              />
+                            </Field>
+                          </div>
+                        </div>
+
+                        {/* THEN block */}
+                        <div className="rounded-xl border bg-muted/5 p-4 space-y-3">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Then</p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                            <Field label="Action">
+                              <Select value={t.actionType || 'add_tag'} onValueChange={v => updateTrigger({ actionType: v })}>
+                                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {TRIGGER_ACTION_TYPES.map(a => (
+                                    <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </Field>
+                            {t.actionType === 'assign_to' ? (
+                              <Field label="Assign To">
+                                <Select value={t.actionValue || ''} onValueChange={v => updateTrigger({ actionValue: v })}>
+                                  <SelectTrigger className="h-9"><SelectValue placeholder="Select agent or dept…" /></SelectTrigger>
+                                  <SelectContent>
+                                    {depts.map(d => (
+                                      <SelectItem key={`dept:${d.name}`} value={`dept:${d.name}`}>Dept: {d.name}</SelectItem>
+                                    ))}
+                                    {team.map(m => (
+                                      <SelectItem key={`agent:${m.id}`} value={`agent:${m.id}`}>{m.name} ({m.role})</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </Field>
+                            ) : t.actionType === 'close_conversation' ? (
+                              <div className="flex items-end pb-0.5">
+                                <p className="text-xs text-muted-foreground">No additional configuration needed.</p>
+                              </div>
+                            ) : (
+                              <Field label={t.actionType === 'update_score' ? 'Points (use + or -)' : t.actionType === 'send_message' ? 'Message Text' : 'Value'}>
+                                <Input
+                                  className="h-9"
+                                  value={t.actionValue ?? ''}
+                                  onChange={e => updateTrigger({ actionValue: e.target.value })}
+                                  placeholder={
+                                    t.actionType === 'add_tag' ? 'e.g. vip' :
+                                    t.actionType === 'remove_tag' ? 'e.g. cold' :
+                                    t.actionType === 'update_score' ? 'e.g. +10 or -5' :
+                                    t.actionType === 'send_message' ? 'Message to send…' :
+                                    t.actionType === 'notify_agent' ? 'Notification text…' : ''
+                                  }
+                                />
+                              </Field>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+                {activeData?.length > 0 && (
+                  <div className="flex justify-end">
+                    <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                      {saving ? 'Saving…' : 'Save Triggers'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── 19. VISITOR ROUTING ───────────────────────────────────── */}
+            {activeId === 'visitor_routing' && (
+              <div className="space-y-6">
+                <SectionHeader title="Visitor Routing" description="How incoming sessions are distributed across agents." />
+
+                {/* Config card */}
+                <SettingSection title="Routing Configuration" loading={sectionLoading} onSave={async () => {
+                  setSaving(true);
+                  try {
+                    const saved = await api.put('/api/settings/visitor-routing', activeData ?? {});
+                    setActiveData(d => ({ ...d, ...(saved?.config ? { config: saved.config } : {}) }));
+                    toast.success('Saved');
+                  } catch (err) { toast.error(err.message || 'Save failed'); }
+                  finally { setSaving(false); }
+                }} saving={saving}>
+                  {activeData && (
+                    <div className="grid grid-cols-3 gap-6">
+                      <Field label="Routing Mode">
+                        <Select value={activeData.config?.mode || 'round_robin'} onValueChange={v => setActiveData(d => ({ ...d, config: { ...d.config, mode: v } }))}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="round_robin">Round Robin</SelectItem>
+                            <SelectItem value="least_busy">Least Busy</SelectItem>
+                            <SelectItem value="random">Random</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field label="Fallback">
+                        <Select value={activeData.config?.fallback || 'AI Bot'} onValueChange={v => setActiveData(d => ({ ...d, config: { ...d.config, fallback: v } }))}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="AI Bot">AI Bot</SelectItem>
+                            <SelectItem value="queue">Queue</SelectItem>
+                            <SelectItem value="offline">Offline Message</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field label="Threshold (seconds)">
+                        <Input type="number" min={5} value={activeData.config?.threshold ?? 30} onChange={e => setActiveData(d => ({ ...d, config: { ...d.config, threshold: parseInt(e.target.value) } }))} />
+                      </Field>
+                    </div>
+                  )}
+                </SettingSection>
+
+                {/* Rules */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold">Routing Rules</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Rules are evaluated in priority order. First match wins.</p>
+                    </div>
+                    <Button size="sm" className="h-9 gap-2" onClick={() => setActiveData(d => ({
+                      ...d,
+                      rules: [...(d?.rules || []), { id: `vr_${Date.now()}`, name: 'New Rule', conditionField: 'channel', conditionOp: '=', conditionValue: '', assignTo: '', priority: (d?.rules?.length || 0) + 1, enabled: true }],
+                    }))}>
+                      <Plus className="h-3.5 w-3.5" /> Add Rule
+                    </Button>
+                  </div>
+
+                  {(!activeData?.rules || activeData.rules.length === 0) ? (
+                    <Card className="border"><EmptyState icon={Route} text="No routing rules. All traffic handled by fallback." /></Card>
+                  ) : activeData.rules.map((r, i) => {
+                    function updateRule(patch) {
+                      setActiveData(d => {
+                        const next = [...(d.rules || [])];
+                        next[i] = { ...next[i], ...patch };
+                        return { ...d, rules: next };
+                      });
+                    }
+                    return (
+                      <Card key={r.id || i} className="border shadow-sm bg-card">
+                        <CardContent className="p-5 space-y-4">
+                          <div className="flex items-center gap-3">
+                            <span className="w-6 h-6 rounded-md bg-muted text-[11px] font-bold flex items-center justify-center shrink-0 text-muted-foreground">{i + 1}</span>
+                            <Input
+                              className="h-8 font-semibold border-0 px-0 text-sm bg-transparent shadow-none focus-visible:ring-0 flex-1"
+                              value={r.name}
+                              onChange={e => updateRule({ name: e.target.value })}
+                            />
+                            <Toggle value={!!r.enabled} onChange={v => updateRule({ enabled: v })} />
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setActiveData(d => ({ ...d, rules: d.rules.filter((_, j) => j !== i) }))}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {/* IF condition */}
+                            <div className="rounded-xl border bg-muted/5 p-3 space-y-3">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">If</p>
+                              <div className="grid grid-cols-3 gap-2">
+                                <Select value={r.conditionField || 'channel'} onValueChange={v => updateRule({ conditionField: v })}>
+                                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    {ROUTING_CONDITION_FIELDS.map(f => (
+                                      <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Select value={r.conditionOp || '='} onValueChange={v => updateRule({ conditionOp: v })}>
+                                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    {ROUTING_CONDITION_OPS.map(o => (
+                                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Input className="h-8 text-xs" value={r.conditionValue || ''} onChange={e => updateRule({ conditionValue: e.target.value })} placeholder="value" />
+                              </div>
+                            </div>
+
+                            {/* THEN assign */}
+                            <div className="rounded-xl border bg-muted/5 p-3 space-y-3">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Route To</p>
+                              <Select value={r.assignTo || ''} onValueChange={v => updateRule({ assignTo: v })}>
+                                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select agent or department…" /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="ai_bot">AI Bot</SelectItem>
+                                  <SelectItem value="queue">Queue</SelectItem>
+                                  {depts.map(d => (
+                                    <SelectItem key={`dept:${d.name}`} value={`dept:${d.name}`}>Dept: {d.name}</SelectItem>
+                                  ))}
+                                  {team.map(m => (
+                                    <SelectItem key={`agent:${m.id}`} value={`agent:${m.id}`}>{m.name} ({m.role})</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+
+                  {activeData?.rules?.length > 0 && (
+                    <div className="flex justify-end">
+                      <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                        {saving ? 'Saving…' : 'Save Rules'}
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      );
-
-      /* ────── Departments ────── */
-      case 'departments': return (
-        <div>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
-            <p style={{ fontSize:13, color:'var(--t4)' }}>{depts.length} departments</p>
-            <button className="btn btn-primary btn-sm" onClick={()=>setDeptModal(true)}>+ New Department</button>
-          </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-            {depts.map(d => {
-              const deptOps = operators.filter(o => d.operators.includes(o.id));
-              return (
-                <div key={d.id} style={{ padding:'16px 18px', borderRadius:12, background:'var(--bg2)',
-                  border:`1px solid var(--b1)`, borderLeft:`3px solid ${d.color}` }}>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                      <span style={{ width:10, height:10, borderRadius:'50%', background:d.color, display:'inline-block' }}/>
-                      <span style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>{d.name}</span>
-                      <span style={{ fontSize:11, color:'var(--t4)' }}>SLA: {d.sla}h</span>
-                    </div>
-                    <button onClick={()=>{
-                      setOperators((current) => current.map((operator) => (
-                        operator.dept === d.name ? { ...operator, dept: '' } : operator
-                      )));
-                      setDepts(ds=>ds.filter(x=>x.id!==d.id));
-                      toast.success('Deleted');
-                    }}
-                      style={{ fontSize:11, padding:'3px 9px', borderRadius:7, cursor:'pointer',
-                        background:'rgba(239,68,68,0.07)', color:'#fca5a5', border:'1px solid rgba(239,68,68,0.15)' }}>
-                      Delete
-                    </button>
-                  </div>
-                  <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                    {deptOps.length === 0
-                      ? <span style={{ fontSize:12, color:'var(--t4)' }}>No operators assigned</span>
-                      : deptOps.map(op => (
-                        <span key={op.id} style={{ fontSize:11.5, padding:'3px 10px', borderRadius:99,
-                          background:'rgba(99,102,241,0.1)', color:'#a5b4fc', border:'1px solid rgba(99,102,241,0.2)' }}>
-                          {op.name}
-                        </span>
-                      ))
-                    }
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      );
-
-      /* ────── Usage Statistics ────── */
-      case 'usage': {
-        const stats = usageStats || {
-          ...USAGE_STATS,
-          plan: 'growth',
-          cycleStart: '',
-          cycleEnd: '',
-        };
-        return (
-        <div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:24 }}>
-            {Object.entries(USAGE_STATS).map(([key]) => {
-              const stat = stats[key] || USAGE_STATS[key];
-              const pct = Math.round(stat.used / stat.limit * 100);
-              const label = key.replace(/([A-Z])/g,' $1').replace(/^./,s=>s.toUpperCase());
-              const color = pct > 85 ? '#ef4444' : pct > 60 ? '#f59e0b' : '#34d399';
-              return (
-                <div key={key} style={{ padding:'16px 18px', borderRadius:12, background:'var(--bg2)', border:'1px solid var(--b1)' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
-                    <span style={{ fontSize:13, fontWeight:600, color:'var(--t2)' }}>{label}</span>
-                    <span style={{ fontSize:12, fontWeight:700, color }}>{pct}%</span>
-                  </div>
-                  <div style={{ height:5, borderRadius:99, background:'var(--s2)', marginBottom:6 }}>
-                    <div style={{ height:5, borderRadius:99, background:color, width:`${pct}%`, transition:'width 0.5s' }} />
-                  </div>
-                  <p style={{ fontSize:11.5, color:'var(--t4)' }}>
-                    {stat.used.toLocaleString()} / {stat.limit.toLocaleString()}{stat.unit ? ' '+stat.unit : ''} used
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-          {usageLoading && (
-            <div style={{ marginBottom:14, fontSize:12.5, color:'var(--t4)' }}>Loading current tenant usage…</div>
-          )}
-          <div style={{ padding:'14px 18px', borderRadius:12, background:'rgba(99,102,241,0.06)',
-            border:'1px solid rgba(99,102,241,0.15)', fontSize:13, color:'var(--t3)' }}>
-            📅 Current billing cycle: {stats.cycleStart || '—'} – {stats.cycleEnd || '—'} · <strong style={{ color:'var(--t1)' }}>{formatPlanLabel(stats.plan)} Plan — {PLAN_PRICING[String(stats.plan || 'growth').toLowerCase()] || PLAN_PRICING.growth}</strong>
-          </div>
-        </div>
-      );
-      }
-
-      /* ────── Recycle Bin ────── */
-      case 'recycle': return (
-        <div>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-            <p style={{ fontSize:13, color:'var(--t4)' }}>{recycled.length} items · auto-deleted after 30 days</p>
-            {recycled.length > 0 && (
-              <button onClick={emptyRecycleBin}
-                style={{ fontSize:12, padding:'5px 12px', borderRadius:8, cursor:'pointer', fontWeight:600,
-                  background:'rgba(239,68,68,0.08)', color:'#fca5a5', border:'1px solid rgba(239,68,68,0.18)' }}>
-                Empty Bin
-              </button>
             )}
-          </div>
-          {recycleLoading && (
-            <div style={{ marginBottom:12, fontSize:12.5, color:'var(--t4)' }}>Loading recycle bin…</div>
-          )}
-          {recycled.length === 0
-            ? <div style={{ padding:'40px', textAlign:'center', color:'var(--t4)', fontSize:14 }}>🗑 Recycle bin is empty</div>
-            : recycled.map(r => (
-              <div key={r.id} style={{ padding:'13px 16px', borderRadius:11, background:'var(--bg2)',
-                border:'1px solid var(--b1)', marginBottom:10, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                <div>
-                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
-                    <Badge color={r.type==='conversation'?'#6366f1':'#10b981'}>{r.type}</Badge>
-                    <span style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)' }}>{r.name}</span>
+
+            {/* ── 20. CHAT ROUTING ──────────────────────────────────────── */}
+            {activeId === 'chat_routing' && (
+              <div className="space-y-6">
+                <SectionHeader title="Chat Routing" description="Rules for assigning incoming conversations to departments or agents. First matching rule wins.">
+                  <Button size="sm" onClick={() => setActiveData(prev => [
+                    ...(prev || []),
+                    { id: `cr_${Date.now()}`, name: 'New Rule', conditionField: 'channel', conditionOp: '=', conditionValue: '', assignTo: '', active: true },
+                  ])} className="h-9 gap-2">
+                    <Plus className="h-3.5 w-3.5" /> Add Rule
+                  </Button>
+                </SectionHeader>
+                {(!activeData || activeData.length === 0) ? (
+                  <Card className="border"><EmptyState icon={Route} text="No chat routing rules defined. All conversations go to unassigned." /></Card>
+                ) : activeData.map((r, i) => {
+                  function updateRule(patch) {
+                    const next = [...activeData]; next[i] = { ...next[i], ...patch }; setActiveData(next);
+                  }
+                  return (
+                    <Card key={i} className="border shadow-sm bg-card">
+                      <CardContent className="p-5 space-y-4">
+                        {/* Header */}
+                        <div className="flex items-center gap-3">
+                          <span className="w-6 h-6 rounded-md bg-muted text-[11px] font-bold flex items-center justify-center shrink-0 text-muted-foreground">{i + 1}</span>
+                          <Input
+                            className="h-8 font-semibold border-0 px-0 text-sm bg-transparent shadow-none focus-visible:ring-0 flex-1"
+                            value={r.name}
+                            onChange={e => updateRule({ name: e.target.value })}
+                          />
+                          <Toggle value={!!r.active} onChange={v => updateRule({ active: v })} />
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {/* IF block */}
+                          <div className="rounded-xl border bg-muted/5 p-3 space-y-3">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">If</p>
+                            <div className="grid grid-cols-3 gap-2">
+                              <Select value={r.conditionField || 'channel'} onValueChange={v => updateRule({ conditionField: v })}>
+                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {ROUTING_CONDITION_FIELDS.map(f => (
+                                    <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Select value={r.conditionOp || '='} onValueChange={v => updateRule({ conditionOp: v })}>
+                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {ROUTING_CONDITION_OPS.map(o => (
+                                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Input className="h-8 text-xs" value={r.conditionValue || ''} onChange={e => updateRule({ conditionValue: e.target.value })} placeholder="value" />
+                            </div>
+                          </div>
+
+                          {/* THEN assign */}
+                          <div className="rounded-xl border bg-muted/5 p-3 space-y-3">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Assign To</p>
+                            <Select value={r.assignTo || ''} onValueChange={v => updateRule({ assignTo: v })}>
+                              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select agent or department…" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="ai_bot">AI Bot</SelectItem>
+                                <SelectItem value="queue">Queue (Unassigned)</SelectItem>
+                                {depts.map(d => (
+                                  <SelectItem key={`dept:${d.name}`} value={`dept:${d.name}`}>Dept: {d.name}</SelectItem>
+                                ))}
+                                {team.map(m => (
+                                  <SelectItem key={`agent:${m.id}`} value={`agent:${m.id}`}>{m.name} ({m.role})</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+                {activeData?.length > 0 && (
+                  <div className="flex justify-end">
+                    <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                      {saving ? 'Saving…' : 'Save Chat Routing'}
+                    </Button>
                   </div>
-                  <p style={{ fontSize:12, color:'var(--t4)' }}>{r.info} · Deleted {r.deletedAt ? new Date(r.deletedAt).toLocaleString() : 'recently'}</p>
-                </div>
-                <div style={{ display:'flex', gap:8 }}>
-                  <button onClick={()=>restoreRecycleItem(r.id)}
-                    style={{ fontSize:11, padding:'4px 10px', borderRadius:7, cursor:'pointer', fontWeight:600,
-                      background:'rgba(99,102,241,0.1)', color:'#a5b4fc', border:'1px solid rgba(99,102,241,0.2)' }}>
-                    Restore
-                  </button>
-                  <button onClick={()=>deleteRecycleItem(r.id)}
-                    style={{ fontSize:11, padding:'4px 10px', borderRadius:7, cursor:'pointer', fontWeight:600,
-                      background:'rgba(239,68,68,0.07)', color:'#fca5a5', border:'1px solid rgba(239,68,68,0.15)' }}>
-                    Delete
-                  </button>
-                </div>
+                )}
               </div>
-            ))
-          }
-        </div>
-      );
+            )}
 
-      /* ────── Conversation Layout ────── */
-      case 'conv_layout': return (
-        <div>
-          <Section title="Display Density" sub="Controls spacing between messages and elements">
-            <div style={{ display:'flex', gap:10 }}>
-              {['compact','comfortable','expanded'].map(d => (
-                <button key={d} onClick={()=>setLayout(l=>({...l,density:d}))}
-                  style={{ flex:1, padding:'14px', borderRadius:12, cursor:'pointer', fontWeight:600, fontSize:13,
-                    background: layout.density===d?'rgba(99,102,241,0.15)':'var(--s1)',
-                    border: layout.density===d?'1.5px solid rgba(99,102,241,0.4)':'1px solid var(--b1)',
-                    color: layout.density===d?'#a5b4fc':'var(--t3)', textTransform:'capitalize' }}>
-                  {d}
-                </button>
-              ))}
-            </div>
-          </Section>
-          <Section title="Bubble Style">
-            <div style={{ display:'flex', gap:10 }}>
-              {['rounded','sharp','pill'].map(s => (
-                <button key={s} onClick={()=>setLayout(l=>({...l,bubbleStyle:s}))}
-                  style={{ flex:1, padding:'14px', borderRadius:12, cursor:'pointer', fontWeight:600, fontSize:13,
-                    background: layout.bubbleStyle===s?'rgba(99,102,241,0.15)':'var(--s1)',
-                    border: layout.bubbleStyle===s?'1.5px solid rgba(99,102,241,0.4)':'1px solid var(--b1)',
-                    color: layout.bubbleStyle===s?'#a5b4fc':'var(--t3)', textTransform:'capitalize' }}>
-                  {s}
-                </button>
-              ))}
-            </div>
-          </Section>
-          <Section title="Visible Elements">
-            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-              <Toggle value={layout.showScore} onChange={v=>setLayout(l=>({...l,showScore:v}))} label="Show lead score badge in conversation list" />
-              <Toggle value={layout.showIntent} onChange={v=>setLayout(l=>({...l,showIntent:v}))} label="Show AI intent label" />
-              <Toggle value={layout.showChannel} onChange={v=>setLayout(l=>({...l,showChannel:v}))} label="Show channel icon" />
-              <Toggle value={layout.showTimestamp} onChange={v=>setLayout(l=>({...l,showTimestamp:v}))} label="Show message timestamps" />
-            </div>
-            <SaveRow onSave={()=>save('Layout saved')} saving={saving} />
-          </Section>
-        </div>
-      );
-
-      /* ────── Brands ────── */
-      case 'brands': return (
-        <div>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
-            <p style={{ fontSize:13, color:'var(--t4)' }}>Each brand can have its own AI tone, language and channels</p>
-            <button className="btn btn-primary btn-sm" onClick={()=>setBrandModal(true)}>+ New Brand</button>
-          </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-            {brands.map(b => (
-              <div key={b.id} style={{ padding:'16px 18px', borderRadius:12, background:'var(--bg2)',
-                border:'1px solid var(--b1)', display:'flex', alignItems:'center', gap:14 }}>
-                <div style={{ width:42, height:42, borderRadius:11, background:`${b.primary}20`,
-                  display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, border:`1px solid ${b.primary}30` }}>
-                  🏪
-                </div>
-                <div style={{ flex:1 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
-                    <span style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>{b.name}</span>
-                    {b.active && <Badge color='#34d399'>Active</Badge>}
-                  </div>
-                  <p style={{ fontSize:12, color:'var(--t4)' }}>Tone: {b.tone} · Language: {b.lang} · {b.domain}</p>
-                </div>
-                <div style={{ display:'flex', gap:8 }}>
-                  <button onClick={()=>{ setBrands(bs=>bs.map(x=>({...x,active:x.id===b.id}))); toast.success(`${b.name} set as active`); }}
-                    style={{ fontSize:11, padding:'4px 10px', borderRadius:7, cursor:'pointer', fontWeight:600,
-                      background:'rgba(99,102,241,0.1)', color:'#a5b4fc', border:'1px solid rgba(99,102,241,0.2)' }}>
-                    {b.active ? '● Active' : 'Set Active'}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-
-      /* ────── Global Settings ────── */
-      case 'global': return (
-        <div>
-          <Section title="Conversation Automation">
-            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-              <Toggle value={global.autoClose} onChange={v=>setGlobal(g=>({...g,autoClose:v}))} label="Auto-close inactive conversations" />
-              {global.autoClose && (
-                <div style={{ paddingLeft:12, display:'flex', alignItems:'center', gap:10 }}>
-                  <span style={{ fontSize:13, color:'var(--t3)' }}>Close after</span>
-                  <input className="input" type="number" style={{ width:70, fontSize:13 }}
-                    value={global.autoCloseHours} onChange={e=>setGlobal(g=>({...g,autoCloseHours:+e.target.value}))} />
-                  <span style={{ fontSize:13, color:'var(--t3)' }}>hours of inactivity</span>
-                </div>
-              )}
-              <Toggle value={global.assignBot} onChange={v=>setGlobal(g=>({...g,assignBot:v}))} label="Assign to AI bot when all operators are offline" />
-            </div>
-          </Section>
-          <Section title="Working Hours" sub="Conversations outside working hours are handled by AI bot">
-            <Toggle value={global.workingHours} onChange={v=>setGlobal(g=>({...g,workingHours:v}))} label="Enable working hours" />
-            {global.workingHours && (
-              <div style={{ marginTop:14, display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-                <Field label="Start Time"><input className="input" type="time" style={{ fontSize:13 }} value={global.workStart} onChange={e=>setGlobal(g=>({...g,workStart:e.target.value}))} /></Field>
-                <Field label="End Time"><input className="input" type="time" style={{ fontSize:13 }} value={global.workEnd} onChange={e=>setGlobal(g=>({...g,workEnd:e.target.value}))} /></Field>
-                <Field label="Working Days" sub="Active days of the week">
-                  <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                    {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => (
-                      <button key={d} onClick={()=>setGlobal(g=>({ ...g, workDays: g.workDays.includes(d) ? g.workDays.filter(x=>x!==d) : [...g.workDays,d] }))}
-                        style={{ padding:'5px 11px', borderRadius:8, cursor:'pointer', fontSize:12, fontWeight:600,
-                          background: global.workDays.includes(d)?'rgba(99,102,241,0.15)':'var(--s1)',
-                          border: global.workDays.includes(d)?'1px solid rgba(99,102,241,0.35)':'1px solid var(--b1)',
-                          color: global.workDays.includes(d)?'#a5b4fc':'var(--t3)' }}>
-                        {d}
-                      </button>
+            {/* ── 21. LEAD SCORING ──────────────────────────────────────── */}
+            {activeId === 'lead_scoring' && (
+              <div className="space-y-6">
+                <SectionHeader title="Lead Scoring" description="Signal rules that adjust the AI lead score (0–100). Active rules with matching signals increase or decrease the final score." />
+                <Card className="border shadow-sm bg-card overflow-hidden">
+                  <CardHeader className="border-b bg-muted/5 py-3 px-6 flex-row items-center justify-between">
+                    <p className="text-sm font-medium">Signal Rules</p>
+                    <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => {
+                      setActiveData(prev => [
+                        ...(Array.isArray(prev) ? prev : []),
+                        { id: `lr_${Date.now()}`, signal: LEAD_SIGNALS[0].signal, weight: 10, active: true },
+                      ]);
+                    }}>
+                      <Plus className="h-3.5 w-3.5" /> Add Rule
+                    </Button>
+                  </CardHeader>
+                  <div className="divide-y">
+                    {(!activeData || activeData.length === 0) ? (
+                      <div className="p-6 text-center text-sm text-muted-foreground italic">
+                        No custom rules. System uses purchase history and VIP tag defaults.
+                      </div>
+                    ) : activeData.map((rule, i) => (
+                      <div key={i} className="p-4 px-6 flex items-center gap-4">
+                        <Toggle value={!!rule.active} onChange={v => {
+                          const next = [...activeData]; next[i] = { ...next[i], active: v }; setActiveData(next);
+                        }} />
+                        <Select value={rule.signal || LEAD_SIGNALS[0].signal} onValueChange={v => {
+                          const next = [...activeData]; next[i] = { ...next[i], signal: v }; setActiveData(next);
+                        }}>
+                          <SelectTrigger className="h-9 flex-1 max-w-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {LEAD_SIGNALS.map(s => (
+                              <SelectItem key={s.signal} value={s.signal}>{s.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs text-muted-foreground">Weight</span>
+                          <Input
+                            type="number"
+                            className="w-20 h-9 text-center"
+                            value={rule.weight ?? 10}
+                            onChange={e => {
+                              const next = [...activeData]; next[i] = { ...next[i], weight: parseInt(e.target.value) }; setActiveData(next);
+                            }}
+                          />
+                        </div>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0" onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     ))}
                   </div>
-                </Field>
-              </div>
-            )}
-            <SaveRow onSave={()=>save('Global settings saved')} saving={saving} />
-          </Section>
-        </div>
-      );
-
-      /* ────── Email Templates ────── */
-      case 'email_tpl': return (
-        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-          {emailTpls.map(t => (
-            <div key={t.id} style={{ padding:'14px 18px', borderRadius:12, background:'var(--bg2)',
-              border:'1px solid var(--b1)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
-              <div>
-                <p style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)', marginBottom:3 }}>{t.name}</p>
-                <p style={{ fontSize:12, color:'var(--t4)' }}>Subject: {t.subject}</p>
-                {t.body && <p style={{ fontSize:11.5, color:'var(--t4)', marginTop:4 }}>{t.body.slice(0, 90)}{t.body.length > 90 ? '…' : ''}</p>}
-              </div>
-              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <Toggle value={t.active} onChange={v=>setEmailTpls(ts=>ts.map(x=>x.id===t.id?{...x,active:v}:x))} label="" />
-                <button onClick={()=>sendTestEmail(t)}
-                  style={{ fontSize:11, padding:'4px 10px', borderRadius:7, cursor:'pointer', fontWeight:600,
-                    background:'rgba(16,185,129,0.1)', color:'#34d399', border:'1px solid rgba(16,185,129,0.2)' }}>
-                  {emailTestSendingId === t.id ? 'Sending…' : 'Send Test'}
-                </button>
-                <button onClick={()=>setEmailEditor({ ...t })}
-                  style={{ fontSize:11, padding:'4px 10px', borderRadius:7, cursor:'pointer', fontWeight:600,
-                    background:'rgba(99,102,241,0.1)', color:'#a5b4fc', border:'1px solid rgba(99,102,241,0.2)' }}>
-                  Edit
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      );
-
-      /* ────── Profanity Library ────── */
-      case 'profanity': return (
-        <div>
-          <Section title="Blocked Words" sub="Messages containing these words will be flagged or auto-blocked">
-            <div style={{ display:'flex', gap:8, marginBottom:16 }}>
-              <input className="input" style={{ flex:1, fontSize:13 }} placeholder="Add a word or phrase…"
-                value={profInput} onChange={e=>setProfInput(e.target.value)}
-                onKeyDown={e=>{ if(e.key==='Enter'&&profInput.trim()){ setProfanity(p=>[...new Set([...p,profInput.trim()])]); setProfInput(''); toast.success('Word added'); }}} />
-              <button className="btn btn-primary btn-sm" onClick={()=>{ if(profInput.trim()){ setProfanity(p=>[...new Set([...p,profInput.trim()])]); setProfInput(''); toast.success('Word added'); }}}>Add</button>
-            </div>
-            <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
-              {profanity.map(w => (
-                <div key={w} style={{ display:'flex', alignItems:'center', gap:4, padding:'4px 10px 4px 12px',
-                  borderRadius:99, background:'rgba(239,68,68,0.09)', border:'1px solid rgba(239,68,68,0.2)',
-                  fontSize:13, color:'#fca5a5', fontWeight:600 }}>
-                  {w}
-                  <button onClick={()=>{ setProfanity(p=>p.filter(x=>x!==w)); toast.success('Removed'); }}
-                    style={{ background:'none', border:'none', cursor:'pointer', color:'#fca5a5', fontSize:14, marginLeft:4, lineHeight:1 }}>✕</button>
-                </div>
-              ))}
-            </div>
-          </Section>
-          <Section title="Auto-Action">
-            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-              <Toggle
-                value={profanityControls.flagForReview}
-                onChange={(value) => setProfanityControls((current) => ({ ...current, flagForReview: value }))}
-                label="Flag messages containing blocked words for agent review"
-              />
-              <Toggle
-                value={profanityControls.autoBlockAfterThree}
-                onChange={(value) => setProfanityControls((current) => ({ ...current, autoBlockAfterThree: value }))}
-                label="Auto-block contacts who use profanity 3+ times"
-              />
-            </div>
-            <SaveRow onSave={()=>save('Profanity settings saved')} saving={saving} />
-          </Section>
-        </div>
-      );
-
-      /* ────── Tags ────── */
-      case 'tags': return (
-        <div>
-          <Section title="Manage Tags" sub="Tags are used in conversations, contacts, and routing rules">
-            <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-              <input className="input" style={{ fontSize:13, flex:1, minWidth:140 }} placeholder="Tag name…"
-                value={tagForm.name} onChange={e=>setTagForm(f=>({...f,name:e.target.value}))} />
-              <div style={{ display:'flex', gap:6 }}>
-                {COLORS.map(c => (
-                  <button key={c} onClick={()=>setTagForm(f=>({...f,color:c}))}
-                    style={{ width:24, height:24, borderRadius:'50%', background:c, border: tagForm.color===c?'2px solid #fff':'2px solid transparent', cursor:'pointer' }} />
-                ))}
-              </div>
-              <button className="btn btn-primary btn-sm" onClick={()=>{ if(!tagForm.name.trim()){toast.error('Enter tag name');return;} setTags(t=>[...t,{id:'tg'+Date.now(),...tagForm}]); setTagForm({name:'',color:'#6366f1'}); toast.success('Tag added'); }}>+ Add</button>
-            </div>
-            <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
-              {tags.map(t => (
-                <div key={t.id} style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px',
-                  borderRadius:99, background:`${t.color}12`, border:`1px solid ${t.color}28` }}>
-                  <span style={{ width:8, height:8, borderRadius:'50%', background:t.color, display:'inline-block' }} />
-                  <span style={{ fontSize:12.5, fontWeight:600, color:t.color }}>{t.name}</span>
-                  <button onClick={()=>{ setTags(ts=>ts.filter(x=>x.id!==t.id)); toast.success('Tag deleted'); }}
-                    style={{ background:'none', border:'none', cursor:'pointer', color:t.color, fontSize:13, lineHeight:1, marginLeft:2 }}>✕</button>
-                </div>
-              ))}
-            </div>
-          </Section>
-        </div>
-      );
-
-      /* ────── Channel settings (shared template) ────── */
-      case 'ch_whatsapp': return <WhatsAppPanel />;
-
-      case 'ch_instagram': {
-        const ig = channels.instagram;
-        const igStats = channelStats.instagram;
-        return (
-          <div>
-            {/* Header + stats */}
-            <div style={{ padding:'16px 18px', borderRadius:12, background:'var(--s1)', border:'1px solid var(--b1)', marginBottom:20 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom: ig.connected ? 14 : 0 }}>
-                <div style={{ width:46, height:46, borderRadius:12, background:'rgba(225,48,108,0.12)',
-                  display:'flex', alignItems:'center', justifyContent:'center', fontSize:22,
-                  border:'1px solid rgba(225,48,108,0.25)', flexShrink:0 }}>📸</div>
-                <div style={{ flex:1 }}>
-                  <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>Instagram DM</p>
-                  <p style={{ fontSize:12, color: ig.connected ? '#34d399' : 'var(--t4)' }}>
-                    {ig.connected ? `● Connected · ${ig.page ? `@${ig.page}` : 'Instagram Business'} · Verified` : '○ Not connected'}
-                  </p>
-                  {ig.connected && ig.pageName && (
-                    <p style={{ fontSize:11, color:'var(--t4)', marginTop:3 }}>
-                      Linked via Facebook Page: {ig.pageName}
-                    </p>
-                  )}
-                </div>
-                {ig.connected
-                  ? <button className="btn btn-sm btn-ghost" style={{ color:'#fca5a5' }}
-                      onClick={()=>disconnectChannel('instagram', { token:'', page:'' })}>
-                      Disconnect
-                    </button>
-                  : <button className="btn btn-sm btn-primary" style={{ background:'#E1306C', borderColor:'#E1306C', color:'#fff' }}
-                      onClick={()=>setFbModal(true)}>🔐 Connect with Facebook</button>}
-              </div>
-              {ig.connected && (
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', borderTop:'1px solid var(--b1)', paddingTop:12 }}>
-                  {[['Conversations',igStats.conversations],['Deals Closed',igStats.deals],['Conv. Rate',igStats.rate],['Avg Response',igStats.response],['Satisfaction',igStats.satisfaction]].map(([l,v])=>(
-                    <div key={l} style={{ textAlign:'center' }}>
-                      <p style={{ fontSize:18, fontWeight:800, color:'#E1306C', marginBottom:2 }}>{v}</p>
-                      <p style={{ fontSize:11, color:'var(--t4)' }}>{l}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Tabs */}
-            <div className="tabs" style={{ marginBottom:20 }}>
-              {['connection','settings'].map(t=>(
-                <button key={t} className={`tab${igTab===t?' active':''}`}
-                  onClick={()=>setIgTab(t)} style={{ textTransform:'capitalize' }}>{t}</button>
-              ))}
-            </div>
-
-            {igTab === 'connection' && (
-              <Section title="📸 Instagram Business" sub="Connect via Meta OAuth. ChatOrAI handles the page token and account linking automatically.">
-                <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(225,48,108,0.05)',
-                  border:'1px solid rgba(225,48,108,0.18)', marginBottom:18 }}>
-                  <p style={{ fontSize:13, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Fully automatic Meta connection</p>
-                  <p style={{ fontSize:12.5, color:'var(--t4)', marginBottom:12, lineHeight:1.5 }}>
-                    ChatOrAI opens Meta Business Login, lets you pick the connected assets, then stores the page token and account link in the backend automatically.
-                  </p>
-                  <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
-                    <button className="btn btn-sm" style={{ background:'#E1306C', color:'#fff', border:'none', borderRadius:8 }}
-                      onClick={()=>setFbModal(true)}>
-                      {ig.connected ? 'Reconnect with Facebook' : '🔐 Connect with Facebook'}
-                    </button>
-                    {ig.connected && (
-                      <button className="btn btn-sm btn-ghost" onClick={refreshChannelConnections}>Refresh Status</button>
-                    )}
+                </Card>
+                {Array.isArray(activeData) && (
+                  <div className="flex justify-end">
+                    <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                      {saving ? 'Saving…' : 'Save Lead Rules'}
+                    </Button>
                   </div>
-                </div>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:12 }}>
-                  <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-                    <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Connected Account</p>
-                    <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>{ig.page || 'Waiting for Meta OAuth'}</p>
-                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>No page IDs or access tokens are entered manually.</p>
-                  </div>
-                  <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-                    <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Connection Status</p>
-                    <p style={{ fontSize:14, fontWeight:700, color:ig.connected ? '#34d399' : 'var(--t1)' }}>
-                      {ig.connected ? 'Verified and active' : 'Not connected yet'}
-                    </p>
-                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>ChatOrAI uses the stored Meta page token after OAuth completes.</p>
-                  </div>
-                  <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-                    <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Webhook Setup</p>
-                    <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>Managed by ChatOrAI</p>
-                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>The connection flow now stays inside the product instead of asking operators for callback URLs.</p>
-                  </div>
-                </div>
-              </Section>
-            )}
-
-            {igTab === 'settings' && (
-              <Section title="Instagram Settings" sub="Messaging behaviour for your Instagram DM channel.">
-                <Toggle
-                  label="Auto-reply to Story Mentions"
-                  value={igSettings.storyMentionsAutoReply}
-                  onChange={(value) => setIgSettings((current) => ({ ...current, storyMentionsAutoReply: value }))}
-                />
-                <div style={{ marginTop:10 }}>
-                  <Toggle
-                    label="Show Typing Indicator"
-                    value={igSettings.typingIndicator}
-                    onChange={(value) => setIgSettings((current) => ({ ...current, typingIndicator: value }))}
-                  />
-                </div>
-                <div style={{ marginTop:10 }}>
-                  <Toggle
-                    label="Read Receipts"
-                    value={igSettings.readReceipts}
-                    onChange={(value) => setIgSettings((current) => ({ ...current, readReceipts: value }))}
-                  />
-                </div>
-                <SaveRow onSave={saveInstagramSettings} saving={saving} />
-              </Section>
-            )}
-          </div>
-        );
-      }
-
-      case 'ch_messenger': {
-        const fbm = channels.messenger;
-        const fbmStats = channelStats.messenger;
-        return (
-          <div>
-            {/* Header + stats */}
-            <div style={{ padding:'16px 18px', borderRadius:12, background:'var(--s1)', border:'1px solid var(--b1)', marginBottom:20 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom: fbm.connected ? 14 : 0 }}>
-                <div style={{ width:46, height:46, borderRadius:12, background:'rgba(0,153,255,0.12)',
-                  display:'flex', alignItems:'center', justifyContent:'center', fontSize:22,
-                  border:'1px solid rgba(0,153,255,0.25)', flexShrink:0 }}>💬</div>
-                <div style={{ flex:1 }}>
-                  <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>Facebook Messenger</p>
-                  <p style={{ fontSize:12, color: fbm.connected ? '#34d399' : 'var(--t4)' }}>
-                    {fbm.connected ? `● Connected · ${fbm.page} · Verified` : '○ Not connected'}
-                  </p>
-                </div>
-                {fbm.connected
-                  ? <button className="btn btn-sm btn-ghost" style={{ color:'#fca5a5' }}
-                      onClick={()=>disconnectChannel('messenger', { token:'', page:'' })}>
-                      Disconnect
-                    </button>
-                  : <button className="btn btn-sm btn-primary" style={{ background:'#0099FF', borderColor:'#0099FF', color:'#fff' }}
-                      onClick={()=>setFbModal(true)}>🔐 Connect with Facebook</button>}
-              </div>
-              {fbm.connected && (
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', borderTop:'1px solid var(--b1)', paddingTop:12 }}>
-                  {[['Conversations',fbmStats.conversations],['Deals Closed',fbmStats.deals],['Conv. Rate',fbmStats.rate],['Avg Response',fbmStats.response],['Satisfaction',fbmStats.satisfaction]].map(([l,v])=>(
-                    <div key={l} style={{ textAlign:'center' }}>
-                      <p style={{ fontSize:18, fontWeight:800, color:'#0099FF', marginBottom:2 }}>{v}</p>
-                      <p style={{ fontSize:11, color:'var(--t4)' }}>{l}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Tabs */}
-            <div className="tabs" style={{ marginBottom:20 }}>
-              {['connection','settings'].map(t=>(
-                <button key={t} className={`tab${fbmTab===t?' active':''}`}
-                  onClick={()=>setFbmTab(t)} style={{ textTransform:'capitalize' }}>{t}</button>
-              ))}
-            </div>
-
-            {fbmTab === 'connection' && (
-              <Section title="💬 Facebook Messenger" sub="Connect your Facebook Page with Meta OAuth. ChatOrAI handles the page token automatically.">
-                <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(0,153,255,0.05)',
-                  border:'1px solid rgba(0,153,255,0.18)', marginBottom:18 }}>
-                  <p style={{ fontSize:13, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Fully automatic Meta connection</p>
-                  <p style={{ fontSize:12.5, color:'var(--t4)', marginBottom:12, lineHeight:1.5 }}>
-                    ChatOrAI opens Meta Business Login, lets you pick the Page, then stores the page token and Messenger connection in the backend automatically.
-                  </p>
-                  <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
-                    <button className="btn btn-sm" style={{ background:'#0099FF', color:'#fff', border:'none', borderRadius:8 }}
-                      onClick={()=>setFbModal(true)}>
-                      {fbm.connected ? 'Reconnect with Facebook' : '🔐 Connect with Facebook'}
-                    </button>
-                    {fbm.connected && (
-                      <button className="btn btn-sm btn-ghost" onClick={refreshChannelConnections}>Refresh Status</button>
-                    )}
-                  </div>
-                </div>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:12 }}>
-                  <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-                    <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Connected Page</p>
-                    <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>{fbm.page || 'Waiting for Meta OAuth'}</p>
-                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>No page IDs or page tokens are entered manually.</p>
-                  </div>
-                  <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-                    <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Connection Status</p>
-                    <p style={{ fontSize:14, fontWeight:700, color:fbm.connected ? '#34d399' : 'var(--t1)' }}>
-                      {fbm.connected ? 'Verified and active' : 'Not connected yet'}
-                    </p>
-                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>ChatOrAI uses the stored Meta page token after OAuth completes.</p>
-                  </div>
-                  <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-                    <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Webhook Setup</p>
-                    <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>Managed by ChatOrAI</p>
-                    <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>Operators no longer need to paste callback URLs into the settings page.</p>
-                  </div>
-                </div>
-              </Section>
-            )}
-
-            {fbmTab === 'settings' && (
-              <Section title="Messenger Settings" sub="Messaging behaviour for your Facebook Messenger channel.">
-                <Toggle
-                  label="Persistent Menu"
-                  value={messengerSettings.persistentMenu}
-                  onChange={(value) => setMessengerSettings((current) => ({ ...current, persistentMenu: value }))}
-                />
-                <div style={{ marginTop:10 }}>
-                  <Toggle
-                    label="Get Started Button"
-                    value={messengerSettings.getStartedButton}
-                    onChange={(value) => setMessengerSettings((current) => ({ ...current, getStartedButton: value }))}
-                  />
-                </div>
-                <div style={{ marginTop:10 }}>
-                  <Toggle
-                    label="Read Receipts"
-                    value={messengerSettings.readReceipts}
-                    onChange={(value) => setMessengerSettings((current) => ({ ...current, readReceipts: value }))}
-                  />
-                </div>
-                <SaveRow onSave={saveMessengerSettings} saving={saving} />
-              </Section>
-            )}
-          </div>
-        );
-      }
-
-      case 'ch_livechat': {
-        const lc = channels.livechat;
-        const lcStats = channelStats.livechat;
-        const lcSnippet = `<!-- ChatOrAI Live Chat Widget -->\n<script>\n  (function(w,d){\n    w.ChatOrAIChat = { widgetId: '${lc.widgetId}' };\n    var s = d.createElement('script');\n    s.src = 'https://cdn.chatorai.com/widget.js';\n    s.async = true;\n    d.head.appendChild(s);\n  })(window, document);\n</script>`;
-        return (
-          <div>
-            {/* Header + stats */}
-            <div style={{ padding:'16px 18px', borderRadius:12, background:'var(--s1)', border:'1px solid var(--b1)', marginBottom:20 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom: lc.connected ? 14 : 0 }}>
-                <div style={{ width:46, height:46, borderRadius:12, background:'rgba(99,102,241,0.12)',
-                  display:'flex', alignItems:'center', justifyContent:'center', fontSize:22,
-                  border:'1px solid rgba(99,102,241,0.25)', flexShrink:0 }}>⚡</div>
-                <div style={{ flex:1 }}>
-                  <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>Live Chat Widget</p>
-                  <p style={{ fontSize:12, color: lc.connected ? '#34d399' : 'var(--t4)' }}>
-                    {lc.connected ? `● Active · ${lc.domain} · Widget ID: ${lc.widgetId}` : '○ Not installed'}
-                  </p>
-                </div>
-                {lc.connected
-                  ? <button className="btn btn-sm btn-ghost" style={{ color:'#fca5a5' }}
-                      onClick={()=>disconnectChannel('livechat', { widgetId: channels.livechat.widgetId, domain: channels.livechat.domain, color: channels.livechat.color })}>
-                      Disable
-                    </button>
-                  : <button className="btn btn-sm btn-primary"
-                      onClick={saveLiveChatSettings}>
-                      Enable
-                    </button>}
-              </div>
-              {lc.connected && (
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', borderTop:'1px solid var(--b1)', paddingTop:12 }}>
-                  {[['Conversations',lcStats.conversations],['Deals Closed',lcStats.deals],['Conv. Rate',lcStats.rate],['Avg Response',lcStats.response],['Satisfaction',lcStats.satisfaction]].map(([l,v])=>(
-                    <div key={l} style={{ textAlign:'center' }}>
-                      <p style={{ fontSize:18, fontWeight:800, color:'#6366f1', marginBottom:2 }}>{v}</p>
-                      <p style={{ fontSize:11, color:'var(--t4)' }}>{l}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <Section title="Widget Configuration" sub="Configure your Live Chat widget appearance and allowed domain.">
-              <Field label="Allowed Domain" sub="Only this domain can load the chat widget.">
-                <input className="input" placeholder="mystore.com" value={lc.domain||''}
-                  onChange={e=>setChannels(cs=>({...cs,livechat:{...cs.livechat,domain:e.target.value}}))} />
-              </Field>
-              <div style={{ marginTop:14 }}>
-                <Field label="Widget ID" sub="Auto-generated. Use this in the embed snippet.">
-                  <div style={{ position:'relative' }}>
-                    <input className="input" readOnly value={lc.widgetId}
-                      style={{ fontFamily:'monospace', fontSize:13, color:'var(--t3)', paddingRight:90 }} />
-                    <button className="btn btn-sm btn-ghost" style={{ position:'absolute', right:6, top:'50%', transform:'translateY(-50%)', fontSize:11 }}
-                      onClick={()=>{ navigator.clipboard?.writeText(lc.widgetId); toast.success('Copied!'); }}>Copy</button>
-                  </div>
-                </Field>
-              </div>
-              <SaveRow onSave={saveLiveChatSettings} saving={saving} />
-            </Section>
-
-            <Section title="Embed Code" sub="Paste this snippet before the </body> tag on your website. RTL auto-detected.">
-              <div style={{ background:'#0a0a14', borderRadius:10, padding:'16px 18px',
-                border:'1px solid rgba(99,102,241,0.2)', fontFamily:'monospace', fontSize:12.5,
-                color:'#a5b4fc', whiteSpace:'pre-wrap', lineHeight:1.7, marginBottom:12 }}>
-                {lcSnippet}
-              </div>
-              <div style={{ display:'flex', gap:10 }}>
-                <button className="btn btn-primary btn-sm"
-                  onClick={()=>{ navigator.clipboard?.writeText(lcSnippet); toast.success('Snippet copied!'); }}>
-                  Copy Snippet
-                </button>
-                <button className="btn btn-ghost btn-sm"
-                  onClick={()=>toast('Widget preview coming soon 🚀')}>
-                  Preview Widget
-                </button>
-              </div>
-            </Section>
-          </div>
-        );
-      }
-
-      /* ────── Triggers ────── */
-      case 'triggers': return (
-        <div>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
-            <p style={{ fontSize:13, color:'var(--t4)' }}>Triggers fire automatically when their event conditions are met</p>
-            <button className="btn btn-primary btn-sm" onClick={()=>setTrigModal(true)}>+ New Trigger</button>
-          </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-            {triggers.map(tr => (
-              <div key={tr.id} style={{ padding:'14px 18px', borderRadius:12, background:'var(--bg2)',
-                border:`1px solid ${tr.active?'rgba(99,102,241,0.2)':'var(--b1)'}`,
-                opacity: tr.active ? 1 : 0.55 }}>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
-                  <span style={{ fontSize:14, fontWeight:600, color:'var(--t1)' }}>{tr.name}</span>
-                  <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                    <div className={`toggle${tr.active?' on':''}`} style={{ transform:'scale(0.8)' }}
-                      onClick={()=>setTriggers(ts=>ts.map(x=>x.id===tr.id?{...x,active:!x.active}:x))} />
-                    <button onClick={()=>{ setTriggers(ts=>ts.filter(x=>x.id!==tr.id)); toast.success('Deleted'); }}
-                      style={{ fontSize:11, padding:'3px 8px', borderRadius:7, cursor:'pointer',
-                        background:'rgba(239,68,68,0.07)', color:'#fca5a5', border:'1px solid rgba(239,68,68,0.15)' }}>✕</button>
-                  </div>
-                </div>
-                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                  <span style={{ fontSize:11.5, padding:'3px 9px', borderRadius:99, fontWeight:600,
-                    background:'rgba(99,102,241,0.1)', color:'#818cf8', border:'1px solid rgba(99,102,241,0.2)' }}>
-                    Event: {tr.event.replace(/_/g,' ')}
-                  </span>
-                  <span style={{ fontSize:11.5, padding:'3px 9px', borderRadius:99, fontWeight:600,
-                    background:'rgba(251,191,36,0.1)', color:'#fbbf24', border:'1px solid rgba(251,191,36,0.2)' }}>
-                    If: {tr.condition}
-                  </span>
-                  <span style={{ fontSize:11.5, padding:'3px 9px', borderRadius:99, fontWeight:600,
-                    background:'rgba(52,211,153,0.1)', color:'#34d399', border:'1px solid rgba(52,211,153,0.2)' }}>
-                    → {tr.action}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-
-      /* ────── Visitor Routing ────── */
-      case 'visitor_route': return (
-        <div>
-          <Section title="Visitor Assignment Mode" sub="How new conversations are distributed to operators">
-            <div style={{ display:'flex', gap:10, marginBottom:16 }}>
-              {['round_robin','least_active','manual'].map(m => (
-                <button key={m} onClick={()=>setVR(r=>({...r,mode:m}))}
-                  style={{ flex:1, padding:'14px', borderRadius:12, cursor:'pointer', fontWeight:600, fontSize:12.5,
-                    background: visitorRouting.mode===m?'rgba(99,102,241,0.15)':'var(--s1)',
-                    border: visitorRouting.mode===m?'1.5px solid rgba(99,102,241,0.4)':'1px solid var(--b1)',
-                    color: visitorRouting.mode===m?'#a5b4fc':'var(--t3)', textTransform:'capitalize', textAlign:'center' }}>
-                  {m.replace('_',' ')}
-                </button>
-              ))}
-            </div>
-            <Field label="Fallback (when no operators available)" sub="Conversation goes to:">
-              <select className="input" style={{ fontSize:13 }} value={visitorRouting.fallback}
-                onChange={e=>setVR(r=>({...r,fallback:e.target.value}))}>
-                <option>AI Bot</option>
-                {operators.map(o=><option key={o.id}>{o.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Routing timeout" sub="Seconds before routing to fallback">
-              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                <input className="input" type="number" style={{ width:80, fontSize:13 }} value={visitorRouting.threshold}
-                  onChange={e=>setVR(r=>({...r,threshold:+e.target.value}))} />
-                <span style={{ fontSize:13, color:'var(--t3)' }}>seconds</span>
-              </div>
-            </Field>
-            <SaveRow onSave={()=>save('Visitor routing saved')} saving={saving} />
-          </Section>
-        </div>
-      );
-
-      /* ────── Chat Routing ────── */
-      case 'chat_route': return (
-        <div>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
-            <p style={{ fontSize:13, color:'var(--t4)' }}>Rules are evaluated in priority order — first match wins</p>
-            <button className="btn btn-ghost btn-sm" onClick={()=>toast('Rule builder coming soon')}>+ Add Rule</button>
-          </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-            {routing.map((r, i) => (
-              <div key={r.id} style={{ padding:'13px 18px', borderRadius:12, background:'var(--bg2)',
-                border:`1px solid ${r.active?'rgba(99,102,241,0.2)':'var(--b1)'}`,
-                display:'flex', alignItems:'center', gap:14, opacity: r.active ? 1 : 0.55 }}>
-                <span style={{ fontSize:12, fontWeight:700, color:'var(--t4)', width:20, textAlign:'center',
-                  background:'var(--s2)', borderRadius:6, padding:'3px 6px' }}>#{i+1}</span>
-                <div style={{ flex:1 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
-                    <span style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)' }}>{r.name}</span>
-                  </div>
-                  <div style={{ display:'flex', gap:6 }}>
-                    <span style={{ fontSize:11.5, color:'#fbbf24' }}>If: {r.condition}</span>
-                    <span style={{ fontSize:11.5, color:'var(--t4)' }}>→</span>
-                    <span style={{ fontSize:11.5, color:'#34d399' }}>Assign to: {r.assignTo}</span>
-                  </div>
-                </div>
-                <div className={`toggle${r.active?' on':''}`} style={{ transform:'scale(0.8)' }}
-                  onClick={()=>setRouting(rs=>rs.map(x=>x.id===r.id?{...x,active:!x.active}:x))} />
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-
-      /* ────── Lead Scoring ────── */
-      case 'lead_scoring': return (
-        <div>
-          <Section title="Scoring Rules" sub="Each signal adjusts the lead score (0–100). Positive = intent, Negative = objection">
-            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-              {leadRules.map(r => (
-                <div key={r.id} style={{ padding:'12px 16px', borderRadius:11, background:'var(--bg2)',
-                  border:'1px solid var(--b1)', display:'flex', alignItems:'center', gap:14,
-                  opacity: r.active ? 1 : 0.5 }}>
-                  <div className={`toggle${r.active?' on':''}`} style={{ transform:'scale(0.8)', flexShrink:0 }}
-                    onClick={()=>setLeadRules(rs=>rs.map(x=>x.id===r.id?{...x,active:!x.active}:x))} />
-                  <span style={{ flex:1, fontSize:13, color:'var(--t2)' }}>{r.signal}</span>
-                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                    <input type="number" className="input" style={{ width:60, fontSize:13, textAlign:'center',
-                      color: r.weight>0?'#34d399':'#fca5a5', fontWeight:700 }}
-                      value={r.weight} onChange={e=>setLeadRules(rs=>rs.map(x=>x.id===r.id?{...x,weight:+e.target.value}:x))} />
-                    <span style={{ fontSize:12, color:'var(--t4)' }}>pts</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <SaveRow onSave={()=>save('Lead scoring rules saved')} saving={saving} />
-          </Section>
-        </div>
-      );
-
-      /* ────── Company Scoring ────── */
-      case 'company_score': return (
-        <div>
-          <Section title="Company Score Thresholds" sub="Scores contacts based on purchase history to identify high-value accounts">
-            <Toggle value={compScore.enabled} onChange={v=>setCompScore(s=>({...s,enabled:v}))} label="Enable company scoring" />
-            {compScore.enabled && (
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginTop:16 }}>
-                <Field label="Minimum revenue for High Value" sub="EGP"><input className="input" type="number" style={{ fontSize:13 }} value={compScore.minRevenue} onChange={e=>setCompScore(s=>({...s,minRevenue:+e.target.value}))} /></Field>
-                <Field label="Minimum orders for Regular"><input className="input" type="number" style={{ fontSize:13 }} value={compScore.minOrders} onChange={e=>setCompScore(s=>({...s,minOrders:+e.target.value}))} /></Field>
-                <Field label="VIP threshold (EGP total revenue)"><input className="input" type="number" style={{ fontSize:13 }} value={compScore.vipThreshold} onChange={e=>setCompScore(s=>({...s,vipThreshold:+e.target.value}))} /></Field>
-              </div>
-            )}
-            <SaveRow onSave={()=>save('Company scoring saved')} saving={saving} />
-          </Section>
-        </div>
-      );
-
-      /* ────── Schedule Report ────── */
-      case 'sched_report': return (
-        <div>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
-            <p style={{ fontSize:13, color:'var(--t4)' }}>Automated reports sent to specified email addresses</p>
-            <button className="btn btn-primary btn-sm" onClick={()=>setSchedModal(true)}>+ New Schedule</button>
-          </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-            {schedReports.map(s => (
-              <div key={s.id} style={{ padding:'13px 18px', borderRadius:12, background:'var(--bg2)',
-                border:'1px solid var(--b1)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
-                opacity: s.active ? 1 : 0.55 }}>
-                <div>
-                  <p style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)', marginBottom:3 }}>{s.name}</p>
-                  <p style={{ fontSize:12, color:'var(--t4)' }}>
-                    Every {s.freq} at {s.time} → {s.email}
-                  </p>
-                  {(s.lastRunAt || s.lastStatus) && (
-                    <p style={{ fontSize:11.5, color:'var(--t4)', marginTop:4 }}>
-                      Last run: {s.lastRunAt ? new Date(s.lastRunAt).toLocaleString() : '—'} · {s.lastStatus || 'pending'}
-                      {s.lastError ? ` · ${s.lastError}` : ''}
-                    </p>
-                  )}
-                </div>
-                <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                  <button onClick={()=>runScheduledReport(s)}
-                    style={{ fontSize:11, padding:'3px 9px', borderRadius:7, cursor:'pointer', fontWeight:600,
-                      background:'rgba(16,185,129,0.1)', color:'#34d399', border:'1px solid rgba(16,185,129,0.2)' }}>
-                    {reportRunningId === s.id ? 'Running…' : 'Run Now'}
-                  </button>
-                  <div className={`toggle${s.active?' on':''}`} style={{ transform:'scale(0.8)' }}
-                    onClick={()=>setSchedReports(rs=>rs.map(x=>x.id===s.id?{...x,active:!x.active}:x))} />
-                  <button onClick={()=>{ setSchedReports(rs=>rs.filter(x=>x.id!==s.id)); toast.success('Deleted'); }}
-                    style={{ fontSize:11, padding:'3px 8px', borderRadius:7, cursor:'pointer',
-                      background:'rgba(239,68,68,0.07)', color:'#fca5a5', border:'1px solid rgba(239,68,68,0.15)' }}>✕</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-
-      /* ────── Conversation Monitor ────── */
-      case 'conv_monitor': return (
-        <div>
-          <div style={{ display:'flex', gap:14, marginBottom:20 }}>
-            {[
-              { label:'Active', value: monitorData.summary?.active || 0, color:'#34d399' },
-              { label:'Bot',    value: monitorData.summary?.bot || 0,    color:'#67e8f9' },
-              { label:'Waiting',value: monitorData.summary?.waiting || 0,color:'#fbbf24' },
-            ].map(s => (
-              <div key={s.label} style={{ padding:'12px 20px', borderRadius:11, background:'var(--bg2)',
-                border:`1px solid ${s.color}22`, flex:1, textAlign:'center' }}>
-                <p style={{ fontSize:24, fontWeight:800, color:s.color, fontFamily:'Space Grotesk' }}>{s.value}</p>
-                <p style={{ fontSize:12, color:'var(--t4)', marginTop:2 }}>{s.label}</p>
-              </div>
-            ))}
-          </div>
-          {monitorLoading && (
-            <div style={{ marginBottom:12, fontSize:12.5, color:'var(--t4)' }}>Loading live conversations…</div>
-          )}
-          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-            {LIVE_CONVS.map(c => (
-              <div key={c.id} style={{ padding:'13px 18px', borderRadius:12, background:'var(--bg2)',
-                border:'1px solid var(--b1)', display:'flex', alignItems:'center', gap:14 }}>
-                <span style={{ width:8, height:8, borderRadius:'50%', flexShrink:0,
-                  background: c.status==='active'?'#34d399':c.status==='bot'?'#67e8f9':'#fbbf24',
-                  display:'inline-block' }} />
-                <div style={{ flex:1 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                    <span style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)' }}>{c.customer}</span>
-                    <span style={{ fontSize:14 }}>{CH_ICON[c.channel] || '💬'}</span>
-                    <span style={{ fontSize:11.5, color:'var(--t4)' }}>{c.msgs} messages · {c.duration}</span>
-                  </div>
-                  <p style={{ fontSize:12, color:'var(--t4)', marginTop:2 }}>Agent: {c.agent}</p>
-                </div>
-                <button onClick={()=>{ if (typeof window !== 'undefined') window.location.href = '/dashboard/conversations'; }} className="btn btn-ghost btn-xs">View</button>
-                {c.status === 'bot' && (
-                  <button onClick={()=>takeOverConversation(c.id)} className="btn btn-xs"
-                    style={{ background:'rgba(6,182,212,0.1)', color:'#67e8f9', border:'1px solid rgba(6,182,212,0.2)', fontSize:11, padding:'4px 10px', borderRadius:7, cursor:'pointer', fontWeight:600 }}>
-                    Take Over
-                  </button>
                 )}
               </div>
-            ))}
-            {!monitorLoading && LIVE_CONVS.length === 0 && (
-              <div style={{ padding:'36px', textAlign:'center', color:'var(--t4)', fontSize:14 }}>
-                No open conversations are being monitored right now.
-              </div>
             )}
-          </div>
-        </div>
-      );
 
-      /* ────── Import ────── */
-      case 'import': return (
-        <div>
-          <Section title="Import Contacts" sub="Upload a CSV file to bulk import contacts into your database">
-            <div style={{ padding:'32px', borderRadius:14, border:'2px dashed var(--b1)',
-              background:'var(--s1)', textAlign:'center', marginBottom:16 }}>
-              <div style={{ fontSize:36, marginBottom:12 }}>📂</div>
-              <p style={{ fontSize:14, color:'var(--t2)', marginBottom:6 }}>
-                {importFile ? `✓ ${importFile.name}` : 'Drop your CSV file here'}
-              </p>
-              <p style={{ fontSize:12, color:'var(--t4)', marginBottom:16 }}>
-                Columns: Name, Phone, Email, Country, Tags (comma separated)
-              </p>
-              <label style={{ cursor:'pointer' }}>
-                <input type="file" accept=".csv" style={{ display:'none' }}
-                  onChange={e=>{ setImportFile(e.target.files[0]); setImportResult(null); }} />
-                <span className="btn btn-ghost btn-sm">Browse Files</span>
-              </label>
-            </div>
-            {importResult && (
-              <div style={{ padding:'14px 18px', borderRadius:11, background:'rgba(52,211,153,0.06)',
-                border:'1px solid rgba(52,211,153,0.2)', marginBottom:14, display:'grid',
-                gridTemplateColumns:'repeat(4,1fr)', gap:12 }}>
-                {[
-                  { label:'Total', value:importResult.total, color:'var(--t1)' },
-                  { label:'Imported', value:importResult.imported, color:'#34d399' },
-                  { label:'Skipped', value:importResult.skipped, color:'#fbbf24' },
-                  { label:'Errors', value:importResult.errors, color:'#fca5a5' },
-                ].map(s=>(
-                  <div key={s.label} style={{ textAlign:'center' }}>
-                    <p style={{ fontSize:22, fontWeight:800, color:s.color, fontFamily:'Space Grotesk' }}>{s.value}</p>
-                    <p style={{ fontSize:11.5, color:'var(--t4)' }}>{s.label}</p>
+            {/* ── 22. COMPANY SCORING ───────────────────────────────────── */}
+            {activeId === 'company_scoring' && (
+              <SettingSection title="Company Scoring" description="Thresholds for boosting scores based on customer purchase history. Affects AI lead scoring." onSave={() => handleSaveActiveData()} saving={saving} loading={sectionLoading}>
+                {activeData && (
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between py-2 border-b">
+                      <div>
+                        <p className="text-sm font-medium">Enable Company Scoring</p>
+                        <p className="text-xs text-muted-foreground">Apply revenue and order thresholds to boost lead scores</p>
+                      </div>
+                      <Toggle value={!!activeData.enabled} onChange={v => setActiveData(d => ({ ...d, enabled: v }))} />
+                    </div>
+                    <div className="grid grid-cols-3 gap-6">
+                      <Field label="Min Revenue for Boost">
+                        <Input type="number" min={0} value={activeData.minRevenue ?? 1000} onChange={e => setActiveData(d => ({ ...d, minRevenue: parseFloat(e.target.value) }))} />
+                      </Field>
+                      <Field label="Min Orders for Boost">
+                        <Input type="number" min={0} value={activeData.minOrders ?? 3} onChange={e => setActiveData(d => ({ ...d, minOrders: parseInt(e.target.value) }))} />
+                      </Field>
+                      <Field label="VIP Threshold (revenue)">
+                        <Input type="number" min={0} value={activeData.vipThreshold ?? 5000} onChange={e => setActiveData(d => ({ ...d, vipThreshold: parseFloat(e.target.value) }))} />
+                      </Field>
+                    </div>
+                    <Card className="bg-indigo-500/5 border-indigo-200/30 shadow-none">
+                      <CardContent className="p-4 text-xs text-muted-foreground leading-relaxed">
+                        Customers exceeding <strong>VIP Threshold</strong> get +10 points. Those above <strong>Min Revenue</strong> get +5 points. Customers with &ge; <strong>Min Orders</strong> get +5 points. Points stack and are capped at 100.
+                      </CardContent>
+                    </Card>
                   </div>
+                )}
+              </SettingSection>
+            )}
+
+            {/* ── 23. SCHEDULE REPORT ───────────────────────────────────── */}
+            {activeId === 'schedule_report' && (
+              <div className="space-y-6">
+                <SectionHeader title="Schedule Report" description="Automated performance reports sent by email.">
+                  <Button size="sm" onClick={() => setActiveData(prev => [
+                    ...(prev || []),
+                    { id: `sr_${Date.now()}`, name: 'New Report', freq: 'daily', time: '08:00', email: '', active: true },
+                  ])} className="h-9 gap-2">
+                    <Plus className="h-3.5 w-3.5" /> Add Schedule
+                  </Button>
+                </SectionHeader>
+                {(!activeData || activeData.length === 0) ? (
+                  <Card className="border"><EmptyState icon={Calendar} text="No scheduled reports configured." /></Card>
+                ) : activeData.map((r, i) => (
+                  <Card key={i} className="border shadow-sm bg-card">
+                    <CardContent className="p-6 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <p className="font-medium text-sm">{r.name}</p>
+                        <div className="flex items-center gap-2">
+                          {r.lastStatus && (
+                            <Badge variant={r.lastStatus === 'sent' ? 'default' : 'destructive'} className="text-xs">
+                              Last: {r.lastStatus}
+                            </Badge>
+                          )}
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Send now" onClick={() => handleRunReport(r.id)}>
+                            <Play className="h-3.5 w-3.5" />
+                          </Button>
+                          <Toggle value={!!r.active} onChange={v => {
+                            const next = [...activeData]; next[i] = { ...next[i], active: v }; setActiveData(next);
+                          }} />
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <Field label="Report Name">
+                          <Input value={r.name} onChange={e => {
+                            const next = [...activeData]; next[i] = { ...next[i], name: e.target.value }; setActiveData(next);
+                          }} />
+                        </Field>
+                        <Field label="Frequency">
+                          <Select value={r.freq || 'daily'} onValueChange={v => {
+                            const next = [...activeData]; next[i] = { ...next[i], freq: v }; setActiveData(next);
+                          }}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="daily">Daily</SelectItem>
+                              <SelectItem value="weekly">Weekly</SelectItem>
+                              <SelectItem value="monthly">Monthly</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                        <Field label="Send Time">
+                          <Input type="time" value={r.time || '08:00'} onChange={e => {
+                            const next = [...activeData]; next[i] = { ...next[i], time: e.target.value }; setActiveData(next);
+                          }} />
+                        </Field>
+                        <div className="col-span-3">
+                          <Field label="Recipient Email">
+                            <Input type="email" value={r.email || ''} onChange={e => {
+                              const next = [...activeData]; next[i] = { ...next[i], email: e.target.value }; setActiveData(next);
+                            }} placeholder="Leave blank to use company email" />
+                          </Field>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 ))}
-              </div>
-            )}
-            <button className="btn btn-primary" onClick={simulateImport}
-              disabled={!importFile || importing} style={{ minWidth:160 }}>
-              {importing ? (
-                <span style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  <svg style={{ animation:'anim-spin 1s linear infinite', width:16, height:16 }} viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="40 60" />
-                  </svg> Importing…
-                </span>
-              ) : '⬆ Import Contacts'}
-            </button>
-          </Section>
-        </div>
-      );
-
-      /* ────── Profiles ────── */
-      case 'profiles': return (
-        <div>
-          <Section title="Contact Profile Fields" sub="Customize what information is collected for each contact">
-            <div style={{ display:'flex', gap:8, marginBottom:16 }}>
-              <input className="input" style={{ fontSize:13, flex:1 }} placeholder="Field label…"
-                value={pfForm.label} onChange={e=>setPfForm(f=>({...f,label:e.target.value}))} />
-              <select className="input" style={{ fontSize:13, width:110 }} value={pfForm.type}
-                onChange={e=>setPfForm(f=>({...f,type:e.target.value}))}>
-                {['text','number','email','phone','date','url','select'].map(t=><option key={t}>{t}</option>)}
-              </select>
-              <button className="btn btn-primary btn-sm" onClick={()=>{ if(!pfForm.label.trim()){toast.error('Label required');return;}
-                setProfileFields(fs=>[...fs,{id:'pf'+Date.now(),...pfForm,system:false}]);
-                setPfForm({label:'',type:'text',required:false}); toast.success('Field added'); }}>+ Add</button>
-            </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              {profileFields.map(f => (
-                <div key={f.id} style={{ padding:'11px 16px', borderRadius:10, background:'var(--bg2)',
-                  border:'1px solid var(--b1)', display:'flex', alignItems:'center', gap:12 }}>
-                  <span style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)', flex:1 }}>{f.label}</span>
-                  <Badge color='#818cf8'>{f.type}</Badge>
-                  {f.required && <Badge color='#ef4444'>required</Badge>}
-                  {f.system && <Badge color='#94a3b8'>system</Badge>}
-                  {!f.system && (
-                    <button onClick={()=>{ setProfileFields(fs=>fs.filter(x=>x.id!==f.id)); toast.success('Field removed'); }}
-                      style={{ fontSize:11, padding:'3px 8px', borderRadius:7, cursor:'pointer',
-                        background:'rgba(239,68,68,0.07)', color:'#fca5a5', border:'1px solid rgba(239,68,68,0.15)' }}>✕</button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </Section>
-        </div>
-      );
-
-      /* ────── Spammers ────── */
-      case 'spammers': return (
-        <div>
-          <Section title="Block List" sub="Contacts added here are permanently blocked from initiating conversations">
-            <div style={{ display:'grid', gridTemplateColumns:'100px 1fr 1fr auto', gap:10, marginBottom:16 }}>
-              <select className="input" style={{ fontSize:13 }} value={spamInput.type}
-                onChange={e=>setSpamInput(s=>({...s,type:e.target.value}))}>
-                <option value="phone">Phone</option>
-                <option value="email">Email</option>
-              </select>
-              <input className="input" style={{ fontSize:13 }} placeholder="Value…"
-                value={spamInput.value} onChange={e=>setSpamInput(s=>({...s,value:e.target.value}))} />
-              <input className="input" style={{ fontSize:13 }} placeholder="Reason…"
-                value={spamInput.reason} onChange={e=>setSpamInput(s=>({...s,reason:e.target.value}))} />
-              <button className="btn btn-primary btn-sm" onClick={()=>{ if(!spamInput.value.trim()){toast.error('Enter value');return;}
-                setSpammers(ss=>[...ss,{id:'sp'+Date.now(),...spamInput,blockedAt:'Today'}]);
-                setSpamInput({type:'phone',value:'',reason:''}); toast.success('Blocked'); }}>Block</button>
-            </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              {spammers.map(s => (
-                <div key={s.id} style={{ padding:'12px 16px', borderRadius:11, background:'rgba(239,68,68,0.05)',
-                  border:'1px solid rgba(239,68,68,0.15)', display:'flex', alignItems:'center', gap:14 }}>
-                  <Badge color='#ef4444'>{s.type}</Badge>
-                  <span style={{ fontFamily:'monospace', fontSize:13, color:'var(--t1)', flex:1 }}>{s.value}</span>
-                  <span style={{ fontSize:12, color:'var(--t4)', flex:1 }}>{s.reason}</span>
-                  <span style={{ fontSize:11.5, color:'var(--t4)' }}>{s.blockedAt}</span>
-                  <button onClick={()=>{ setSpammers(ss=>ss.filter(x=>x.id!==s.id)); toast.success('Unblocked'); }}
-                    style={{ fontSize:11, padding:'3px 9px', borderRadius:7, cursor:'pointer', fontWeight:600,
-                      background:'rgba(99,102,241,0.1)', color:'#a5b4fc', border:'1px solid rgba(99,102,241,0.2)' }}>
-                    Unblock
-                  </button>
-                </div>
-              ))}
-            </div>
-          </Section>
-        </div>
-      );
-
-      /* ────── AI Configuration ────── */
-      case 'ai_config': {
-        return (
-          <div>
-            <Section title="Platform-managed AI" sub="The AI model is included in your ChatorAI plan. Provider credentials and model routing are managed securely by the platform.">
-              <div style={{
-                padding:16,
-                borderRadius:12,
-                background:'rgba(0,229,255,0.07)',
-                border:'1px solid rgba(0,229,255,0.18)',
-                display:'flex',
-                gap:12,
-                alignItems:'flex-start',
-              }}>
-                <div style={{
-                  width:34,
-                  height:34,
-                  borderRadius:10,
-                  background:'rgba(0,229,255,0.12)',
-                  border:'1px solid rgba(0,229,255,0.22)',
-                  display:'flex',
-                  alignItems:'center',
-                  justifyContent:'center',
-                  color:'#00e5ff',
-                  fontWeight:800,
-                  flexShrink:0,
-                }}>AI</div>
-                <div>
-                  <p style={{ margin:0, color:'var(--t2)', fontSize:13, fontWeight:700 }}>
-                    No API key required
-                  </p>
-                  <p style={{ margin:'5px 0 0', color:'var(--t4)', fontSize:12.5, lineHeight:1.7 }}>
-                    OpenAI / Anthropic credentials are configured by platform admins only. Your team controls the tenant agent persona and behavior below.
-                  </p>
-                </div>
-              </div>
-              <Field label="Tenant AI agent name" sub="Used when the assistant introduces itself or signs a response.">
-                <input className="input" style={{ fontSize:13 }}
-                  value={aiCfg.agentName || ''}
-                  placeholder="Chator Assistant"
-                  onChange={e => setAiCfg(c => ({ ...c, agentName:e.target.value }))} />
-              </Field>
-              <SaveRow onSave={saveAiCfg} saving={saving} />
-            </Section>
-
-            <Section title="AI Behaviour" sub="Control how AI replies are generated and used in conversations">
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:16 }}>
-                <Field label="Temperature" sub="Lower = more focused, higher = more creative (0.0 – 1.0)">
-                  <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-                    <input type="range" min={0} max={1} step={0.1}
-                      value={aiCfg.temperature}
-                      onChange={e => setAiCfg(c => ({ ...c, temperature:parseFloat(e.target.value) }))}
-                      style={{ flex:1, accentColor:'#FF5A1F' }} />
-                    <span style={{ fontSize:13, fontWeight:600, color:'var(--t2)', minWidth:28 }}>{aiCfg.temperature}</span>
+                {activeData?.length > 0 && (
+                  <div className="flex justify-end">
+                    <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                      {saving ? 'Saving…' : 'Save Schedules'}
+                    </Button>
                   </div>
-                </Field>
-                <Field label="Max Response Tokens">
-                  <input className="input" style={{ fontSize:13 }} type="number" min={50} max={2000}
-                    value={aiCfg.maxTokens}
-                    onChange={e => setAiCfg(c => ({ ...c, maxTokens:parseInt(e.target.value)||300 }))} />
-                </Field>
-              </div>
-              <Field label="System Prompt" sub="Instructions the AI follows when generating replies">
-                <textarea className="input" style={{ fontSize:13, resize:'vertical', minHeight:90 }}
-                  value={aiCfg.systemPrompt}
-                  onChange={e => setAiCfg(c => ({ ...c, systemPrompt:e.target.value }))}
-                  dir="auto" />
-              </Field>
-              <div style={{ display:'flex', flexDirection:'column', gap:10, marginTop:8 }}>
-                <Toggle
-                  value={aiCfg.suggestOnly}
-                  onChange={v => setAiCfg(c => ({ ...c, suggestOnly:v, autoReply:v ? false : c.autoReply }))}
-                  label="Suggest only — show AI reply suggestion but require agent approval before sending" />
-                <Toggle
-                  value={aiCfg.autoReply}
-                  onChange={v => setAiCfg(c => ({ ...c, autoReply:v, suggestOnly:v ? false : c.suggestOnly }))}
-                  label="Auto-reply — AI sends replies automatically without agent approval" />
-              </div>
-              <SaveRow onSave={saveAiCfg} saving={saving} />
-            </Section>
-
-            <Section title="Usage & Limits" sub="Current AI usage this billing period">
-              {[
-                { label:'AI Replies Generated', used:USAGE_STATS.aiReplies.used, limit:USAGE_STATS.aiReplies.limit },
-              ].map(r => (
-                <div key={r.label} style={{ marginBottom:14 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, marginBottom:6 }}>
-                    <span style={{ color:'var(--t2)', fontWeight:600 }}>{r.label}</span>
-                    <span style={{ color:'var(--t4)' }}>{r.used.toLocaleString()} / {r.limit.toLocaleString()}</span>
-                  </div>
-                  <div style={{ height:6, borderRadius:99, background:'var(--s3)' }}>
-                    <div style={{ height:6, borderRadius:99, background:'#FF5A1F',
-                      width:`${Math.min(100, r.used/r.limit*100).toFixed(1)}%`,
-                      transition:'width 0.4s' }} />
-                  </div>
-                </div>
-              ))}
-            </Section>
-          </div>
-        );
-      }
-
-      default: return (
-        <div style={{ padding:'40px', textAlign:'center', color:'var(--t4)', fontSize:14 }}>
-          Select a setting from the sidebar
-        </div>
-      );
-    }
-  }
-
-  /* ── WhatsApp Meta Business Partner panel ── */
-  function WhatsAppPanel() {
-    const wa = channels.whatsapp;
-    const stats = channelStats.whatsapp;
-    const isConnecting = metaConnecting === 'whatsapp';
-    const WA_STEPS = [
-      { id:1, title:'Business portfolio found', desc:'Meta returned a Business account that this operator can manage.', done:Boolean(wa.businessId) },
-      { id:2, title:'WhatsApp account found',  desc:'ChatOrAI discovered a WhatsApp Business Account from that Meta business.', done:Boolean(wa.wabaId) },
-      { id:3, title:'Phone number linked',     desc:'The production number and technical routing details were fetched automatically.', done:Boolean(wa.phoneNumberId) },
-      { id:4, title:'Channel ready',           desc:'Credentials are stored encrypted and ready for webhook routing and outbound sends.', done:Boolean(wa.connected && wa.verified) },
-    ];
-
-    return (
-      <div>
-        {/* ── Partner Notice ── */}
-        <div style={{ background:'rgba(37,211,102,0.06)', border:'1px solid rgba(37,211,102,0.22)',
-          borderRadius:12, padding:'14px 18px', marginBottom:24, display:'flex', gap:12, alignItems:'flex-start' }}>
-          <span style={{ fontSize:20, flexShrink:0 }}>ℹ️</span>
-          <div>
-            <p style={{ fontSize:13, fontWeight:600, color:'#4ade80', marginBottom:5 }}>How this connection works</p>
-            <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.7 }}>
-              Connect your Meta Business account with OAuth and ChatOrAI will automatically discover the
-              <strong style={{ color:'var(--t2)' }}> business</strong>, <strong style={{ color:'var(--t2)' }}> connected number</strong>,
-              and a usable access token. The backend stores them
-              in encrypted channel credentials and uses them for inbound tenant routing and outbound AI replies.
-            </p>
-          </div>
-        </div>
-
-        {/* ── Header + stats ── */}
-        <div style={{ padding:'16px 18px', borderRadius:12, background:'var(--s1)', border:'1px solid var(--b1)', marginBottom:20 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom: wa.connected ? 14 : 0 }}>
-            <div style={{ width:46, height:46, borderRadius:12, background:'rgba(37,211,102,0.12)',
-              display:'flex', alignItems:'center', justifyContent:'center', fontSize:22,
-              border:'1px solid rgba(37,211,102,0.25)', flexShrink:0 }}>📱</div>
-            <div style={{ flex:1 }}>
-              <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>WhatsApp Business</p>
-              <p style={{ fontSize:12, color: wa.connected ? '#34d399' : 'var(--t4)' }}>
-                {wa.connected ? `● Connected · ${wa.displayName || wa.businessName || wa.phone || 'WhatsApp'} · Verified` : '○ Not connected'}
-              </p>
-            </div>
-            {wa.connected
-              ? <button className="btn btn-sm btn-ghost" onClick={()=>disconnectChannel('whatsapp', {
-                  wabaId:'',
-                  phoneNumberId:'',
-                  displayName:'',
-                  phone:'',
-                  businessName:'',
-                  businessId:'',
-                  accessToken:'',
-                  partnerAck:false,
-                })} style={{ color:'#fca5a5' }}>Disconnect</button>
-              : <button className="btn btn-sm btn-primary" onClick={()=>beginMetaOAuth('whatsapp')}
-                  disabled={isConnecting}
-                  style={{ background:'#25D366', borderColor:'#25D366', color:'#fff', display:'flex', alignItems:'center', gap:7 }}>
-                  {isConnecting ? 'Opening Meta…' : '🔐 Connect with Meta'}
-                </button>}
-          </div>
-          {wa.connected && (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)',
-              borderTop:'1px solid var(--b1)', paddingTop:12 }}>
-              {[
-                { l:'Conversations', v:stats.conversations },
-                { l:'Deals Closed',  v:stats.deals },
-                { l:'Conv. Rate',    v:stats.rate },
-                { l:'Avg Response',  v:stats.response },
-                { l:'Satisfaction',  v:stats.satisfaction },
-              ].map(s=>(
-                <div key={s.l} style={{ textAlign:'center' }}>
-                  <p style={{ fontSize:18, fontWeight:800, color:'#25D366', marginBottom:2 }}>{s.v}</p>
-                  <p style={{ fontSize:11, color:'var(--t4)' }}>{s.l}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* ── Tabs ── */}
-        <div className="tabs" style={{ marginBottom:20 }}>
-          {['connection','templates','messaging','analytics'].map(t=>(
-            <button key={t} className={`tab${waTab===t?' active':''}`}
-              onClick={()=>setWaTab(t)} style={{ textTransform:'capitalize' }}>{t}</button>
-          ))}
-        </div>
-
-        {/* ── Connection tab ── */}
-        {waTab === 'connection' && (
-          <Section title="WhatsApp OAuth"
-            sub="Connect with Meta once and ChatOrAI will fetch the production identifiers automatically.">
-            <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(37,211,102,0.05)',
-              border:'1px solid rgba(37,211,102,0.18)', marginBottom:18 }}>
-              <p style={{ fontSize:13, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Recommended: Meta OAuth</p>
-              <p style={{ fontSize:12.5, color:'var(--t4)', marginBottom:12, lineHeight:1.6 }}>
-                This flow avoids manual entry. After you approve access in Meta, ChatOrAI stores the selected business,
-                number, and credentials automatically in the backend connection record.
-              </p>
-              <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
-                <button className="btn btn-sm" style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:8 }}
-                  disabled={isConnecting}
-                  onClick={()=>beginMetaOAuth('whatsapp')}>
-                  {isConnecting ? 'Opening Meta…' : wa.connected ? 'Reconnect with Meta' : '🔐 Connect with Meta'}
-                </button>
-                {wa.connected && (
-                  <button className="btn btn-sm btn-ghost" onClick={refreshChannelConnections}>Refresh Status</button>
                 )}
               </div>
-            </div>
+            )}
 
-            <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
-              {WA_STEPS.map(step=>(
-                <div key={step.id} style={{ display:'flex', alignItems:'flex-start', gap:14,
-                  padding:'12px 14px', borderRadius:10,
-                  background: step.done ? 'rgba(16,185,129,0.05)' : 'var(--s1)',
-                  border:`1px solid ${step.done ? 'rgba(16,185,129,0.18)' : 'var(--b1)'}` }}>
-                  <div style={{ width:28, height:28, borderRadius:'50%', flexShrink:0,
-                    display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:13,
-                    background: step.done ? 'rgba(16,185,129,0.15)' : 'var(--s2)',
-                    border:`2px solid ${step.done ? '#34d399' : 'var(--b2)'}`,
-                    color: step.done ? '#34d399' : 'var(--t4)' }}>
-                    {step.done ? '✓' : step.id}
-                  </div>
-                  <div>
-                    <p style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)', marginBottom:3 }}>{step.title}</p>
-                    <p style={{ fontSize:12.5, color:'var(--t3)' }}>{step.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {/* ── 24. CONVERSATION MONITOR ──────────────────────────────── */}
+            {activeId === 'monitor' && (() => {
+              const conversations = activeData?.conversations || [];
+              const now = Date.now();
 
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:12, marginBottom:20 }}>
-              <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-                <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Business</p>
-                <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>{wa.businessName || 'Waiting for Meta OAuth'}</p>
-                <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>Your business portfolio is discovered from Meta automatically.</p>
-              </div>
-              <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-                <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>WhatsApp Number</p>
-                <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>{wa.displayName || wa.phone || 'Waiting for Meta OAuth'}</p>
-                <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>
-                  {wa.phone ? `Connected number ${wa.phone}` : 'The production number is fetched from your WhatsApp Business Account.'}
-                </p>
-              </div>
-              <div style={{ padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-                <p style={{ fontSize:11.5, color:'var(--t4)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>Connection Status</p>
-                <p style={{ fontSize:14, fontWeight:700, color:wa.connected ? '#34d399' : 'var(--t1)' }}>
-                  {wa.connected ? 'Verified and active' : 'Not connected yet'}
-                </p>
-                <p style={{ fontSize:12, color:'var(--t4)', marginTop:6 }}>
-                  {wa.connected ? 'Credentials are stored server-side and used automatically by ChatOrAI.' : 'No technical Meta values are entered manually by operators.'}
-                </p>
-              </div>
-            </div>
+              const summary = activeData?.summary || {};
+              const operators = activeData?.operators || [];
 
-            <div style={{ marginTop:16, padding:'10px 14px', borderRadius:9,
-              background:'rgba(255,255,255,0.03)', border:'1px solid var(--b1)',
-              fontSize:12, color:'var(--t4)', lineHeight:1.6 }}>
-              💡 <strong style={{ color:'var(--t3)' }}>Billing:</strong> Meta charges per conversation (24-hour window).
-              Costs are deducted from your broadcast credits.
-              Rates: 🇪🇬 EG $0.025 · 🇦🇪 AE $0.036 · 🇸🇦 SA $0.041 per conversation.
-            </div>
-          </Section>
-        )}
+              function waitBadge(mins) {
+                if (mins == null) return null;
+                const m = Number(mins);
+                const hrs = Math.floor(m / 60);
+                const label = hrs >= 1 ? `${hrs}h ${m % 60}m` : `${m}m`;
+                if (m < 10) return { label, cls: 'text-emerald-600 bg-emerald-500/10 border-emerald-200' };
+                if (m < 30) return { label, cls: 'text-amber-600 bg-amber-500/10 border-amber-200' };
+                return { label, cls: 'text-destructive bg-destructive/10 border-destructive/20' };
+              }
 
-        {/* ── Templates tab ── */}
-        {waTab === 'templates' && (
-          <Section title="Message Templates"
-            sub="Pre-approved templates required for outbound WhatsApp messages. Templates are reviewed by Meta within 24 hours.">
-            <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14 }}>
-              <button className="btn btn-primary btn-sm" onClick={()=>toast('Template builder — coming soon!')}>
-                + New Template
-              </button>
-            </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-              {waTemplates.map(t=>(
-                <div key={t.id} style={{ padding:'14px 16px', borderRadius:10,
-                  background:'var(--s1)', border:'1px solid var(--b1)' }}>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                      <code style={{ fontSize:12, color:'#a5b4fc', background:'rgba(99,102,241,0.1)',
-                        padding:'2px 8px', borderRadius:5, border:'1px solid rgba(99,102,241,0.2)' }}>{t.name}</code>
-                      <span style={{ fontSize:11.5, color:'var(--t4)' }}>{t.lang}</span>
+              const CHANNEL_COLORS = {
+                whatsapp: 'bg-green-500/10 text-green-700 border-green-200',
+                messenger: 'bg-blue-500/10 text-blue-700 border-blue-200',
+                instagram: 'bg-purple-500/10 text-purple-700 border-purple-200',
+                livechat:  'bg-slate-500/10 text-slate-700 border-slate-200',
+              };
+
+              return (
+                <div className="space-y-5">
+                  <SectionHeader title="Conversation Monitor" description="Live supervisor view. Refresh or take direct action on any conversation.">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Live — {conversations.length} open
+                      </div>
+                      <Button variant="outline" size="sm" className="h-9 gap-2" onClick={() => loadActiveSection('monitor')} disabled={sectionLoading}>
+                        <RefreshCcw className={cn('h-3.5 w-3.5', sectionLoading && 'animate-spin')} /> Refresh
+                      </Button>
                     </div>
-                    <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:99,
-                      background: t.status==='approved' ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
-                      color: t.status==='approved' ? '#34d399' : '#fcd34d',
-                      border:`1px solid ${t.status==='approved' ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}` }}>
-                      {t.status}
-                    </span>
+                  </SectionHeader>
+
+                  {/* Summary bar */}
+                  <div className="grid grid-cols-5 gap-3">
+                    {[
+                      { label: 'Total open',  value: summary.total ?? conversations.length, cls: '' },
+                      { label: 'Delayed >30m', value: summary.delayed ?? 0, cls: summary.delayed > 0 ? 'text-destructive' : '' },
+                      { label: 'Urgent',       value: summary.urgent ?? 0,  cls: summary.urgent > 0  ? 'text-amber-600' : '' },
+                      { label: 'Unassigned',   value: summary.unassigned ?? 0, cls: summary.unassigned > 0 ? 'text-amber-600' : '' },
+                      { label: 'AI active',    value: summary.ai_active ?? 0, cls: 'text-primary' },
+                    ].map(s => (
+                      <Card key={s.label} className="border shadow-sm bg-card p-4 text-center">
+                        <p className={cn('text-2xl font-bold', s.cls)}>{s.value}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">{s.label}</p>
+                      </Card>
+                    ))}
                   </div>
-                  <p style={{ fontSize:13, color:'var(--t2)', lineHeight:1.5 }} dir="auto">{t.preview}</p>
-                  <div style={{ display:'flex', gap:8, marginTop:10 }}>
-                    <button className="btn btn-ghost btn-xs" onClick={()=>toast(`Using: ${t.name}`)}>Use in Broadcast</button>
-                    <button className="btn btn-ghost btn-xs" onClick={()=>toast('Edit coming soon')}>Edit</button>
-                    <button className="btn btn-ghost btn-xs" style={{ color:'#fca5a5' }}
-                      onClick={()=>{ setWaTemplates(ts=>ts.filter(x=>x.id!==t.id)); toast.success('Template removed'); }}>
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Section>
-        )}
 
-        {/* ── Messaging settings tab ── */}
-        {waTab === 'messaging' && (
-          <Section title="Messaging Settings" sub="Configure auto-replies and availability for WhatsApp.">
-            <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
-              <Field label="Welcome Message" sub="Sent automatically when a new conversation starts.">
-                <textarea className="input" rows={3} dir="auto" style={{ resize:'none', fontSize:13 }}
-                  value={waSettings.welcome_msg}
-                  onChange={e=>setWaSettings(s=>({...s,welcome_msg:e.target.value}))} />
-              </Field>
-              <Field label="Away Message" sub="Sent outside business hours when no agent is available.">
-                <textarea className="input" rows={3} dir="auto" style={{ resize:'none', fontSize:13 }}
-                  value={waSettings.away_msg}
-                  onChange={e=>setWaSettings(s=>({...s,away_msg:e.target.value}))} />
-              </Field>
-              {[
-                { k:'business_hours',   l:'Business Hours',    sub:'Only show as online during set hours' },
-                { k:'read_receipts',    l:'Read Receipts',     sub:'Send read receipts to customers' },
-                { k:'typing_indicator', l:'Typing Indicator',  sub:'Show typing indicator while agents type' },
-              ].map(opt=>(
-                <Toggle key={opt.k} label={opt.l} value={waSettings[opt.k]}
-                  onChange={v=>setWaSettings(s=>({...s,[opt.k]:v}))} />
-              ))}
-              {waSettings.business_hours && (
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12,
-                  padding:'14px 16px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-                  <Field label="Open From">
-                    <input type="time" className="input" value={waSettings.hours_from}
-                      onChange={e=>setWaSettings(s=>({...s,hours_from:e.target.value}))} />
-                  </Field>
-                  <Field label="Close At">
-                    <input type="time" className="input" value={waSettings.hours_to}
-                      onChange={e=>setWaSettings(s=>({...s,hours_to:e.target.value}))} />
-                  </Field>
-                </div>
-              )}
-              <SaveRow onSave={()=>save('WhatsApp messaging settings saved')} saving={saving} />
-            </div>
-          </Section>
-        )}
-
-        {/* ── Analytics tab ── */}
-        {waTab === 'analytics' && (
-          <Section title="WhatsApp Analytics" sub="Performance metrics for your WhatsApp Business channel.">
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
-              {[
-                { l:'Messages Sent',  v:'1,840', delta:'+12%', c:'#6366f1' },
-                { l:'Delivered',      v:'1,798', delta:'97.7%', c:'#10b981' },
-                { l:'Read',           v:'1,421', delta:'79.1%', c:'#06b6d4' },
-                { l:'Replied',        v:'642',   delta:'45.2%', c:'#8b5cf6' },
-                { l:'Opt-outs',       v:'12',    delta:'0.7%',  c:'#ef4444' },
-                { l:'Templates Used', v:'89',    delta:'+5',    c:'#f59e0b' },
-              ].map(k=>(
-                <div key={k.l} style={{ padding:'14px 16px', borderRadius:10,
-                  background:'var(--s1)', border:'1px solid var(--b1)', textAlign:'center' }}>
-                  <p style={{ fontSize:22, fontWeight:800, color:k.c, marginBottom:3 }}>{k.v}</p>
-                  <p style={{ fontSize:12, color:'var(--t3)', marginBottom:3 }}>{k.l}</p>
-                  <p style={{ fontSize:11.5, color:'#34d399', fontWeight:600 }}>{k.delta}</p>
-                </div>
-              ))}
-            </div>
-          </Section>
-        )}
-
-        {/* ── OAuth flow modal ── */}
-        {waOAuthModal && (
-          <Modal open={waOAuthModal} title="Connecting to Meta" onClose={()=>{ if(waOAuthStep!=='authorizing') setWaOAuthModal(false); }}>
-            <div style={{ padding:'8px 0 4px', textAlign:'center' }}>
-              {waOAuthStep === 'authorizing' && (
-                <>
-                  <div style={{ fontSize:40, marginBottom:16 }}>🔗</div>
-                  <p style={{ fontSize:14, fontWeight:600, color:'var(--t1)', marginBottom:8 }}>Authorising with Meta…</p>
-                  <p style={{ fontSize:12.5, color:'var(--t4)', marginBottom:20, lineHeight:1.6 }}>
-                    The Meta Business Login window has been opened.<br />
-                    Please complete the steps in that window to grant<br />
-                    ChatOrAI partner access to your WhatsApp Business Account.
-                  </p>
-                  {['Opening Meta Business Login…','Requesting WABA permissions…','Adding ChatOrAI as partner…'].map((s,i)=>(
-                    <div key={i} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8,
-                      padding:'8px 14px', borderRadius:8, background:'var(--s1)', textAlign:'left' }}>
-                      <span style={{ fontSize:11 }} className="anim-pulse">⏳</span>
-                      <span style={{ fontSize:12.5, color:'var(--t3)' }}>{s}</span>
+                  {/* Conversations table */}
+                  <Card className="border shadow-sm bg-card overflow-hidden">
+                    <div className="grid grid-cols-[1fr_120px_90px_70px_70px_70px_160px] gap-2 px-5 py-2.5 bg-muted/5 border-b text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">
+                      <span>Customer</span>
+                      <span>Agent</span>
+                      <span>Channel</span>
+                      <span>Waiting</span>
+                      <span>Score</span>
+                      <span>AI</span>
+                      <span className="text-right">Actions</span>
                     </div>
-                  ))}
-                </>
-              )}
-              {waOAuthStep === 'success' && (
-                <>
-                  <div style={{ fontSize:48, marginBottom:12 }}>✅</div>
-                  <p style={{ fontSize:15, fontWeight:700, color:'#4ade80', marginBottom:8 }}>Connected successfully!</p>
-                  <p style={{ fontSize:12.5, color:'var(--t4)', marginBottom:16 }}>
-                    ChatOrAI has been added as a partner in your<br />Meta Business account.
-                  </p>
-                  <p style={{ fontSize:12, marginBottom:20, lineHeight:1.7,
-                    padding:'10px 14px', borderRadius:8, background:'rgba(250,204,21,0.06)',
-                    border:'1px solid rgba(250,204,21,0.18)', color:'#fde68a' }}>
-                    ⚠ Do not remove ChatOrAI from your Meta Business partner list — this will break the integration.
-                  </p>
-                  <button className="btn btn-primary" style={{ width:'100%' }} onClick={()=>setWaOAuthModal(false)}>Done</button>
-                </>
-              )}
-            </div>
-          </Modal>
-        )}
-      </div>
-    );
-  }
 
-  /* ── Shared Facebook OAuth Modal (Instagram + Messenger) ── */
-  function FbOAuthModal() {
-    if (!fbModal) return null;
-    const oauthChannel = activeId === 'ch_instagram' ? 'instagram' : 'messenger';
-    const isConnecting = metaConnecting === oauthChannel;
-    return (
-      <Modal open={fbModal} title="Connect with Facebook" onClose={()=>setFbModal(false)}>
-        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          <div style={{ padding:'16px 18px', borderRadius:10,
-            background:'rgba(0,153,255,0.06)', border:'1px solid rgba(0,153,255,0.18)' }}>
-            <p style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)', marginBottom:8 }}>🔐 Secure OAuth — your account, your data</p>
-            <p style={{ fontSize:13, color:'var(--t3)', lineHeight:1.6 }}>
-              A Meta popup will open where you sign in with <strong style={{ color:'var(--t2)' }}>your own Facebook account</strong> and
-              choose <strong style={{ color:'var(--t2)' }}>your Pages and Instagram account</strong>.
-              ChatOrAI never sees your password — only receives a token tied to your chosen pages.
-            </p>
-          </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-            {[
-              'You select which Facebook Pages to connect',
-              'You select which Instagram account to connect',
-              'Read & send messages on your behalf',
-              'View Page insights',
-            ].map(p=>(
-              <div key={p} style={{ display:'flex', alignItems:'center', gap:10, fontSize:13, color:'var(--t2)' }}>
-                <span style={{ color:'#34d399' }}>✓</span> {p}
+                    {conversations.length === 0 ? (
+                      <EmptyState icon={Eye} text="No open conversations at this time." />
+                    ) : (
+                      <div className="divide-y">
+                        {conversations.map(c => {
+                          const wb = waitBadge(c.waiting_minutes);
+                          const chCls = CHANNEL_COLORS[c.channel] || 'bg-muted/30 text-muted-foreground border-border';
+                          const isAssigning  = monitorActionLoading[`${c.id}_assign`];
+                          const isPausing    = monitorActionLoading[`${c.id}_pause`];
+                          const isEscalating = monitorActionLoading[`${c.id}_escalate`];
+                          return (
+                            <div key={c.id} className={cn(
+                              'grid grid-cols-[1fr_120px_90px_70px_70px_70px_160px] gap-2 items-center px-5 py-3 hover:bg-muted/5 transition-colors',
+                              c.is_urgent && 'bg-amber-500/5',
+                              c.is_delayed && !c.is_urgent && 'bg-destructive/5',
+                            )}>
+                              {/* Customer */}
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="text-sm font-medium truncate">{c.customer_name || 'Unknown'}</p>
+                                  {c.is_vip && <Badge className="text-[9px] px-1 py-0 bg-amber-500/15 text-amber-600 border-amber-300">VIP</Badge>}
+                                  {c.is_urgent && <Badge className="text-[9px] px-1 py-0 bg-red-500/15 text-red-600 border-red-300">URGENT</Badge>}
+                                  {c.is_delayed && !c.is_urgent && <Badge className="text-[9px] px-1 py-0 bg-destructive/15 text-destructive border-destructive/30">DELAYED</Badge>}
+                                </div>
+                                {c.last_message_preview && (
+                                  <p className="text-xs text-muted-foreground truncate mt-0.5 max-w-[220px]">{c.last_message_preview}</p>
+                                )}
+                              </div>
+
+                              {/* Agent */}
+                              <p className="text-xs text-muted-foreground truncate">
+                                {c.agent_name || <span className="italic text-muted-foreground/60">Unassigned</span>}
+                              </p>
+
+                              {/* Channel */}
+                              <Badge className={cn('capitalize w-fit text-[11px] border font-normal', chCls)}>{c.channel}</Badge>
+
+                              {/* Waiting */}
+                              {wb ? (
+                                <Badge className={cn('w-fit text-[11px] border font-normal', wb.cls)}>{wb.label}</Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+
+                              {/* Lead score */}
+                              <div className="flex flex-col items-start gap-0.5">
+                                <span className="text-xs font-semibold">{c.lead_score != null ? c.lead_score : '—'}</span>
+                                {c.deal_stage && <span className="text-[10px] text-muted-foreground capitalize">{c.deal_stage}</span>}
+                              </div>
+
+                              {/* AI mode */}
+                              <Badge className={cn(
+                                'text-[10px] border font-normal w-fit',
+                                c.ai_mode === 'auto'    && 'bg-primary/10 text-primary border-primary/30',
+                                c.ai_mode === 'manual'  && 'bg-muted/40 text-muted-foreground border-border',
+                                c.ai_mode === 'suggest' && 'bg-blue-500/10 text-blue-600 border-blue-200',
+                              )}>
+                                {c.ai_mode === 'auto' ? 'Auto' : c.ai_mode === 'suggest' ? 'Suggest' : 'Manual'}
+                              </Badge>
+
+                              {/* Actions */}
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-[11px]"
+                                  disabled={isAssigning}
+                                  onClick={() => handleMonitorAssignMe(c.id)}
+                                >
+                                  {isAssigning ? <RefreshCcw className="h-3 w-3 animate-spin" /> : 'Assign me'}
+                                </Button>
+                                {c.ai_mode === 'auto' && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2 text-[11px]"
+                                    disabled={isPausing}
+                                    onClick={() => handleMonitorPauseAI(c.id)}
+                                  >
+                                    {isPausing ? <RefreshCcw className="h-3 w-3 animate-spin" /> : 'Pause AI'}
+                                  </Button>
+                                )}
+                                {(c.is_urgent || c.is_delayed) && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2 text-[11px] border-destructive/40 text-destructive hover:bg-destructive/5"
+                                    disabled={isEscalating}
+                                    onClick={() => handleMonitorEscalate(c.id)}
+                                  >
+                                    {isEscalating ? <RefreshCcw className="h-3 w-3 animate-spin" /> : 'Escalate'}
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </Card>
+
+                  {/* Operator load panel */}
+                  {operators.length > 0 && (
+                    <Card className="border shadow-sm bg-card">
+                      <CardHeader className="border-b bg-muted/5 py-3.5 px-5">
+                        <p className="text-sm font-semibold">Team Load</p>
+                      </CardHeader>
+                      <CardContent className="p-5">
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                          {operators.map(op => (
+                            <div key={op.id} className="flex items-center justify-between rounded-lg border bg-muted/10 px-3.5 py-2.5">
+                              <p className="text-sm font-medium truncate">{op.name}</p>
+                              <Badge className={cn(
+                                'ml-2 shrink-0 text-[11px]',
+                                op.active_conversations === 0
+                                  ? 'bg-emerald-500/10 text-emerald-600 border-emerald-200'
+                                  : op.active_conversations >= 5
+                                  ? 'bg-destructive/10 text-destructive border-destructive/20'
+                                  : 'bg-amber-500/10 text-amber-600 border-amber-200',
+                              )}>
+                                {op.active_conversations}
+                              </Badge>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── 25. IMPORT ────────────────────────────────────────────── */}
+            {activeId === 'import' && (
+              <div className="space-y-6">
+                <SectionHeader title="Import" description="Bulk import from CSV or Excel files. First row must be headers." />
+
+                {/* Import Type Selection */}
+                <Card className="border shadow-sm bg-card">
+                  <CardHeader className="border-b bg-muted/5 py-4 px-6">
+                    <p className="text-sm font-semibold">What are you importing?</p>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <div className="grid grid-cols-3 gap-3">
+                      {[
+                        { id: 'conversations', label: 'Conversations', desc: 'Chat messages and threads' },
+                        { id: 'pipeline',      label: 'Pipeline / Leads', desc: 'Sales contacts and deals' },
+                        { id: 'tickets',       label: 'Tickets', desc: 'Support requests' },
+                      ].map(t => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setImportType(t.id)}
+                          className={cn(
+                            'p-4 rounded-xl border text-left transition-all',
+                            importType === t.id
+                              ? 'border-primary bg-primary/5'
+                              : 'border-border hover:border-primary/30 bg-background',
+                          )}
+                        >
+                          <p className={cn('text-sm font-medium', importType === t.id ? 'text-primary' : '')}>{t.label}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{t.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Column Guide */}
+                <Card className="border shadow-sm bg-card">
+                  <CardHeader className="border-b bg-muted/5 py-4 px-6">
+                    <p className="text-sm font-semibold">Expected Columns — {importType === 'conversations' ? 'Conversations' : importType === 'pipeline' ? 'Pipeline / Leads' : 'Tickets'}</p>
+                  </CardHeader>
+                  <CardContent className="p-6 space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                      {IMPORT_COLUMNS[importType].map(col => (
+                        <code key={col} className="px-2.5 py-1 bg-muted rounded-md text-xs font-mono border">{col}</code>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Column order does not matter. First row must contain the header names above.</p>
+                  </CardContent>
+                </Card>
+
+                {/* File Upload */}
+                <Card className="border shadow-sm bg-card">
+                  <CardHeader className="border-b bg-muted/5 py-4 px-6">
+                    <p className="text-sm font-semibold">Upload File</p>
+                  </CardHeader>
+                  <CardContent className="p-6 space-y-4">
+                    <label
+                      htmlFor="import-file-input"
+                      className={cn(
+                        'flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-10 cursor-pointer transition-colors',
+                        importFile
+                          ? 'border-primary/40 bg-primary/5'
+                          : 'border-muted hover:border-primary/30 hover:bg-muted/30',
+                      )}
+                    >
+                      <input
+                        id="import-file-input"
+                        type="file"
+                        accept=".csv,.xlsx,.xls"
+                        className="hidden"
+                        onChange={e => {
+  const f = e.target.files?.[0] || null;
+  setImportFile(f);
+  previewCsvFile(f);
+}}
+                      />
+                      {importFile ? (
+                        <div className="text-center space-y-2">
+                          <FileUp className="h-8 w-8 text-primary mx-auto" />
+                          <p className="text-sm font-medium text-foreground">{importFile.name}</p>
+                          <p className="text-xs text-muted-foreground">{(importFile.size / 1024).toFixed(1)} KB</p>
+                        </div>
+                      ) : (
+                        <div className="text-center space-y-2">
+                          <FileUp className="h-8 w-8 text-muted-foreground/30 mx-auto" />
+                          <p className="text-sm font-medium">Drop a file here or click to browse</p>
+                          <p className="text-xs text-muted-foreground">CSV, XLSX, XLS · max 8 MB</p>
+                        </div>
+                      )}
+                    </label>
+
+                    {/* CSV preview — first 5 rows */}
+                    {importPreview && (
+                      <div className="rounded-lg border overflow-auto max-h-48">
+                        <table className="text-[11px] w-full">
+                          <thead>
+                            <tr className="bg-muted/30">
+                              {importPreview.headers.map((h, i) => (
+                                <th key={i} className="px-3 py-1.5 text-left font-semibold text-muted-foreground border-r last:border-r-0 whitespace-nowrap">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {importPreview.rows.map((row, ri) => (
+                              <tr key={ri} className="border-t hover:bg-muted/10">
+                                {importPreview.headers.map((_, ci) => (
+                                  <td key={ci} className="px-3 py-1.5 border-r last:border-r-0 max-w-[140px] truncate text-muted-foreground">{row[ci] ?? ''}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <p className="text-[10px] text-muted-foreground px-3 py-1.5 border-t bg-muted/10">Showing up to 5 rows preview · actual import processes all rows</p>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="text-xs text-muted-foreground min-w-0">
+                        {activeData?.lastResult ? (
+                          <span>
+                            Last import: <strong className="text-foreground">{activeData.lastResult.inserted}</strong> inserted
+                            {' · '}{activeData.lastResult.skipped} skipped
+                            {' · '}{new Date(activeData.lastResult.completedAt).toLocaleDateString()}
+                          </span>
+                        ) : (
+                          <span>No previous imports.</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {importFile && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-9 text-muted-foreground"
+                            onClick={() => {
+                              setImportFile(null);
+                              setImportResult(null);
+                              setImportPreview(null);
+                              const el = document.getElementById('import-file-input');
+                              if (el) el.value = '';
+                            }}
+                          >
+                            Clear
+                          </Button>
+                        )}
+                        <Button
+                          onClick={handleImportUpload}
+                          disabled={!importFile || importUploading || importProcessing}
+                          className="h-9 gap-2 bg-primary px-6 font-medium"
+                        >
+                          <FileUp className="h-4 w-4" />
+                          {importUploading ? 'Uploading…' : importProcessing ? 'Processing…' : 'Upload & Import'}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Import result */}
+                    {importResult && (
+                      <div className={cn(
+                        'rounded-xl border p-5 space-y-3',
+                        importResult.inserted > 0 ? 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/30' : 'border-destructive/30 bg-destructive/5',
+                      )}>
+                        <div className="flex items-center gap-2">
+                          {importResult.inserted > 0
+                            ? <CheckCircle2 className="h-4 w-4 text-green-600" />
+                            : <XCircle className="h-4 w-4 text-destructive" />}
+                          <p className="text-sm font-semibold">Import Complete</p>
+                        </div>
+                        <div className="grid grid-cols-3 gap-4">
+                          <div className="text-center">
+                            <p className="text-2xl font-bold">{importResult.processed}</p>
+                            <p className="text-xs text-muted-foreground">Processed</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-green-600">{importResult.inserted}</p>
+                            <p className="text-xs text-muted-foreground">Inserted</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-muted-foreground">{importResult.skipped}</p>
+                            <p className="text-xs text-muted-foreground">Skipped</p>
+                          </div>
+                        </div>
+                        {importResult.errors?.length > 0 && (
+                          <div className="space-y-1.5">
+                            <p className="text-xs font-semibold text-destructive">Errors ({importResult.errors.length})</p>
+                            <div className="max-h-32 overflow-y-auto space-y-1">
+                              {importResult.errors.map((e, i) => (
+                                <p key={i} className="text-xs text-destructive/80 font-mono">{e}</p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
-            ))}
-          </div>
-          <div style={{ padding:'10px 14px', borderRadius:9, background:'rgba(250,204,21,0.05)',
-            border:'1px solid rgba(250,204,21,0.16)', fontSize:12, color:'#fde68a' }}>
-            ⚠ This integration will not work if ChatOrAI is later removed from your Meta partner list.
-          </div>
-          <div style={{ display:'flex', gap:10 }}>
-            <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>setFbModal(false)} disabled={isConnecting}>Cancel</button>
-            <button className="btn btn-primary" style={{ flex:1, opacity:isConnecting ? 0.75 : 1 }}
-              disabled={isConnecting}
-              onClick={()=>{
-                beginMetaOAuth(oauthChannel);
-              }}>
-              {isConnecting ? 'Opening Facebook…' : 'Continue to Facebook →'}
-            </button>
-          </div>
-        </div>
-      </Modal>
-    );
-  }
+            )}
 
-  /* ════════════════ FINAL RENDER ════════════════ */
-  return (
-    <>
-      <div style={{ display:'flex', height:'100%', overflow:'hidden' }}>
+            {/* ── 26. PROFILES ──────────────────────────────────────────── */}
+            {/* ── 26. PROFILES ──────────────────────────────────────────── */}
+            {activeId === 'profiles' && (
+              <div className="space-y-6">
+                <SectionHeader title="Profiles" description="Custom fields added to every customer profile. Control visibility in AI, reports, search, and imports.">
+                  <Button size="sm" onClick={() => setActiveData(prev => [
+                    ...(prev || []),
+                    { key: `field_${Date.now()}`, label: 'New Field', type: 'text', required: false, defaultValue: '', aiVisible: true, reportVisible: true, searchable: false, importMappable: true },
+                  ])} className="h-9 gap-2">
+                    <Plus className="h-3.5 w-3.5" /> Add Field
+                  </Button>
+                </SectionHeader>
+                {(!activeData || activeData.length === 0) ? (
+                  <Card className="border"><EmptyState icon={Shield} text="No custom profile fields defined." /></Card>
+                ) : activeData.map((f, i) => {
+                  function updateField(patch) {
+                    const next = [...activeData]; next[i] = { ...next[i], ...patch }; setActiveData(next);
+                  }
+                  return (
+                    <Card key={i} className="border shadow-sm bg-card">
+                      <CardContent className="p-5 space-y-4">
+                        {/* Row 1: identity */}
+                        <div className="flex items-start gap-4">
+                          <div className="grid grid-cols-3 gap-4 flex-1">
+                            <Field label="Field Key">
+                              <Input value={f.key} onChange={e => updateField({ key: e.target.value })} placeholder="snake_case_key" className="font-mono text-sm" />
+                            </Field>
+                            <Field label="Display Label">
+                              <Input value={f.label} onChange={e => updateField({ label: e.target.value })} />
+                            </Field>
+                            <Field label="Type">
+                              <Select value={f.type || 'text'} onValueChange={v => updateField({ type: v })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="text">Text</SelectItem>
+                                  <SelectItem value="number">Number</SelectItem>
+                                  <SelectItem value="date">Date</SelectItem>
+                                  <SelectItem value="boolean">Boolean</SelectItem>
+                                  <SelectItem value="url">URL</SelectItem>
+                                  <SelectItem value="email">Email</SelectItem>
+                                  <SelectItem value="phone">Phone</SelectItem>
+                                  <SelectItem value="select">Single Select</SelectItem>
+                                  <SelectItem value="multiselect">Multi Select</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </Field>
+                          </div>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0 mt-6" onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                        {/* Row 2: default + metadata */}
+                        <div className="grid grid-cols-4 gap-4 pt-2 border-t">
+                          <Field label="Default Value">
+                            <Input value={f.defaultValue || ''} onChange={e => updateField({ defaultValue: e.target.value })} placeholder="Optional" className="text-sm" />
+                          </Field>
+                          <div className="space-y-3 pt-1">
+                            <Label className="text-xs text-muted-foreground">Flags</Label>
+                            <div className="space-y-2">
+                              {[
+                                { key: 'required',       label: 'Required' },
+                                { key: 'aiVisible',      label: 'Visible to AI' },
+                                { key: 'reportVisible',  label: 'In Reports' },
+                              ].map(flag => (
+                                <label key={flag.key} className="flex items-center gap-2 cursor-pointer">
+                                  <Toggle value={!!f[flag.key]} onChange={v => updateField({ [flag.key]: v })} />
+                                  <span className="text-xs">{flag.label}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="space-y-3 pt-1">
+                            <Label className="text-xs text-muted-foreground">Usage</Label>
+                            <div className="space-y-2">
+                              {[
+                                { key: 'searchable',      label: 'Searchable' },
+                                { key: 'importMappable',  label: 'Import Mappable' },
+                              ].map(flag => (
+                                <label key={flag.key} className="flex items-center gap-2 cursor-pointer">
+                                  <Toggle value={!!f[flag.key]} onChange={v => updateField({ [flag.key]: v })} />
+                                  <span className="text-xs">{flag.label}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="space-y-2 pt-1">
+                            <Label className="text-xs text-muted-foreground">Summary</Label>
+                            <div className="space-y-1">
+                              {f.required && <Badge className="text-[10px] bg-destructive/10 text-destructive border-destructive/20 block w-fit">Required</Badge>}
+                              {f.aiVisible && <Badge className="text-[10px] bg-primary/10 text-primary border-primary/20 block w-fit">AI visible</Badge>}
+                              {f.searchable && <Badge className="text-[10px] bg-blue-500/10 text-blue-600 border-blue-200 block w-fit">Searchable</Badge>}
+                              {f.importMappable && <Badge className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-200 block w-fit">Importable</Badge>}
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+                {activeData?.length > 0 && (
+                  <div className="flex justify-end">
+                    <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                      {saving ? 'Saving…' : 'Save Profile Fields'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
 
-        {/* ── Sidebar ── */}
-        <div style={{ width:230, flexShrink:0, background:'var(--bg2)', borderRight:'1px solid var(--b1)',
-          overflowY:'auto', padding:'16px 10px' }}>
-          {NAV.map(group => (
-            <div key={group.group} style={{ marginBottom:4 }}>
-              <button onClick={()=>setCollapsed(c=>({...c,[group.group]:!c[group.group]}))}
-                style={{ width:'100%', display:'flex', alignItems:'center', gap:7, padding:'8px 8px',
-                  background:'none', border:'none', cursor:'pointer', marginBottom:2 }}>
-                <span style={{ fontSize:11, fontWeight:700, color:'var(--t4)',
-                  textTransform:'uppercase', letterSpacing:'0.07em', flex:1, textAlign:'left' }}>
-                  {group.icon} {group.group}
-                </span>
-                <span style={{ fontSize:10, color:'var(--t4)' }}>{collapsed[group.group]?'▶':'▼'}</span>
-              </button>
-              {!collapsed[group.group] && group.items.map(item => (
-                <button key={item.id} onClick={()=>setActiveId(item.id)}
-                  style={{ width:'100%', textAlign:'left', padding:'8px 14px', borderRadius:9,
-                    fontSize:13, fontWeight: activeId===item.id ? 600 : 400, cursor:'pointer',
-                    background: activeId===item.id ? 'rgba(99,102,241,0.12)' : 'transparent',
-                    color: activeId===item.id ? '#a5b4fc' : 'var(--t3)',
-                    border: activeId===item.id ? '1px solid rgba(99,102,241,0.2)' : '1px solid transparent',
-                    transition:'all 0.12s', marginBottom:2 }}>
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          ))}
-        </div>
+            {/* ── 27. SPAMMERS ──────────────────────────────────────────── */}
+            {activeId === 'spammers' && (() => {
+              const blocked    = (activeData || []).filter(s => !s.whitelisted);
+              const whitelisted = (activeData || []).filter(s => s.whitelisted);
+              const SEV_BADGE = {
+                low:    'bg-blue-500/10 text-blue-600 border-blue-200',
+                medium: 'bg-amber-500/10 text-amber-600 border-amber-200',
+                high:   'bg-destructive/10 text-destructive border-destructive/20',
+              };
 
-        {/* ── Content ── */}
-        <div style={{ flex:1, overflowY:'auto', padding:'28px 32px' }}>
-          <div style={{ marginBottom:24 }}>
-            <h2 style={{ fontSize:20, fontWeight:800, letterSpacing:'-0.03em', color:'var(--t1)', marginBottom:4 }}>
-              {activeLabel}
-            </h2>
-            <p style={{ fontSize:12.5, color:'var(--t4)' }}>
-              {activeGroup?.group}
-            </p>
+              function addEntry() {
+                const val = spamForm.value.trim();
+                if (!val) { toast.error('Value is required'); return; }
+                if ((activeData || []).some(s => s.value === val)) { toast.error('Already in list'); return; }
+                setActiveData(prev => [...(prev || []), { ...spamForm, value: val }]);
+                setSpamForm({ value: '', type: 'phone', reason: '', severity: 'medium', temporary: false, expiresAt: '', whitelisted: spamDialog === 'whitelist' });
+                setSpamDialog(false);
+              }
+
+              function removeEntry(value) {
+                setActiveData(prev => (prev || []).filter(s => s.value !== value));
+              }
+
+              function EntryRow({ s, isWhitelist }) {
+                const now = Date.now();
+                const expired = s.temporary && s.expiresAt && new Date(s.expiresAt).getTime() < now;
+                return (
+                  <div className={cn('p-4 px-5 flex items-start justify-between gap-4 group', expired && 'opacity-50')}>
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-mono font-medium">{s.value}</span>
+                        {s.type && <Badge variant="outline" className="text-[10px] capitalize">{s.type}</Badge>}
+                        {!isWhitelist && s.severity && <Badge className={cn('text-[10px]', SEV_BADGE[s.severity] || SEV_BADGE.medium)}>{s.severity}</Badge>}
+                        {s.temporary && (
+                          expired
+                            ? <Badge className="text-[10px] bg-muted/30 text-muted-foreground border-border">Expired</Badge>
+                            : <Badge className="text-[10px] bg-blue-500/10 text-blue-600 border-blue-200">Temp · {new Date(s.expiresAt).toLocaleDateString()}</Badge>
+                        )}
+                      </div>
+                      {s.reason && <p className="text-xs text-muted-foreground">{s.reason}</p>}
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 shrink-0" onClick={() => removeEntry(s.value)}>
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-6">
+                  <SectionHeader title="Spammers" description="Blocked identifiers are silently rejected. Whitelisted identifiers bypass all blocks.">
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" className="h-9 gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => { setSpamForm(p => ({ ...p, whitelisted: true })); setSpamDialog('whitelist'); }}>
+                        <Plus className="h-3.5 w-3.5" /> Whitelist
+                      </Button>
+                      <Button size="sm" className="h-9 gap-2 bg-destructive/90 hover:bg-destructive" onClick={() => { setSpamForm(p => ({ ...p, whitelisted: false })); setSpamDialog('block'); }}>
+                        <Plus className="h-3.5 w-3.5" /> Block
+                      </Button>
+                    </div>
+                  </SectionHeader>
+
+                  {/* Blocked list */}
+                  <Card className="border shadow-sm bg-card overflow-hidden">
+                    <CardHeader className="border-b bg-muted/5 py-3.5 px-5 flex-row items-center justify-between">
+                      <p className="text-sm font-semibold">Blocked <Badge className="ml-2 bg-destructive/10 text-destructive border-destructive/20 text-[11px]">{blocked.length}</Badge></p>
+                    </CardHeader>
+                    {blocked.length === 0 ? (
+                      <EmptyState icon={ShieldAlert} text="No blocked identifiers." />
+                    ) : (
+                      <div className="divide-y">{blocked.map((s, i) => <EntryRow key={i} s={s} isWhitelist={false} />)}</div>
+                    )}
+                  </Card>
+
+                  {/* Whitelist */}
+                  <Card className="border shadow-sm bg-card overflow-hidden">
+                    <CardHeader className="border-b bg-muted/5 py-3.5 px-5">
+                      <p className="text-sm font-semibold">Whitelisted <Badge className="ml-2 bg-emerald-500/10 text-emerald-600 border-emerald-200 text-[11px]">{whitelisted.length}</Badge></p>
+                    </CardHeader>
+                    {whitelisted.length === 0 ? (
+                      <EmptyState icon={Shield} text="No whitelisted identifiers." />
+                    ) : (
+                      <div className="divide-y">{whitelisted.map((s, i) => <EntryRow key={i} s={s} isWhitelist={true} />)}</div>
+                    )}
+                  </Card>
+
+                  <div className="flex justify-end">
+                    <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 font-medium bg-primary px-8">
+                      {saving ? 'Saving…' : 'Save'}
+                    </Button>
+                  </div>
+
+                  {/* Add entry dialog */}
+                  <Dialog open={!!spamDialog} onOpenChange={open => { if (!open) setSpamDialog(false); }}>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>{spamDialog === 'whitelist' ? 'Whitelist Identifier' : 'Block Identifier'}</DialogTitle>
+                        <DialogDescription>
+                          {spamDialog === 'whitelist'
+                            ? 'Whitelisted identifiers bypass all spam blocks.'
+                            : 'Matching customers will be silently rejected at the message gate.'}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-2">
+                        <Field label="Identifier value">
+                          <Input
+                            placeholder="Phone number, customer ID, or name"
+                            value={spamForm.value}
+                            onChange={e => setSpamForm(p => ({ ...p, value: e.target.value }))}
+                            className="font-mono"
+                            onKeyDown={e => { if (e.key === 'Enter') addEntry(); }}
+                          />
+                        </Field>
+                        <Field label="Type">
+                          <Select value={spamForm.type} onValueChange={v => setSpamForm(p => ({ ...p, type: v }))}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="phone">Phone</SelectItem>
+                              <SelectItem value="id">Customer ID</SelectItem>
+                              <SelectItem value="name">Name</SelectItem>
+                              <SelectItem value="channel_id">Channel ID</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                        <Field label="Reason (optional)">
+                          <Input placeholder="Why is this identifier blocked?" value={spamForm.reason} onChange={e => setSpamForm(p => ({ ...p, reason: e.target.value }))} />
+                        </Field>
+                        {spamDialog === 'block' && (
+                          <Field label="Severity">
+                            <Select value={spamForm.severity} onValueChange={v => setSpamForm(p => ({ ...p, severity: v }))}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="low">Low</SelectItem>
+                                <SelectItem value="medium">Medium</SelectItem>
+                                <SelectItem value="high">High</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                        )}
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <Toggle value={spamForm.temporary} onChange={v => setSpamForm(p => ({ ...p, temporary: v, expiresAt: v ? p.expiresAt : '' }))} />
+                          <span className="text-sm">Temporary ban</span>
+                        </label>
+                        {spamForm.temporary && (
+                          <Field label="Expires at">
+                            <Input type="date" value={spamForm.expiresAt} onChange={e => setSpamForm(p => ({ ...p, expiresAt: e.target.value }))} />
+                          </Field>
+                        )}
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setSpamDialog(false)}>Cancel</Button>
+                        <Button
+                          onClick={addEntry}
+                          className={spamDialog === 'whitelist' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-destructive hover:bg-destructive/90'}
+                        >
+                          {spamDialog === 'whitelist' ? 'Whitelist' : 'Block'}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              );
+            })()}
+
           </div>
-          {renderSection()}
-        </div>
+        </ScrollArea>
       </div>
 
-      <FbOAuthModal />
-
-      <Modal open={!!emailEditor} onClose={()=>setEmailEditor(null)} title="Edit Email Template" width={560}>
-        {emailEditor && (
-          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-            <Field label="Template Name">
-              <input className="input" style={{ fontSize:13 }}
-                value={emailEditor.name || ''}
-                onChange={e=>setEmailEditor(current => ({ ...current, name:e.target.value }))} />
+      {/* ── Operator Invite/Edit Dialog ───────────────────────────────────── */}
+      <Dialog open={!!opDialog} onOpenChange={open => { if (!open) setOpDialog(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{opDialog === 'invite' ? 'Invite Operator' : 'Edit Operator'}</DialogTitle>
+            <DialogDescription>
+              {opDialog === 'invite' ? 'Add a new team member to this workspace.' : 'Update name, role, or password.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <Field label="Full Name">
+              <Input value={opForm.name} onChange={e => setOpForm(f => ({ ...f, name: e.target.value }))} />
             </Field>
-            <Field label="Subject">
-              <input className="input" style={{ fontSize:13 }}
-                value={emailEditor.subject || ''}
-                onChange={e=>setEmailEditor(current => ({ ...current, subject:e.target.value }))} />
-            </Field>
-            <Field label="Body" sub="Supports placeholders like {{company_name}} and {{operator_name}}">
-              <textarea className="input" rows={7} style={{ fontSize:13, resize:'vertical' }}
-                value={emailEditor.body || ''}
-                onChange={e=>setEmailEditor(current => ({ ...current, body:e.target.value }))} />
-            </Field>
-            <Toggle
-              value={emailEditor.active !== false}
-              onChange={(value) => setEmailEditor((current) => ({ ...current, active:value }))}
-              label="Template active"
-            />
-            <div style={{ display:'flex', gap:10 }}>
-              <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>setEmailEditor(null)}>Cancel</button>
-              <button className="btn btn-primary" style={{ flex:1 }} onClick={()=>{
-                setEmailTpls((current) => current.map((template) => (
-                  template.id === emailEditor.id ? emailEditor : template
-                )));
-                setEmailEditor(null);
-                toast.success('Email template updated');
-              }}>Save Template</button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* ── Invite Operator Modal ── */}
-      <Modal open={inviteModal} onClose={()=>setInviteModal(false)} title="Invite Operator" width={440}>
-        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          {[{ k:'name', label:'Full Name', ph:'Ahmed Mohamed', type:'text' },{ k:'email', label:'Email', ph:'agent@store.com', type:'email' },{ k:'password', label:'Password', ph:'Minimum 8 characters', type:'password' }].map(f=>(
-            <Field key={f.k} label={f.label}>
-              <input className="input" type={f.type} placeholder={f.ph} style={{ fontSize:13 }}
-                value={inviteForm[f.k]} onChange={e=>setInviteForm(x=>({...x,[f.k]:e.target.value}))} />
-            </Field>
-          ))}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            {opDialog === 'invite' && (
+              <Field label="Email">
+                <Input type="email" value={opForm.email} onChange={e => setOpForm(f => ({ ...f, email: e.target.value }))} />
+              </Field>
+            )}
             <Field label="Role">
-              <select className="input" style={{ fontSize:13 }} value={inviteForm.role} onChange={e=>setInviteForm(x=>({...x,role:e.target.value}))}>
-                {ROLES.map(r=><option key={r}>{r}</option>)}
-              </select>
+              <Select value={opForm.role} onValueChange={v => setOpForm(f => ({ ...f, role: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="agent">Agent</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
-            <Field label="Department">
-              <select className="input" style={{ fontSize:13 }} value={inviteForm.dept} onChange={e=>setInviteForm(x=>({...x,dept:e.target.value}))}>
-                {depts.map(d=><option key={d.id}>{d.name}</option>)}
-              </select>
+            <Field label="Department (optional)">
+              <Select value={opForm.department || '__none__'} onValueChange={v => setOpForm(f => ({ ...f, department: v === '__none__' ? '' : v }))}>
+                <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Unassigned</SelectItem>
+                  {depts.map(d => (
+                    <SelectItem key={d.name} value={d.name}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label={opDialog === 'invite' ? 'Password (optional — auto-generated if blank)' : 'New Password (leave blank to keep current)'}>
+              <Input type="password" value={opForm.password} onChange={e => setOpForm(f => ({ ...f, password: e.target.value }))} placeholder="Min 8 characters" />
             </Field>
           </div>
-          <div style={{ display:'flex', gap:10 }}>
-            <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>setInviteModal(false)}>Cancel</button>
-            <button className="btn btn-primary" style={{ flex:2 }} onClick={saveOp}>Send Invite →</button>
-          </div>
-        </div>
-      </Modal>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpDialog(null)}>Cancel</Button>
+            <Button onClick={opDialog === 'invite' ? handleInviteOperator : handleEditOperator} disabled={opSaving}>
+              {opSaving ? 'Saving…' : opDialog === 'invite' ? 'Send Invite' : 'Update'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      {/* ── New Department Modal ── */}
-      <Modal open={deptModal} onClose={()=>setDeptModal(false)} title="New Department" width={380}>
-        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          <Field label="Department Name"><input className="input" style={{ fontSize:13 }} placeholder="e.g. Sales" value={deptForm.name} onChange={e=>setDeptForm(f=>({...f,name:e.target.value}))} /></Field>
-          <Field label="Color">
-            <div style={{ display:'flex', gap:8 }}>
-              {COLORS.map(c=><button key={c} onClick={()=>setDeptForm(f=>({...f,color:c}))} style={{ width:26,height:26,borderRadius:'50%',background:c,border:deptForm.color===c?'2px solid #fff':'2px solid transparent',cursor:'pointer' }} />)}
-            </div>
-          </Field>
-          <Field label="SLA (hours)" sub="Target response time">
-            <input className="input" type="number" style={{ fontSize:13, width:80 }} value={deptForm.sla} onChange={e=>setDeptForm(f=>({...f,sla:+e.target.value}))} />
-          </Field>
-          <div style={{ display:'flex', gap:10 }}>
-            <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>setDeptModal(false)}>Cancel</button>
-            <button className="btn btn-primary" style={{ flex:2 }} onClick={saveDept}>Create Department</button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* ── New Trigger Modal ── */}
-      <Modal open={trigModal} onClose={()=>setTrigModal(false)} title="New Trigger" width={480}>
-        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          <Field label="Trigger Name"><input className="input" style={{ fontSize:13 }} placeholder="e.g. VIP greeting" value={trigForm.name} onChange={e=>setTrigForm(f=>({...f,name:e.target.value}))} /></Field>
-          <Field label="Event (When)">
-            <select className="input" style={{ fontSize:13 }} value={trigForm.event} onChange={e=>setTrigForm(f=>({...f,event:e.target.value}))}>
-              {['conversation_started','score_updated','intent_detected','tag_added','no_reply','conversation_closed'].map(ev=><option key={ev}>{ev}</option>)}
-            </select>
-          </Field>
-          <Field label="Condition (If)" sub="e.g. score >= 80, intent = ready_to_buy">
-            <input className="input" style={{ fontSize:13 }} placeholder="score >= 80" value={trigForm.condition} onChange={e=>setTrigForm(f=>({...f,condition:e.target.value}))} />
-          </Field>
-          <Field label="Action (Then)">
-            <input className="input" style={{ fontSize:13 }} placeholder="Send canned reply / Assign to dept / Add tag…" value={trigForm.action} onChange={e=>setTrigForm(f=>({...f,action:e.target.value}))} />
-          </Field>
-          <div style={{ display:'flex', gap:10 }}>
-            <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>setTrigModal(false)}>Cancel</button>
-            <button className="btn btn-primary" style={{ flex:2 }} onClick={saveTrigger}>Create Trigger</button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* ── New Schedule Report Modal ── */}
-      <Modal open={schedModal} onClose={()=>setSchedModal(false)} title="Schedule Report" width={420}>
-        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          <Field label="Report Name"><input className="input" style={{ fontSize:13 }} placeholder="e.g. Weekly Summary" value={schedForm.name} onChange={e=>setSchedForm(f=>({...f,name:e.target.value}))} /></Field>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-            <Field label="Frequency">
-              <select className="input" style={{ fontSize:13 }} value={schedForm.freq} onChange={e=>setSchedForm(f=>({...f,freq:e.target.value}))}>
-                {['daily','weekly','monthly'].map(f=><option key={f}>{f}</option>)}
-              </select>
+      {/* ── Live Chat Widget Setup Dialog ────────────────────────────────── */}
+      <Dialog open={lcDialog} onOpenChange={setLcDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Configure Live Chat Widget</DialogTitle>
+            <DialogDescription>Set the domain and brand color for your widget.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <Field label="Allowed Domain">
+              <Input value={lcForm.domain} onChange={e => setLcForm(f => ({ ...f, domain: e.target.value }))} placeholder="yoursite.com" />
             </Field>
-            <Field label="Time"><input className="input" type="time" style={{ fontSize:13 }} value={schedForm.time} onChange={e=>setSchedForm(f=>({...f,time:e.target.value}))} /></Field>
-          </div>
-          <Field label="Send to Email"><input className="input" type="email" style={{ fontSize:13 }} placeholder="team@store.com" value={schedForm.email} onChange={e=>setSchedForm(f=>({...f,email:e.target.value}))} /></Field>
-          <div style={{ display:'flex', gap:10 }}>
-            <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>setSchedModal(false)}>Cancel</button>
-            <button className="btn btn-primary" style={{ flex:2 }} onClick={saveSched}>Create Schedule</button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* ── New Brand Modal ── */}
-      <Modal open={brandModal} onClose={()=>setBrandModal(false)} title="New Brand" width={440}>
-        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          <Field label="Brand Name"><input className="input" style={{ fontSize:13 }} placeholder="My Brand" value={brandForm.name} onChange={e=>setBrandForm(f=>({...f,name:e.target.value}))} /></Field>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-            <Field label="AI Tone">
-              <select className="input" style={{ fontSize:13 }} value={brandForm.tone} onChange={e=>setBrandForm(f=>({...f,tone:e.target.value}))}>
-                {['Friendly & Warm','Professional','Casual','Formal','Enthusiastic'].map(t=><option key={t}>{t}</option>)}
-              </select>
-            </Field>
-            <Field label="Language">
-              <select className="input" style={{ fontSize:13 }} value={brandForm.lang} onChange={e=>setBrandForm(f=>({...f,lang:e.target.value}))}>
-                <option value="ar">Arabic</option><option value="en">English</option>
-              </select>
+            <Field label="Widget Color">
+              <div className="flex gap-2 items-center">
+                <div className="w-9 h-9 rounded-lg border shadow-sm shrink-0" style={{ backgroundColor: lcForm.color }} />
+                <Input value={lcForm.color} onChange={e => setLcForm(f => ({ ...f, color: e.target.value }))} />
+              </div>
             </Field>
           </div>
-          <Field label="Domain"><input className="input" style={{ fontSize:13 }} placeholder="mybrand.com" value={brandForm.domain} onChange={e=>setBrandForm(f=>({...f,domain:e.target.value}))} /></Field>
-          <Field label="Primary Color">
-            <div style={{ display:'flex', gap:8 }}>
-              {COLORS.map(c=><button key={c} onClick={()=>setBrandForm(f=>({...f,primary:c}))} style={{ width:26,height:26,borderRadius:'50%',background:c,border:brandForm.primary===c?'2px solid #fff':'2px solid transparent',cursor:'pointer' }} />)}
-            </div>
-          </Field>
-          <div style={{ display:'flex', gap:10 }}>
-            <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>setBrandModal(false)}>Cancel</button>
-            <button className="btn btn-primary" style={{ flex:2 }} onClick={()=>{ if(!brandForm.name){toast.error('Name required');return;} setBrands(bs=>[...bs,{id:'br'+Date.now(),active:false,...brandForm}]); setBrandModal(false); toast.success('Brand created'); }}>Create Brand</button>
-          </div>
-        </div>
-      </Modal>
-    </>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLcDialog(false)}>Cancel</Button>
+            <Button onClick={handleConnectLivechat}>Configure</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+    </div>
   );
 }
