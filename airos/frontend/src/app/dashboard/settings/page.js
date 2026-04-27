@@ -423,6 +423,10 @@ export default function SettingsPage() {
     setActiveData(null);
     try {
       const data = await api.get(`/api/settings/${sectionUrl(id)}`);
+      // Post-process visitor_routing: DB rules are in engine format, convert to UI flat format
+      if (id === 'visitor_routing' && data?.rules) {
+        data.rules = data.rules.map(engineRuleToUiFormat);
+      }
       setActiveData(data ?? null);
     } catch (err) {
       console.error('Section load error', id, err);
@@ -430,6 +434,28 @@ export default function SettingsPage() {
     } finally {
       setSectionLoading(false);
     }
+  }
+
+  /** Convert DB engine rule format → UI flat format for display */
+  function engineRuleToUiFormat(rule) {
+    const conditions = rule.conditions || {};
+    let conditionField = 'channel';
+    let conditionOp = '=';
+    let conditionValue = '';
+    for (const [key, val] of Object.entries(conditions)) {
+      if (Array.isArray(val) && val.length > 0) {
+        conditionField = key === 'keywords' ? 'keyword' : key;
+        conditionValue = val[0];
+        break;
+      }
+    }
+    const action = rule.action || {};
+    let assignTo = '';
+    if (action.assign_to_user) assignTo = `agent:${action.assign_to_user}`;
+    else if (action.assign_to_team) assignTo = `dept:${action.assign_to_team}`;
+    else if (action.assign_to_ai) assignTo = 'ai_bot';
+    else if (action.assign_to_queue) assignTo = 'queue';
+    return { ...rule, conditionField, conditionOp, conditionValue, assignTo };
   }
 
   useEffect(() => { loadCore(); }, [loadCore]);
@@ -3539,7 +3565,7 @@ export default function SettingsPage() {
                 <SettingSection title="Routing Configuration" loading={sectionLoading} onSave={async () => {
                   setSaving(true);
                   try {
-                    const saved = await api.put('/api/settings/visitor-routing', activeData ?? {});
+                    const saved = await api.put('/api/settings/visitor-routing', { config: activeData?.config ?? {} });
                     setActiveData(d => ({ ...d, ...(saved?.config ? { config: saved.config } : {}) }));
                     toast.success('Saved');
                   } catch (err) { toast.error(err.message || 'Save failed'); }
@@ -3665,7 +3691,20 @@ export default function SettingsPage() {
 
                   {activeData?.rules?.length > 0 && (
                     <div className="flex justify-end">
-                      <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                      <Button onClick={async () => {
+                        setSaving(true);
+                        try {
+                          const saved = await api.put('/api/settings/visitor-routing', {
+                            config: activeData?.config ?? {},
+                            rules: activeData?.rules ?? [],
+                          });
+                          // Normalize DB rules back to UI flat format
+                          if (saved?.rules) saved.rules = saved.rules.map(engineRuleToUiFormat);
+                          setActiveData(saved);
+                          toast.success('Routing rules saved');
+                        } catch (err) { toast.error(err.message || 'Save failed'); }
+                        finally { setSaving(false); }
+                      }} disabled={saving} className="h-9 px-8 bg-primary font-medium">
                         {saving ? 'Saving…' : 'Save Rules'}
                       </Button>
                     </div>
