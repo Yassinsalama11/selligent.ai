@@ -254,17 +254,14 @@ router.post('/import/:type', requireOwnerRole, async (req, res, next) => {
       return res.status(400).json({ error: 'Import is limited to 2000 rows per request' });
     }
 
+    // The tenant middleware already wraps this entire request in a transaction.
+    // Do NOT call BEGIN/COMMIT/ROLLBACK on req.db — doing so commits the outer
+    // transaction mid-request and causes "no transaction in progress" warnings
+    // when the middleware's release() fires on res.finish.
     let summary = null;
-    await req.db.query('BEGIN');
-    try {
-      if (type === 'conversations') summary = await importConversations(req.user.tenant_id, rows, req.db);
-      if (type === 'pipeline-leads') summary = await importPipelineLeads(req.user.tenant_id, rows, req.db);
-      if (type === 'tickets') summary = await importTickets(req.user.tenant_id, rows, req.db);
-      await req.db.query('COMMIT');
-    } catch (err) {
-      await req.db.query('ROLLBACK');
-      throw err;
-    }
+    if (type === 'conversations') summary = await importConversations(req.user.tenant_id, rows, req.db);
+    if (type === 'pipeline-leads') summary = await importPipelineLeads(req.user.tenant_id, rows, req.db);
+    if (type === 'tickets') summary = await importTickets(req.user.tenant_id, rows, req.db);
 
     res.status(201).json({
       type,
