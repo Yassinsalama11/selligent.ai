@@ -283,6 +283,17 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 3011;
 
+// Start listening immediately so Railway's healthcheck can reach us while
+// background init (schema verification, schedulers) is still in progress.
+server.listen(PORT, () => {
+  logger.info('ChatOrAI backend started', {
+    port: PORT,
+    environment: process.env.NODE_ENV || 'development',
+    requestIdTracing: true,
+    telemetry,
+  });
+});
+
 async function bootstrap() {
   // Step 1: Redis Initialization
   try {
@@ -304,7 +315,7 @@ async function bootstrap() {
     logger.warn('[QUEUE WARNING] failed to start worker', { error: err.message });
   }
 
-  // Step 3: Database Core Schema (Must be before server listen to avoid early query failures)
+  // Step 3: Database Core Schema
   if (process.env.DATABASE_URL || process.env.DATABASE_URL_ADMIN) {
     try {
       await ensureRuntimeSchema();
@@ -326,7 +337,6 @@ async function bootstrap() {
       }, 30000);
       if (startRetentionScheduler) startRetentionScheduler();
 
-      // Weekly correction miner (2-C2) — runs every Sunday at 02:00 UTC
       const MINER_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
       setTimeout(function fireMiner() {
         runMiner()
@@ -337,7 +347,6 @@ async function bootstrap() {
           .finally(() => setTimeout(fireMiner, MINER_INTERVAL_MS));
       }, MINER_INTERVAL_MS);
 
-      // Nightly Platform Brain anonymization pipeline (3-C4)
       const BRAIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
       setTimeout(function fireBrain() {
         runAnonymizationPipeline()
@@ -354,47 +363,27 @@ async function bootstrap() {
     logger.warn('[SCHEDULER WARNING] failed to initialize schedulers', { error: err.message });
   }
 
-  // Final Step: Start Server
-  server.listen(PORT, () => {
-    logger.info('ChatOrAI backend started', {
-      port: PORT,
-      environment: process.env.NODE_ENV || 'development',
-      requestIdTracing: true,
-      telemetry,
-    });
-
-    // Step 5: Heavy Background Migrations & Backfill (Post-startup)
-    if (process.env.DATABASE_URL || process.env.DATABASE_URL_ADMIN) {
-      setTimeout(async () => {
-        try {
-          await runPerformanceMigrations();
-          console.log('[MIGRATIONS] performance optimizations applied in background');
-        } catch (err) {
-          logger.warn('[MIGRATION WARNING] performance migrations failed', { error: err.message });
-        }
-
-        try {
-          await validateTenantStatsBackfill();
-          console.log('[BACKFILL] tenant stats validation completed in background');
-        } catch (err) {
-          logger.warn('[BACKFILL WARNING] validation failed', { error: err.message });
-        }
-      }, 5000); // 5s delay to let server settle
-    }
-  });
+  // Step 5: Heavy Background Migrations & Backfill
+  if (process.env.DATABASE_URL || process.env.DATABASE_URL_ADMIN) {
+    setTimeout(async () => {
+      try {
+        await runPerformanceMigrations();
+        console.log('[MIGRATIONS] performance optimizations applied in background');
+      } catch (err) {
+        logger.warn('[MIGRATION WARNING] performance migrations failed', { error: err.message });
+      }
+      try {
+        await validateTenantStatsBackfill();
+        console.log('[BACKFILL] tenant stats validation completed in background');
+      } catch (err) {
+        logger.warn('[BACKFILL WARNING] validation failed', { error: err.message });
+      }
+    }, 5000);
+  }
 }
 
 bootstrap().catch((err) => {
-  logger.error('Backend bootstrap fatal error', {
-    error: err.message,
-    stack: err.stack,
-  });
-  // Fallback listen if bootstrap failed catastrophically
-  if (!server.listening) {
-    server.listen(PORT, () => {
-      console.log(`[SERVER] Fallback start on port ${PORT}`);
-    });
-  }
+  logger.error('Backend bootstrap error', { error: err.message, stack: err.stack });
 });
 
 module.exports = { app, server };
