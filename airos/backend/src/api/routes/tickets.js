@@ -9,6 +9,7 @@ const {
   deleteTicket,
 } = require('../../db/queries/tickets');
 const { applyRoutingRules } = require('../../core/routingRulesEngine');
+const { executeTriggers } = require('../../core/triggerEngine');
 
 const router = express.Router();
 const requireTicketRole = requireRole('owner', 'admin', 'agent');
@@ -91,6 +92,50 @@ async function hydrateUpdateTicketInput(req) {
   return payload;
 }
 
+async function fireTicketCreatedTriggers(req, ticket) {
+  const [conversationResult, customerResult] = await Promise.all([
+    ticket.conversation_id
+      ? req.db.query(
+        `SELECT c.*, cu.name AS customer_name, cu.phone AS customer_phone, cu.channel_customer_id, cu.tags
+         FROM conversations c
+         LEFT JOIN customers cu ON cu.id = c.customer_id AND cu.tenant_id = c.tenant_id
+         WHERE c.tenant_id = $1 AND c.id = $2
+         LIMIT 1`,
+        [req.user.tenant_id, ticket.conversation_id],
+      )
+      : Promise.resolve({ rows: [] }),
+    ticket.customer_id
+      ? req.db.query(
+        `SELECT id, name, phone, channel_customer_id, tags
+         FROM customers
+         WHERE tenant_id = $1 AND id = $2
+         LIMIT 1`,
+        [req.user.tenant_id, ticket.customer_id],
+      )
+      : Promise.resolve({ rows: [] }),
+  ]);
+
+  const conversation = conversationResult.rows[0] || (ticket.conversation_id ? { id: ticket.conversation_id, channel: ticket.channel } : null);
+  const customer = customerResult.rows[0] || {
+    id: ticket.customer_id || null,
+    name: ticket.customer_name,
+    tags: [],
+  };
+
+  await executeTriggers({
+    tenant: req.tenant,
+    tenantId: req.user.tenant_id,
+    settings: req.tenant?.settings || {},
+    conversation,
+    customer,
+    savedMessage: { content: ticket.description || ticket.title, created_at: ticket.created_at || new Date() },
+    analysis: null,
+    credentials: null,
+    ticket,
+    historyLength: 0,
+  });
+}
+
 router.get('/', async (req, res, next) => {
   try {
     const tickets = await listTickets(req.user.tenant_id, req.query, req.db);
@@ -118,6 +163,9 @@ router.post('/', async (req, res, next) => {
     }
 
     const ticket = await createTicket(req.user.tenant_id, input, req.db);
+    fireTicketCreatedTriggers(req, ticket).catch((err) => {
+      console.warn('[Triggers] ticket_created execution failed:', err.message);
+    });
     res.status(201).json(ticket);
   } catch (err) {
     next(err);

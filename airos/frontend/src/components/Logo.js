@@ -1,15 +1,22 @@
 'use client';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useTheme } from 'next-themes';
+import { useEffect, useState } from 'react';
+import { cn } from '@/lib/utils';
 
 /**
- * ChatOrAI Logo component
+ * ChatorAI logo component
  * size: 'sm' | 'md' | 'lg' | 'xl'
- * variant: ignored (since the image is now the full logo)
- * href: wrap in link if provided
  */
-export default function Logo({ size = 'md', variant = 'full', href, style = {} }) {
-  // Approximate 3.5:1 ratio for 748x210 PNG
+export default function Logo({ size = 'md', href, className }) {
+  const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const sizes = {
     sm: { height: 20, width: 70 },
     md: { height: 28, width: 98 },
@@ -18,14 +25,19 @@ export default function Logo({ size = 'md', variant = 'full', href, style = {} }
   };
   const s = sizes[size] || sizes.md;
 
+  // Default to dark version during hydration or if theme is unknown
+  const isLight = mounted && resolvedTheme === 'light';
+  const logoSrc = isLight ? '/ChatOrAi-Black.png' : '/ChatOrAi.png';
+
   const content = (
-    <div style={{ display: 'flex', alignItems: 'center', ...style }}>
+    <div className={cn("flex items-center", className)}>
       <Image
-        src="/ChatOrAi.png"
-        alt="ChatOrAI"
+        src={logoSrc}
+        alt="ChatorAI"
         width={s.width * 4}
         height={s.height * 4}
-        style={{ width: s.width, height: s.height, objectFit: 'contain', flexShrink: 0, display: 'block' }}
+        style={{ width: s.width, height: s.height, objectFit: 'contain' }}
+        className="shrink-0 block"
         priority
       />
     </div>
@@ -33,7 +45,7 @@ export default function Logo({ size = 'md', variant = 'full', href, style = {} }
 
   if (href) {
     return (
-      <Link href={href} style={{ textDecoration: 'none', display: 'inline-flex' }}>
+      <Link href={href} className="no-underline inline-flex">
         {content}
       </Link>
     );

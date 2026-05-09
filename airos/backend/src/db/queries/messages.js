@@ -1,6 +1,6 @@
 const { queryAdmin } = require('../pool');
 const { encrypt, decrypt, isEncrypted } = require('../../../vendor/db/src/encryption');
-const { delCache, invalidatePattern } = require('../cache');
+const { delCache, invalidatePattern, getCache, setCache } = require('../cache');
 const { enqueueJob } = require('../../core/queue');
 const crypto = require('crypto');
 
@@ -41,17 +41,21 @@ async function decryptMessageRow(tenantId, row = {}) {
   };
 }
 
-async function saveMessage(tenantId, conversationId, { direction, type = 'text', content, media_url, sent_by, metadata = {} }, client) {
+async function saveMessage(tenantId, conversationId, { direction, type = 'text', content, media_url, sent_by, metadata = {}, created_at }, client) {
   const encryptedContent = await encrypt(tenantId, content);
   const searchTokens = buildMessageSearchTokens(tenantId, content);
   const db = client || { query: queryAdmin };
+  const createdAt = created_at ? new Date(created_at) : new Date();
+  const safeCreatedAt = Number.isNaN(createdAt.getTime()) ? new Date() : createdAt;
 
   const res = await db.query(`
-    INSERT INTO messages (tenant_id, conversation_id, direction, type, content, media_url, sent_by, metadata, search_tokens)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *
-  `, [tenantId, conversationId, direction, type, encryptedContent, media_url, sent_by, JSON.stringify(metadata), JSON.stringify(searchTokens)]);
+    INSERT INTO messages (tenant_id, conversation_id, direction, type, content, media_url, sent_by, metadata, search_tokens, created_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *
+  `, [tenantId, conversationId, direction, type, encryptedContent, media_url, sent_by, JSON.stringify(metadata), JSON.stringify(searchTokens), safeCreatedAt]);
 
-  const saved = res.rows[0];
+  const saved = { ...res.rows[0] };
+  if (!saved.created_at) saved.created_at = safeCreatedAt;
+  else if (!(saved.created_at instanceof Date)) saved.created_at = new Date(saved.created_at);
 
   // Denormalize last_message fields in parent conversation
   let preview = 'Message';
@@ -73,10 +77,10 @@ async function saveMessage(tenantId, conversationId, { direction, type = 'text',
     WHERE id = $5 AND tenant_id = $6
   `, [saved.created_at, preview, sent_by, direction, conversationId, tenantId]);
 
-  // Invalidate dashboard summary cache
-  await delCache(tenantId, 'dashboard', 'summary');
-  // Invalidate conversation list caches
-  await invalidatePattern(tenantId, 'conversations');
+  // Invalidate caches — fire and forget, don't block response
+  delCache(tenantId, 'dashboard', 'summary').catch(() => {});
+  invalidatePattern(tenantId, 'conversations').catch(() => {});
+  invalidatePattern(tenantId, 'messages').catch(() => {});
 
   // Enqueue background refreshes
   enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
@@ -86,6 +90,13 @@ async function saveMessage(tenantId, conversationId, { direction, type = 'text',
 }
 
 async function getMessages(tenantId, conversationId, { limit = 50, before } = {}, client) {
+  // Cache the initial page (no before cursor) for 30s — evicted on saveMessage
+  const cacheKey = !before ? `msgs:${conversationId}:${limit}` : null;
+  if (cacheKey) {
+    const cached = await getCache(tenantId, 'messages', cacheKey);
+    if (cached) return cached;
+  }
+
   const params = [conversationId, tenantId];
   let whereBefore = '';
 
@@ -96,20 +107,26 @@ async function getMessages(tenantId, conversationId, { limit = 50, before } = {}
 
   params.push(limit);
 
+  const cols = 'id, tenant_id, conversation_id, direction, type, content, media_url, sent_by, metadata, created_at';
   const res = client
     ? await client.query(`
-    SELECT * FROM messages
+    SELECT ${cols} FROM messages
     WHERE conversation_id = $1 AND tenant_id = $2 ${whereBefore}
     ORDER BY created_at DESC LIMIT $${params.length}
   `, params)
     : await queryAdmin(`
-    SELECT * FROM messages
+    SELECT ${cols} FROM messages
     WHERE conversation_id = $1 AND tenant_id = $2 ${whereBefore}
     ORDER BY created_at DESC LIMIT $${params.length}
   `, params);
 
   const rows = res.rows.reverse();
-  return Promise.all(rows.map((row) => decryptMessageRow(tenantId, row)));
+  const decrypted = await Promise.all(rows.map((row) => decryptMessageRow(tenantId, row)));
+
+  if (cacheKey) {
+    setCache(tenantId, 'messages', cacheKey, decrypted, 30).catch(() => {});
+  }
+  return decrypted;
 }
 
 module.exports = {

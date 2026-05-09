@@ -1,8 +1,34 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
+import { Bot, BrainCircuit, KeyRound, RefreshCcw, Save, ShieldCheck, Sparkles } from 'lucide-react';
+
 import { adminApi } from '@/lib/adminApi';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
+
+function summarizeConfig(config) {
+  return {
+    ...config,
+    enabledModelsText: Array.isArray(config.enabledModels) ? config.enabledModels.join('\n') : '',
+    starterModel: config.defaultModelByPlan?.starter || '',
+    growthModel: config.defaultModelByPlan?.growth || '',
+    proModel: config.defaultModelByPlan?.pro || '',
+    enterpriseModel: config.defaultModelByPlan?.enterprise || '',
+    chatorName: config.chator?.name || 'Chator',
+    hierarchyMode: config.chator?.hierarchyMode || 'platform-defaults',
+    tenantIsolation: config.chator?.tenantIsolation !== false,
+    openaiApiKey: '',
+    anthropicApiKey: '',
+  };
+}
 
 export default function AdminAiPage() {
   const [loading, setLoading] = useState(true);
@@ -12,36 +38,56 @@ export default function AdminAiPage() {
   const [tenantUsage, setTenantUsage] = useState([]);
   const [availableModels, setAvailableModels] = useState([]);
 
+  async function load() {
+    try {
+      setLoading(true);
+      const data = await adminApi.get('/api/admin/ai-control');
+      setConfig(data?.config ? summarizeConfig(data.config) : null);
+      setProviderStatus(data?.providerStatus || null);
+      setTenantUsage(Array.isArray(data?.tenantUsage) ? data.tenantUsage : []);
+      setAvailableModels(Array.isArray(data?.availableModels) ? data.availableModels : []);
+    } catch (err) {
+      toast.error(err.message || 'Could not load AI control plane');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    let cancelled = false;
-    adminApi.get('/api/admin/ai-control')
-      .then((data) => {
-        if (cancelled) return;
-        setConfig(data?.config || null);
-        setProviderStatus(data?.providerStatus || null);
-        setTenantUsage(Array.isArray(data?.tenantUsage) ? data.tenantUsage : []);
-        setAvailableModels(Array.isArray(data?.availableModels) ? data.availableModels : []);
-      })
-      .catch((err) => {
-        if (!cancelled) toast.error(err.message || 'Could not load AI control plane');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    load();
   }, []);
 
+  const totals = useMemo(() => tenantUsage.reduce((acc, tenant) => {
+    acc.tenants += 1;
+    acc.messages += Number(tenant.messagesCount || 0);
+    acc.seats += Number(tenant.purchasedSeats || 0);
+    return acc;
+  }, { tenants: 0, messages: 0, seats: 0 }), [tenantUsage]);
+
+  function setField(field, value) {
+    setConfig((current) => ({ ...current, [field]: value }));
+  }
+
   async function save() {
+    if (!config) return;
     setSaving(true);
     try {
       const providerCredentials = {};
       if (String(config.openaiApiKey || '').trim()) providerCredentials.openaiApiKey = String(config.openaiApiKey).trim();
       if (String(config.anthropicApiKey || '').trim()) providerCredentials.anthropicApiKey = String(config.anthropicApiKey).trim();
+
       const payload = {
-        ...config,
-        enabledModels: String(config.enabledModelsText || '').split('\n').map((item) => item.trim()).filter(Boolean),
+        provider: config.provider,
+        activeModel: config.activeModel,
+        fallbackModel: config.fallbackModel,
+        enabledModels: String(config.enabledModelsText || '')
+          .split('\n')
+          .map((item) => item.trim())
+          .filter(Boolean),
+        safetyMode: config.safetyMode,
+        responseMode: config.responseMode,
+        temperature: Number(config.temperature || 0),
+        topP: Number(config.topP || 1),
         providerCredentials,
         defaultModelByPlan: {
           starter: config.starterModel || '',
@@ -56,20 +102,10 @@ export default function AdminAiPage() {
           tenantIsolation: config.tenantIsolation !== false,
         },
       };
+
       const response = await adminApi.patch('/api/admin/ai-control', payload);
-      setConfig({
-        ...response.config,
-        enabledModelsText: Array.isArray(response.config.enabledModels) ? response.config.enabledModels.join('\n') : '',
-        starterModel: response.config.defaultModelByPlan?.starter || '',
-        growthModel: response.config.defaultModelByPlan?.growth || '',
-        proModel: response.config.defaultModelByPlan?.pro || '',
-        enterpriseModel: response.config.defaultModelByPlan?.enterprise || '',
-        chatorName: response.config.chator?.name || 'Chator',
-        hierarchyMode: response.config.chator?.hierarchyMode || 'platform-defaults',
-        tenantIsolation: response.config.chator?.tenantIsolation !== false,
-        openaiApiKey: '',
-        anthropicApiKey: '',
-      });
+      setConfig(response?.config ? summarizeConfig(response.config) : null);
+      setProviderStatus(response?.providerStatus || providerStatus);
       toast.success('AI control plane updated');
     } catch (err) {
       toast.error(err.message || 'Could not update AI settings');
@@ -79,245 +115,262 @@ export default function AdminAiPage() {
   }
 
   if (loading) {
-    return <div style={{ padding:'28px', color:'var(--t4)', fontSize:13 }}>Loading AI control plane…</div>;
+    return <div className="px-5 py-8 text-sm text-muted-foreground md:px-8">Loading AI control plane…</div>;
   }
 
   if (!config) return null;
 
-  const form = {
-    ...config,
-    enabledModelsText: config.enabledModelsText ?? (Array.isArray(config.enabledModels) ? config.enabledModels.join('\n') : ''),
-    starterModel: config.starterModel ?? config.defaultModelByPlan?.starter ?? '',
-    growthModel: config.growthModel ?? config.defaultModelByPlan?.growth ?? '',
-    proModel: config.proModel ?? config.defaultModelByPlan?.pro ?? '',
-    enterpriseModel: config.enterpriseModel ?? config.defaultModelByPlan?.enterprise ?? '',
-    chatorName: config.chatorName ?? config.chator?.name ?? 'Chator',
-    hierarchyMode: config.hierarchyMode ?? config.chator?.hierarchyMode ?? 'platform-defaults',
-    tenantIsolation: config.tenantIsolation ?? config.chator?.tenantIsolation !== false,
-  };
-
-  const setField = (field, value) => setConfig((current) => ({ ...current, [field]: value }));
-  const modelOptions = availableModels.length ? availableModels : ['gpt-5.4-mini', 'gpt-5.4'];
-
   return (
-    <div style={{ padding:'28px', display:'flex', flexDirection:'column', gap:20 }}>
-      <div>
-        <h1 style={{ fontSize:22, fontWeight:800, letterSpacing:'-0.03em', color:'var(--t1)', marginBottom:6 }}>
-          AI Control Plane
-        </h1>
-        <p style={{ fontSize:13, color:'var(--t4)' }}>
-          Central provider, model, safety, and Chator hierarchy defaults for all tenant agents.
-        </p>
+    <div className="mx-auto flex max-w-[1680px] flex-col gap-8 px-5 py-8 md:px-8 md:py-10">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full border bg-primary/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">
+            <Bot className="h-3.5 w-3.5" />
+            AI Operations
+          </div>
+          <h1 className="mt-4 text-3xl font-black tracking-tight">Platform AI Control</h1>
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+            Control provider routing, model defaults, and tenant isolation from a single platform surface.
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={load} className="gap-2">
+            <RefreshCcw className="h-4 w-4" />
+            Refresh
+          </Button>
+          <Button onClick={save} disabled={saving} className="gap-2">
+            <Save className="h-4 w-4" />
+            {saving ? 'Saving…' : 'Save controls'}
+          </Button>
+        </div>
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'1.1fr 0.9fr', gap:16 }}>
-        <section style={cardStyle}>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(2,minmax(0,1fr))', gap:12 }}>
-            <label style={labelStyle}>
-              <span style={labelText}>Provider</span>
-              <select value={form.provider} onChange={(e) => setField('provider', e.target.value)} style={inputStyle}>
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-              </select>
-            </label>
-            <label style={labelStyle}>
-              <span style={labelText}>Safety mode</span>
-              <select value={form.safetyMode} onChange={(e) => setField('safetyMode', e.target.value)} style={inputStyle}>
-                <option value="strict">Strict</option>
-                <option value="balanced">Balanced</option>
-              </select>
-            </label>
-            <label style={labelStyle}>
-              <span style={labelText}>Active model</span>
-              <select value={form.activeModel} onChange={(e) => setField('activeModel', e.target.value)} style={inputStyle}>
-                {modelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
-              </select>
-            </label>
-            <label style={labelStyle}>
-              <span style={labelText}>Fallback model</span>
-              <select value={form.fallbackModel || ''} onChange={(e) => setField('fallbackModel', e.target.value)} style={inputStyle}>
-                <option value="">None</option>
-                {modelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
-              </select>
-            </label>
-            <label style={labelStyle}>
-              <span style={labelText}>Temperature</span>
-              <input type="number" step="0.1" min="0" max="2" value={form.temperature} onChange={(e) => setField('temperature', Number(e.target.value || 0))} style={inputStyle} />
-            </label>
-            <label style={labelStyle}>
-              <span style={labelText}>Top P</span>
-              <input type="number" step="0.1" min="0" max="1" value={form.topP} onChange={(e) => setField('topP', Number(e.target.value || 1))} style={inputStyle} />
-            </label>
-          </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Provider" value={providerStatus?.provider || config.provider || 'Unknown'} icon={Sparkles} />
+        <MetricCard label="Managed tenants" value={totals.tenants} icon={BrainCircuit} />
+        <MetricCard label="Observed messages" value={totals.messages.toLocaleString()} icon={ShieldCheck} />
+        <MetricCard label="Allocated seats" value={totals.seats.toLocaleString()} icon={KeyRound} />
+      </div>
 
-          <label style={{ ...labelStyle, marginTop:12 }}>
-            <span style={labelText}>Enabled models</span>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(2,minmax(0,1fr))', gap:8 }}>
-              {modelOptions.map((model) => {
-                const enabled = String(form.enabledModelsText || '').split('\n').includes(model);
-                return (
-                  <label key={model} style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', borderRadius:10, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
-                    <input
-                      type="checkbox"
-                      checked={enabled}
-                      onChange={(event) => {
-                        const current = String(form.enabledModelsText || '').split('\n').map((item) => item.trim()).filter(Boolean);
-                        const next = event.target.checked
-                          ? [...new Set([...current, model])]
-                          : current.filter((item) => item !== model);
-                        setField('enabledModelsText', next.join('\n'));
-                      }}
-                    />
-                    <span style={{ fontSize:12.5, color:'var(--t2)' }}>{model}</span>
-                  </label>
-                );
-              })}
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card className="border shadow-sm">
+          <CardHeader>
+            <CardTitle>Provider and runtime configuration</CardTitle>
+            <CardDescription>
+              Centralize provider credentials, active routing model, safety posture, and plan-specific defaults.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <Field label="Provider">
+                <Select value={config.provider} onValueChange={(value) => setField('provider', value)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="openai">OpenAI</SelectItem>
+                    <SelectItem value="anthropic">Anthropic</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Active model">
+                <Select value={config.activeModel} onValueChange={(value) => setField('activeModel', value)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {availableModels.map((model) => <SelectItem key={model} value={model}>{model}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Fallback model">
+                <Select value={config.fallbackModel || '__none__'} onValueChange={(value) => setField('fallbackModel', value === '__none__' ? '' : value)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {availableModels.map((model) => <SelectItem key={model} value={model}>{model}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Safety mode">
+                <Select value={config.safetyMode} onValueChange={(value) => setField('safetyMode', value)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="strict">Strict</SelectItem>
+                    <SelectItem value="balanced">Balanced</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
             </div>
-          </label>
 
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(2,minmax(0,1fr))', gap:12, marginTop:12 }}>
-            <label style={labelStyle}>
-              <span style={labelText}>OpenAI API key</span>
-              <input placeholder={config.providerCredentials?.openaiApiKey || 'Not set'} value={config.openaiApiKey || ''} onChange={(e) => setField('openaiApiKey', e.target.value)} style={inputStyle} />
-            </label>
-            <label style={labelStyle}>
-              <span style={labelText}>Anthropic API key</span>
-              <input placeholder={config.providerCredentials?.anthropicApiKey || 'Not set'} value={config.anthropicApiKey || ''} onChange={(e) => setField('anthropicApiKey', e.target.value)} style={inputStyle} />
-            </label>
-          </div>
-
-          <h2 style={sectionTitle}>Default model by plan</h2>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,minmax(0,1fr))', gap:12 }}>
-            {[
-              ['Starter', 'starterModel'],
-              ['Growth', 'growthModel'],
-              ['Pro', 'proModel'],
-              ['Enterprise', 'enterpriseModel'],
-            ].map(([label, field]) => (
-              <label key={field} style={labelStyle}>
-                <span style={labelText}>{label}</span>
-                <select value={form[field]} onChange={(e) => setField(field, e.target.value)} style={inputStyle}>
-                  {modelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
-                </select>
-              </label>
-            ))}
-          </div>
-
-          <h2 style={sectionTitle}>Chator hierarchy</h2>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 220px 160px', gap:12 }}>
-            <label style={labelStyle}>
-              <span style={labelText}>Master AI name</span>
-              <input value={form.chatorName} onChange={(e) => setField('chatorName', e.target.value)} style={inputStyle} />
-            </label>
-            <label style={labelStyle}>
-              <span style={labelText}>Hierarchy mode</span>
-              <select value={form.hierarchyMode} onChange={(e) => setField('hierarchyMode', e.target.value)} style={inputStyle}>
-                <option value="platform-defaults">Platform defaults</option>
-                <option value="tenant-overrides">Tenant overrides allowed</option>
-              </select>
-            </label>
-            <label style={labelStyle}>
-              <span style={labelText}>Isolation</span>
-              <select value={form.tenantIsolation ? 'strict' : 'loose'} onChange={(e) => setField('tenantIsolation', e.target.value === 'strict')} style={inputStyle}>
-                <option value="strict">Strict</option>
-                <option value="loose">Loose</option>
-              </select>
-            </label>
-          </div>
-
-          <div style={{ display:'flex', justifyContent:'flex-end', marginTop:16 }}>
-            <button className="btn btn-primary" onClick={save} disabled={saving}>
-              {saving ? 'Saving…' : 'Save AI Controls'}
-            </button>
-          </div>
-        </section>
-
-        <section style={{ ...cardStyle, gap:16 }}>
-          <div>
-            <h2 style={sectionTitle}>Runtime status</h2>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(2,minmax(0,1fr))', gap:12 }}>
-              <StatusCard label="Provider" value={providerStatus?.provider || 'Unknown'} tone="#00E5FF" />
-              <StatusCard label="Config source" value={providerStatus?.source || 'environment'} tone="#f59e0b" />
-              <StatusCard label="OpenAI" value={providerStatus?.providers?.openai?.configured ? 'Configured' : 'Missing'} tone={providerStatus?.providers?.openai?.configured ? '#34d399' : '#f87171'} />
-              <StatusCard label="Anthropic" value={providerStatus?.providers?.anthropic?.configured ? 'Configured' : 'Missing'} tone={providerStatus?.providers?.anthropic?.configured ? '#34d399' : '#f87171'} />
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Field label="Enabled model allowlist">
+                <Textarea
+                  rows={7}
+                  value={config.enabledModelsText}
+                  onChange={(event) => setField('enabledModelsText', event.target.value)}
+                  className="min-h-[170px]"
+                />
+              </Field>
+              <div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="Temperature">
+                    <Input type="number" step="0.1" min="0" max="2" value={config.temperature} onChange={(event) => setField('temperature', event.target.value)} />
+                  </Field>
+                  <Field label="Top P">
+                    <Input type="number" step="0.1" min="0" max="1" value={config.topP} onChange={(event) => setField('topP', event.target.value)} />
+                  </Field>
+                </div>
+                <Field label="Response mode">
+                  <Select value={config.responseMode} onValueChange={(value) => setField('responseMode', value)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="balanced">Balanced</SelectItem>
+                      <SelectItem value="fast">Fast</SelectItem>
+                      <SelectItem value="high-accuracy">High accuracy</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="OpenAI key override">
+                    <Input type="password" placeholder="Leave blank to keep current secret" value={config.openaiApiKey} onChange={(event) => setField('openaiApiKey', event.target.value)} />
+                  </Field>
+                  <Field label="Anthropic key override">
+                    <Input type="password" placeholder="Leave blank to keep current secret" value={config.anthropicApiKey} onChange={(event) => setField('anthropicApiKey', event.target.value)} />
+                  </Field>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <ProviderBadge
+                    label="OpenAI"
+                    configured={providerStatus?.providers?.openai?.configured}
+                    model={providerStatus?.providers?.openai?.model}
+                  />
+                  <ProviderBadge
+                    label="Anthropic"
+                    configured={providerStatus?.providers?.anthropic?.configured}
+                    model={providerStatus?.providers?.anthropic?.model}
+                  />
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div>
-            <h2 style={sectionTitle}>Tenant AI visibility</h2>
-            <div style={{ display:'flex', flexDirection:'column', gap:10, maxHeight:420, overflowY:'auto' }}>
-              {tenantUsage.map((tenant) => (
-                <div key={tenant.tenantId} style={{ padding:'12px 14px', borderRadius:12, background:'var(--s1)', border:'1px solid var(--b1)', display:'grid', gridTemplateColumns:'1.4fr 90px 90px', gap:12, alignItems:'center' }}>
-                  <div>
-                    <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)' }}>{tenant.name}</p>
-                    <p style={{ fontSize:11.5, color:'var(--t4)' }}>
-                      {tenant.plan} · {tenant.aiAgentName || 'Default agent'} · {tenant.purchasedSeats} seats
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {['starter', 'growth', 'pro', 'enterprise'].map((plan) => (
+                <Field key={plan} label={`${plan} default`}>
+                  <Select value={config[`${plan}Model`] || '__inherit__'} onValueChange={(value) => setField(`${plan}Model`, value === '__inherit__' ? '' : value)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__inherit__">Inherit active model</SelectItem>
+                      {availableModels.map((model) => <SelectItem key={`${plan}-${model}`} value={model}>{model}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="space-y-6">
+          <Card className="border shadow-sm">
+            <CardHeader>
+              <CardTitle>Chator hierarchy</CardTitle>
+              <CardDescription>
+                Platform-wide parent-agent identity and tenant isolation behavior.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Field label="Master AI name">
+                <Input value={config.chatorName} onChange={(event) => setField('chatorName', event.target.value)} />
+              </Field>
+              <Field label="Hierarchy mode">
+                <Select value={config.hierarchyMode} onValueChange={(value) => setField('hierarchyMode', value)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="platform-defaults">Platform defaults</SelectItem>
+                    <SelectItem value="tenant-overrides">Tenant overrides allowed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <div className="flex items-center justify-between rounded-2xl border bg-muted/20 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold">Strict tenant isolation</p>
+                  <p className="text-xs text-muted-foreground">Keep tenant model policy isolated from other workspaces.</p>
+                </div>
+                <Button
+                  type="button"
+                  variant={config.tenantIsolation !== false ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setField('tenantIsolation', config.tenantIsolation === false)}
+                >
+                  {config.tenantIsolation !== false ? 'Strict' : 'Loose'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border shadow-sm">
+            <CardHeader>
+              <CardTitle>Tenant AI visibility</CardTitle>
+              <CardDescription>
+                Live snapshot of plan, seat footprint, and message load across tenant-scoped agents.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {tenantUsage.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No tenant AI activity found.</p>
+              ) : tenantUsage.map((tenant) => (
+                <div key={tenant.tenantId} className="flex items-start justify-between gap-4 rounded-2xl border bg-muted/20 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">{tenant.name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {tenant.plan} · {tenant.aiAgentName || 'Default agent'}
                     </p>
                   </div>
-                  <div style={{ textAlign:'right' }}>
-                    <p style={{ fontSize:13, fontWeight:700, color:'#34d399' }}>{tenant.messagesCount}</p>
-                    <p style={{ fontSize:10.5, color:'var(--t4)' }}>messages</p>
-                  </div>
-                  <div style={{ textAlign:'right' }}>
-                    <p style={{ fontSize:13, fontWeight:700, color:'#818cf8' }}>{tenant.conversationsCount}</p>
-                    <p style={{ fontSize:10.5, color:'var(--t4)' }}>threads</p>
+                  <div className="shrink-0 text-right">
+                    <p className="text-sm font-semibold">{Number(tenant.messagesCount || 0).toLocaleString()}</p>
+                    <p className="text-xs text-muted-foreground">{tenant.purchasedSeats} seats</p>
                   </div>
                 </div>
               ))}
-            </div>
-          </div>
-        </section>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
 }
 
-function StatusCard({ label, value, tone }) {
+function MetricCard({ label, value, icon: Icon }) {
   return (
-    <div style={{ padding:'14px 16px', borderRadius:12, background:'var(--s1)', border:'1px solid var(--b1)', borderTop:`2px solid ${tone}` }}>
-      <p style={{ fontSize:11.5, color:'var(--t4)', marginBottom:4 }}>{label}</p>
-      <p style={{ fontSize:13.5, fontWeight:800, color:tone }}>{value}</p>
+    <Card className="border shadow-sm">
+      <CardContent className="flex items-start justify-between gap-4 p-5">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+          <p className="mt-2 text-2xl font-black tracking-tight">{value}</p>
+        </div>
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border bg-muted/30">
+          <Icon className="h-4 w-4 text-primary" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProviderBadge({ label, configured, model }) {
+  return (
+    <div className="rounded-2xl border bg-background/80 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold">{label}</p>
+        <Badge className={cn('border', configured ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-500' : 'border-amber-500/20 bg-amber-500/5 text-amber-500')}>
+          {configured ? 'Configured' : 'Missing'}
+        </Badge>
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">{configured ? model : 'Provider credentials unavailable'}</p>
     </div>
   );
 }
 
-const cardStyle = {
-  padding:'20px',
-  borderRadius:16,
-  background:'var(--bg2)',
-  border:'1px solid var(--b1)',
-  display:'flex',
-  flexDirection:'column',
-  gap:14,
-};
-
-const inputStyle = {
-  width:'100%',
-  padding:'10px 13px',
-  borderRadius:10,
-  fontSize:13,
-  background:'rgba(255,255,255,0.04)',
-  border:'1px solid rgba(255,255,255,0.1)',
-  color:'var(--t1)',
-  outline:'none',
-  boxSizing:'border-box',
-};
-
-const labelStyle = {
-  display:'flex',
-  flexDirection:'column',
-  gap:6,
-};
-
-const labelText = {
-  fontSize:12,
-  color:'var(--t4)',
-  fontWeight:700,
-};
-
-const sectionTitle = {
-  fontSize:14,
-  fontWeight:800,
-  color:'var(--t1)',
-  margin:'6px 0 2px',
-};
+function Field({ label, children }) {
+  return (
+    <div className="space-y-2">
+      <Label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</Label>
+      {children}
+    </div>
+  );
+}

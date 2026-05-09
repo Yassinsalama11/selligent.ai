@@ -16,8 +16,8 @@ async function enqueueJob(type, payload) {
   const job = { type, payload, id: Math.random().toString(36).slice(2), created_at: Date.now(), key: jobKey };
 
   if (!redis) {
-    if (IS_DEBUG) console.log(`[QUEUE] Redis unavailable, running job ${type} immediately`);
-    processJob(job).catch(err => console.error(`[QUEUE] Immediate job failed: ${err.message}`));
+    if (IS_DEBUG) console.log(`[QUEUE] Redis unavailable, scheduling job ${type} async`);
+    setImmediate(() => processJob(job).catch(err => console.error(`[QUEUE] Immediate job failed: ${err.message}`)));
     return;
   }
 

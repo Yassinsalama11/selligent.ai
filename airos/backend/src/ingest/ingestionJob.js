@@ -46,33 +46,41 @@ async function listIngestionJobs(tenantId, { limit = 20 } = {}) {
 }
 
 async function storeChunks(tenantId, jobId, chunks) {
+  // Process in parallel batches of 8 to avoid overwhelming the embedding API
+  const BATCH_SIZE = 8;
   let stored = 0;
 
-  for (const chunk of chunks) {
-    const contentHash = crypto.createHash('sha256').update(chunk.content).digest('hex');
-    const embedding = await embedText(chunk.content);
+  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+    const batch = chunks.slice(i, i + BATCH_SIZE);
+    const results = await Promise.all(batch.map(async (chunk) => {
+      const contentHash = crypto.createHash('sha256').update(chunk.content).digest('hex');
+      const embedding = await embedText(chunk.content);
+      return { chunk, contentHash, embedding };
+    }));
 
-    const result = await queryAdmin(
-      `INSERT INTO knowledge_chunks
-        (tenant_id, job_id, source_url, title, heading, content_hash, content, token_count, embedding, metadata)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       ON CONFLICT (tenant_id, content_hash) DO NOTHING
-       RETURNING id`,
-      [
-        tenantId,
-        jobId,
-        chunk.sourceUrl,
-        chunk.title,
-        chunk.heading,
-        contentHash,
-        chunk.content,
-        chunk.tokenCount,
-        JSON.stringify(embedding),
-        JSON.stringify(chunk.metadata || {}),
-      ]
-    );
-
-    if (result.rows[0]) stored += 1;
+    // Batch insert
+    await Promise.all(results.map(async ({ chunk, contentHash, embedding }) => {
+      const result = await queryAdmin(
+        `INSERT INTO knowledge_chunks
+          (tenant_id, job_id, source_url, title, heading, content_hash, content, token_count, embedding, metadata)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         ON CONFLICT (tenant_id, content_hash) DO NOTHING
+         RETURNING id`,
+        [
+          tenantId,
+          jobId,
+          chunk.sourceUrl,
+          chunk.title,
+          chunk.heading,
+          contentHash,
+          chunk.content,
+          chunk.tokenCount,
+          JSON.stringify(embedding),
+          JSON.stringify(chunk.metadata || {}),
+        ]
+      );
+      if (result.rows[0]) stored += 1;
+    }));
   }
 
   return stored;

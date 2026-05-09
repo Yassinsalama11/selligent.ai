@@ -17,6 +17,16 @@ function buildEvents(context) {
   if (context.analysis) events.add('score_updated');
   if (context.analysis?.intent) events.add('intent_detected');
   if (context.analysis?.intent === 'ready_to_buy') events.add('ready_to_buy');
+  if (context.ticket) events.add('ticket_created');
+  if (
+    context.deal?.id
+    && context.previousDeal?.id
+    && context.deal.stage
+    && context.previousDeal.stage
+    && context.deal.stage !== context.previousDeal.stage
+  ) {
+    events.add('deal_stage_changed');
+  }
   return events;
 }
 
@@ -65,7 +75,7 @@ function matchStructuredCondition(field, op, value, context) {
       return actual === expected;
     }
     case 'wait_time': {
-      const actual = Number(context.analysis?.wait_seconds || 0);
+      const actual = Number(context.analysis?.wait_seconds ?? context.waitSeconds ?? 0);
       const expected = Number(value);
       if (op === '>=') return actual >= expected;
       if (op === '<=') return actual <= expected;
@@ -134,6 +144,7 @@ function matchCondition(conditionOrTrigger, context) {
 }
 
 async function addCustomerTag(tenantId, customer, tag) {
+  if (!customer?.id) return { type: 'tag', action: 'add', status: 'skipped', reason: 'No customer context', tag };
   const nextTags = [...new Set([...(customer.tags || []), tag])];
   await queryAdmin(`
     UPDATE customers
@@ -145,6 +156,7 @@ async function addCustomerTag(tenantId, customer, tag) {
 }
 
 async function removeCustomerTag(tenantId, customer, tag) {
+  if (!customer?.id) return { type: 'tag', action: 'remove', status: 'skipped', reason: 'No customer context', tag };
   const normalized = String(tag || '').toLowerCase().trim();
   const nextTags = (customer.tags || []).filter((t) => String(t).toLowerCase().trim() !== normalized);
   await queryAdmin(`
@@ -188,6 +200,7 @@ async function notifyTeam({ tenantId, tenant, settings, trigger, context }) {
     return { type: 'notify', status: 'skipped', reason: 'No operator emails configured' };
   }
 
+  const customNote = String(trigger.actionValue || '').trim();
   await sendEmail({
     to: recipients,
     subject: `${tenant?.name || 'ChatOrAI'} · Trigger fired: ${trigger.name || trigger.event}`,
@@ -199,9 +212,10 @@ async function notifyTeam({ tenantId, tenant, settings, trigger, context }) {
         <p><strong>Channel:</strong> ${context.conversation?.channel || 'unknown'}</p>
         <p><strong>Intent:</strong> ${context.analysis?.intent || 'unknown'}</p>
         <p><strong>Message:</strong> ${context.message?.content || ''}</p>
+        ${customNote ? `<p><strong>Notification:</strong> ${customNote}</p>` : ''}
       </div>
     `,
-    text: `Trigger ${trigger.name || trigger.event} fired for ${context.customer?.name || context.customer?.phone || 'Unknown'}`,
+    text: `Trigger ${trigger.name || trigger.event} fired for ${context.customer?.name || context.customer?.phone || 'Unknown'}${customNote ? `\n${customNote}` : ''}`,
   });
 
   return { type: 'notify', status: 'sent', recipients };
@@ -225,6 +239,15 @@ function getAutomatedReply(action, context) {
 async function sendMetaText(channel, credentials, customer, text) {
   if (!text) return { type: 'message', status: 'skipped', reason: 'No message text resolved' };
 
+  if (channel === 'livechat') {
+    if (!customer?.channel_customer_id) {
+      return { type: 'message', status: 'skipped', reason: 'Missing live chat session' };
+    }
+    const { sendText: sendLivechatText } = require('../channels/livechat/sender');
+    sendLivechatText(customer.channel_customer_id, text, 'ai');
+    return { type: 'message', status: 'sent', externalId: null, text };
+  }
+
   if (channel === 'whatsapp') {
     if (!credentials?.phone_number_id || !credentials?.access_token || !customer?.phone) {
       return { type: 'message', status: 'skipped', reason: 'Missing WhatsApp credentials or phone' };
@@ -245,33 +268,31 @@ async function sendMetaText(channel, credentials, customer, text) {
     };
   }
 
-  if (channel === 'instagram' || channel === 'messenger') {
-    if (!credentials?.page_id || !credentials?.access_token || !customer?.channel_customer_id) {
-      return { type: 'message', status: 'skipped', reason: 'Missing Meta page credentials or recipient' };
+  if (channel === 'instagram') {
+    const { sendText: sendInstagramText, resolveSenderId } = require('../channels/instagram/sender');
+    const senderId = resolveSenderId(credentials);
+    if (!senderId || !credentials?.access_token || !customer?.channel_customer_id) {
+      return { type: 'message', status: 'skipped', reason: 'Missing Instagram credentials or recipient' };
     }
-
-    const response = await fetch(`https://graph.facebook.com/v19.0/${credentials.page_id}/messages`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${credentials.access_token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        recipient: { id: customer.channel_customer_id },
-        message: { text },
-        messaging_type: 'RESPONSE',
-      }),
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || data?.error) {
-      throw new Error(data?.error?.message || `Meta send failed for ${channel}`);
-    }
-
+    const response = await sendInstagramText(senderId, credentials.access_token, customer.channel_customer_id, text);
     return {
       type: 'message',
       status: 'sent',
-      externalId: data?.message_id || null,
+      externalId: response?.message_id || null,
+      text,
+    };
+  }
+
+  if (channel === 'messenger') {
+    if (!credentials?.page_id || !credentials?.access_token || !customer?.channel_customer_id) {
+      return { type: 'message', status: 'skipped', reason: 'Missing Messenger credentials or recipient' };
+    }
+    const { sendText: sendMessengerText } = require('../channels/messenger/sender');
+    const response = await sendMessengerText(credentials.page_id, credentials.access_token, customer.channel_customer_id, text);
+    return {
+      type: 'message',
+      status: 'sent',
+      externalId: response?.message_id || null,
       text,
     };
   }
@@ -297,6 +318,8 @@ function extractAssigneeName(action) {
 }
 
 async function maybeAssignConversation({ tenantId, trigger, settings, conversation }) {
+  if (!conversation?.id) return { type: 'assign', status: 'skipped', reason: 'No conversation context' };
+
   const normalized = String(trigger.action || '').toLowerCase();
   if (!normalized.includes('assign')) return null;
 
@@ -354,6 +377,63 @@ async function maybeAssignConversation({ tenantId, trigger, settings, conversati
   return { type: 'assign', status: 'assigned', assignee: assignee.name };
 }
 
+async function assignConversationFromValue({ tenantId, actionValue, settings, conversation }) {
+  if (!conversation?.id) return { type: 'assign', status: 'skipped', reason: 'No conversation context' };
+
+  const value = String(actionValue || '').trim();
+  if (value.startsWith('agent:')) {
+    const userId = value.replace('agent:', '').trim();
+    if (!userId) return { type: 'assign', status: 'skipped', reason: 'No agent selected' };
+    const assigned = await assignConversation(tenantId, conversation.id, userId);
+    return assigned
+      ? { type: 'assign', status: 'assigned', userId }
+      : { type: 'assign', status: 'skipped', reason: 'Agent not found in tenant' };
+  }
+
+  if (value.startsWith('dept:')) {
+    const deptValue = value.replace('dept:', '').trim();
+    const department = Array.isArray(settings.depts)
+      ? settings.depts.find((dept) => [dept?.id, dept?.name].map(String).includes(deptValue))
+      : null;
+    const allowedLabels = new Set([deptValue]);
+    if (department?.name) allowedLabels.add(String(department.name));
+    if (department?.id) allowedLabels.add(String(department.id));
+
+    const assignee = await queryAdmin(
+      `SELECT id, name
+       FROM users
+       WHERE tenant_id = $1
+         AND department = ANY($2::text[])
+       ORDER BY role ASC, created_at ASC
+       LIMIT 1`,
+      [tenantId, Array.from(allowedLabels)],
+    ).then((result) => result.rows[0] || null);
+
+    if (!assignee?.id) return { type: 'assign', status: 'skipped', reason: 'No department operator found' };
+    await assignConversation(tenantId, conversation.id, assignee.id);
+    return { type: 'assign', status: 'assigned', userId: assignee.id, assignee: assignee.name, department: department?.name || deptValue };
+  }
+
+  return { type: 'assign', status: 'skipped', reason: 'Unsupported assignment target' };
+}
+
+async function adjustDealScore({ tenantId, deal, actionValue }) {
+  if (!deal?.id) return { type: 'score_update', status: 'skipped', reason: 'No deal context' };
+  const delta = Number(String(actionValue).replace(/[^0-9.-]/g, '')) || 0;
+  const result = await queryAdmin(
+    `UPDATE deals
+     SET lead_score = LEAST(100, GREATEST(0, COALESCE(lead_score, 0) + $1)),
+         updated_at = NOW()
+     WHERE tenant_id = $2 AND id = $3
+     RETURNING lead_score`,
+    [delta, tenantId, deal.id],
+  );
+  const row = result.rows[0];
+  return row
+    ? { type: 'score_update', delta, status: 'updated', leadScore: row.lead_score }
+    : { type: 'score_update', delta, status: 'skipped', reason: 'Deal not found' };
+}
+
 async function persistOutboundAutomationMessage({
   tenantId,
   conversation,
@@ -363,6 +443,7 @@ async function persistOutboundAutomationMessage({
   messageResult,
 }) {
   if (messageResult?.status !== 'sent') return null;
+  if (!conversation?.id) return null;
 
   const saved = await saveMessage(tenantId, conversation.id, {
     direction: 'outbound',
@@ -401,6 +482,9 @@ async function executeTriggers({
   analysis,
   credentials,
   suggestion,
+  deal,
+  previousDeal,
+  ticket,
   historyLength = 0,
 }) {
   const normalizedSettings = normalizeTenantSettings(settings || tenant?.settings);
@@ -415,6 +499,13 @@ async function executeTriggers({
     message: savedMessage,
     analysis,
     suggestion,
+    deal,
+    previousDeal,
+    ticket,
+    historyLength,
+    waitSeconds: savedMessage?.created_at && conversation?.created_at
+      ? Math.max(0, Math.round((new Date(savedMessage.created_at).getTime() - new Date(conversation.created_at).getTime()) / 1000))
+      : 0,
     isConversationStart: historyLength <= 1,
   };
   const events = buildEvents(context);
@@ -441,40 +532,33 @@ async function executeTriggers({
         if (tag) actions.push(await removeCustomerTag(tenantId, customer, tag));
 
       } else if (actionType === 'assign_to') {
-        if (String(actionValue).startsWith('agent:')) {
-          const userId = String(actionValue).replace('agent:', '').trim();
-          if (userId) {
-            await assignConversation(tenantId, conversation.id, userId);
-            actions.push({ type: 'assign', status: 'assigned', userId });
-          }
-        } else {
-          const assignResult = await maybeAssignConversation({
-            tenantId,
-            trigger: { action: `assign to ${actionValue}` },
-            settings: normalizedSettings,
-            conversation,
-          });
-          if (assignResult) actions.push(assignResult);
-        }
+        actions.push(await assignConversationFromValue({
+          tenantId,
+          actionValue,
+          settings: normalizedSettings,
+          conversation,
+        }));
 
       } else if (actionType === 'send_message') {
         const text = String(actionValue).trim();
         if (text) {
-          const messageResult = await sendMetaText(conversation.channel, credentials, customer, text);
+          const messageResult = conversation?.channel
+            ? await sendMetaText(conversation.channel, credentials, customer, text)
+            : { type: 'message', status: 'skipped', reason: 'No conversation channel' };
           actions.push(messageResult);
-          await persistOutboundAutomationMessage({ tenantId, conversation, customer, channel: conversation.channel, trigger, messageResult });
+          await persistOutboundAutomationMessage({ tenantId, conversation, customer, channel: conversation?.channel, trigger, messageResult });
         }
 
       } else if (actionType === 'notify_agent') {
         actions.push(await notifyTeam({ tenantId, tenant, settings: normalizedSettings, trigger, context }));
 
       } else if (actionType === 'close_conversation') {
-        actions.push(await closeConversation(tenantId, conversation.id));
+        actions.push(conversation?.id
+          ? await closeConversation(tenantId, conversation.id)
+          : { type: 'close', status: 'skipped', reason: 'No conversation context' });
 
       } else if (actionType === 'update_score') {
-        // Score adjustment is informational — the AI scorer handles actual score
-        const delta = Number(String(actionValue).replace(/[^0-9.-]/g, '')) || 0;
-        actions.push({ type: 'score_update', delta, status: 'recorded' });
+        actions.push(await adjustDealScore({ tenantId, deal, actionValue }));
       }
 
     } else {
@@ -492,14 +576,18 @@ async function executeTriggers({
       }
 
       if (includesNormalized(normalizedAction, 'close')) {
-        actions.push(await closeConversation(tenantId, conversation.id));
+        actions.push(conversation?.id
+          ? await closeConversation(tenantId, conversation.id)
+          : { type: 'close', status: 'skipped', reason: 'No conversation context' });
       }
 
       const autoReply = getAutomatedReply(trigger.action, context);
       if (autoReply) {
-        const messageResult = await sendMetaText(conversation.channel, credentials, customer, autoReply);
+        const messageResult = conversation?.channel
+          ? await sendMetaText(conversation.channel, credentials, customer, autoReply)
+          : { type: 'message', status: 'skipped', reason: 'No conversation channel' };
         actions.push(messageResult);
-        await persistOutboundAutomationMessage({ tenantId, conversation, customer, channel: conversation.channel, trigger, messageResult });
+        await persistOutboundAutomationMessage({ tenantId, conversation, customer, channel: conversation?.channel, trigger, messageResult });
       }
 
       const assignmentResult = await maybeAssignConversation({
@@ -517,8 +605,10 @@ async function executeTriggers({
       action: trigger.actionType || trigger.action,
       status: actions.some((a) => a?.status === 'failed') ? 'failed' : 'completed',
       actions,
-      conversationId: conversation.id,
-      customerId: customer.id,
+      conversationId: conversation?.id || null,
+      customerId: customer?.id || null,
+      ticketId: ticket?.id || null,
+      dealId: deal?.id || null,
       createdAt: new Date().toISOString(),
     });
   }

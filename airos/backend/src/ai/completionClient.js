@@ -42,6 +42,7 @@ async function getPlatformConfig() {
         ? (dbConfig.activeModel || envConfig.openaiModel)
         : envConfig.openaiModel,
       fallbackModel: String(dbConfig.fallbackModel || '').trim(),
+      enabledModels: Array.isArray(dbConfig.enabledModels) ? dbConfig.enabledModels : [],
       safetyMode: dbConfig.safetyMode || 'strict',
       responseMode: dbConfig.responseMode || 'balanced',
       temperature: Number.isFinite(Number(dbConfig.temperature)) ? Number(dbConfig.temperature) : 0.3,
@@ -52,6 +53,7 @@ async function getPlatformConfig() {
     return {
       ...envConfig,
       fallbackModel: '',
+      enabledModels: [],
       safetyMode: 'strict',
       responseMode: 'balanced',
       temperature: 0.3,
@@ -109,6 +111,7 @@ async function completeTextWithMetadata({
   purpose = 'generic',
   temperature = 0.3,
   safetyInput = null,
+  modelPreference = '',
 }) {
   const inputGuard = assessTextSafety(safetyInput == null ? prompt : safetyInput);
   if (!inputGuard.allowed) {
@@ -127,6 +130,13 @@ async function completeTextWithMetadata({
   const config = await getPlatformConfig();
   let provider = config.provider;
   let model = provider === 'anthropic' ? config.anthropicModel : config.openaiModel;
+  const requestedModel = String(modelPreference || '').trim();
+  const allowedModels = new Set([
+    config.anthropicModel,
+    config.openaiModel,
+    config.fallbackModel,
+    ...(Array.isArray(config.enabledModels) ? config.enabledModels : []),
+  ].filter(Boolean));
   let text;
   let usage = {};
 
@@ -135,7 +145,7 @@ async function completeTextWithMetadata({
 
   if ((provider === 'anthropic' || !openai) && anthropic) {
     provider = 'anthropic';
-    model = config.anthropicModel;
+    model = requestedModel && allowedModels.has(requestedModel) ? requestedModel : config.anthropicModel;
     const response = await anthropic.messages.create({
       model,
       max_tokens: maxTokens,
@@ -145,7 +155,7 @@ async function completeTextWithMetadata({
     usage = response.usage || {};
   } else if (openai) {
     provider = 'openai';
-    model = config.openaiModel;
+    model = requestedModel && allowedModels.has(requestedModel) ? requestedModel : config.openaiModel;
     const response = await openai.chat.completions.create({
       model,
       messages: [{ role: 'user', content: prompt }],

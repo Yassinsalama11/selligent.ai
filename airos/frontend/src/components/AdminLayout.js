@@ -1,28 +1,61 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
+import {
+  Activity,
+  Bot,
+  BrainCircuit,
+  Building2,
+  CircleDot,
+  CreditCard,
+  FileSearch,
+  Globe2,
+  LayoutDashboard,
+  LogOut,
+  Package2,
+  ReceiptText,
+  Shield,
+  Sparkles,
+  Users2,
+} from 'lucide-react';
+import Logo from '@/components/Logo';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { adminApi, getAdminProfile, logoutAdmin, setAdminSession } from '@/lib/adminApi';
+import { cn } from '@/lib/utils';
 
-const NAV = [
-  { href:'/admin',         icon:'◈',  label:'Overview', exact:true },
-  { href:'/admin/clients', icon:'🏢', label:'Clients' },
-  { href:'/admin/pricing', icon:'🪙', label:'Plans' },
-  { href:'/admin/offers',  icon:'🏷️', label:'Offers' },
-  { href:'/admin/billing', icon:'💳', label:'Billing' },
-  { href:'/admin/ai',      icon:'🤖', label:'AI Control' },
-  { href:'/admin/agents',  icon:'🧠', label:'AI Agents' },
-  { href:'/admin/ingestion', icon:'🕸', label:'Ingestion' },
-  { href:'/admin/logs',    icon:'📋', label:'Logs' },
-  { href:'/admin/system',  icon:'🖥', label:'System' },
-  { href:'/admin/team',    icon:'👥', label:'Team' },
+const NAV_SECTIONS = [
+  {
+    label: 'Command',
+    items: [
+      { href: '/admin', icon: LayoutDashboard, label: 'Overview', exact: true },
+      { href: '/admin/clients', icon: Building2, label: 'Clients' },
+      { href: '/admin/billing', icon: CreditCard, label: 'Billing' },
+      { href: '/admin/pricing', icon: Package2, label: 'Plans' },
+    ],
+  },
+  {
+    label: 'AI Operations',
+    items: [
+      { href: '/admin/ai', icon: Bot, label: 'AI Control' },
+      { href: '/admin/agents', icon: BrainCircuit, label: 'AI Agents' },
+      { href: '/admin/ingestion', icon: Globe2, label: 'Ingestion' },
+    ],
+  },
+  {
+    label: 'Governance',
+    items: [
+      { href: '/admin/logs', icon: ReceiptText, label: 'Logs' },
+      { href: '/admin/system', icon: Activity, label: 'System' },
+      { href: '/admin/team', icon: Users2, label: 'Team' },
+      { href: '/admin/offers', icon: Sparkles, label: 'Offers' },
+    ],
+  },
 ];
 
-const ROLE_COLORS = {
-  platform_admin: '#f59e0b',
-  super_admin: '#f59e0b',
+const ROLE_LABELS = {
+  platform_admin: 'Platform Admin',
+  super_admin: 'Super Admin',
 };
 
 export default function AdminLayout({ children }) {
@@ -33,14 +66,15 @@ export default function AdminLayout({ children }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const tick = () => setTime(new Date().toLocaleTimeString('en-US', {
-      hour:'2-digit',
-      minute:'2-digit',
-      second:'2-digit',
-    }));
+    const tick = () => {
+      setTime(new Date().toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }));
+    };
     tick();
-    const timer = setInterval(tick, 1000);
-    return () => clearInterval(timer);
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -71,118 +105,200 @@ export default function AdminLayout({ children }) {
     };
   }, [pathname, router]);
 
-  async function logout() {
+  const flatNav = useMemo(
+    () => NAV_SECTIONS.flatMap((section) => section.items),
+    [],
+  );
+
+  async function handleLogout() {
     await logoutAdmin();
     router.replace('/admin/login');
   }
 
   if (pathname === '/admin/login') return <>{children}</>;
-  if (!ready || !me) return null;
 
-  const isActive = (item) => item.exact ? pathname === item.href : pathname.startsWith(item.href);
-  const pageLabel = NAV.find((item) => isActive(item))?.label || 'Admin';
-  const roleColor = ROLE_COLORS[me.role] || '#f59e0b';
-  const roleLabel = String(me.role || 'platform_admin').replace(/_/g, ' ');
+  if (!ready || !me) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+        <div className="w-full max-w-sm rounded-3xl border bg-card/80 p-8 shadow-2xl">
+          <div className="mb-6 flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border bg-primary/10 text-primary">
+              <Shield className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold">Admin control plane</p>
+              <p className="text-xs text-muted-foreground">Validating session</p>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <div className="h-3 rounded-full bg-muted animate-pulse" />
+            <div className="h-3 w-5/6 rounded-full bg-muted animate-pulse" />
+            <div className="h-28 rounded-2xl bg-muted/60 animate-pulse" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const isActive = (item) => (item.exact ? pathname === item.href : pathname.startsWith(item.href));
+  const activeItem = flatNav.find((item) => isActive(item));
+  const pageLabel = activeItem?.label || 'Admin';
+  const roleLabel = ROLE_LABELS[me.role] || 'Platform Admin';
+  const initials = String(me.name || 'A')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('');
 
   return (
-    <div style={{ display:'flex', height:'100vh', overflow:'hidden', background:'var(--bg)' }}>
-      <aside style={{
-        width:220,
-        flexShrink:0,
-        background:'var(--bg2)',
-        borderRight:'1px solid var(--b1)',
-        display:'flex',
-        flexDirection:'column',
-        overflow:'hidden',
-      }}>
-        <div style={{ height:'var(--topbar-h)', display:'flex', alignItems:'center', padding:'0 14px', borderBottom:'1px solid var(--b1)' }}>
-          <div style={{ display:'inline-flex', alignItems:'center' }}>
-            <Image src="/ChatOrAi.png" alt="ChatOrAI" width={120} height={30} style={{ height:30, width:'auto', objectFit:'contain', display:'block' }} priority />
-          </div>
-        </div>
-
-        <div style={{ padding:'10px 12px 6px' }}>
-          <span style={{
-            fontSize:10,
-            fontWeight:800,
-            letterSpacing:'0.1em',
-            color:'#f59e0b',
-            background:'rgba(245,158,11,0.1)',
-            border:'1px solid rgba(245,158,11,0.22)',
-            padding:'3px 10px',
-            borderRadius:99,
-            display:'inline-block',
-          }}>
-            ADMIN PANEL
-          </span>
-        </div>
-
-        <nav style={{ flex:1, padding:'6px 8px', display:'flex', flexDirection:'column', gap:2, overflowY:'auto' }}>
-          {NAV.map((item) => (
-            <Link key={item.href} href={item.href} className={`nav-item${isActive(item) ? ' active' : ''}`}>
-              <span style={{ fontSize:15, flexShrink:0 }}>{item.icon}</span>
-              <span style={{ flex:1 }}>{item.label}</span>
-              {isActive(item) && <span style={{ width:6, height:6, borderRadius:'50%', background:'#f59e0b', flexShrink:0 }} />}
-            </Link>
-          ))}
-        </nav>
-
-        <div style={{ padding:'10px 12px', borderTop:'1px solid var(--b1)', display:'flex', flexDirection:'column', gap:8 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:9, padding:'10px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-            <div style={{
-              width:30,
-              height:30,
-              borderRadius:'50%',
-              background:`linear-gradient(135deg,${roleColor}cc,${roleColor}66)`,
-              display:'flex',
-              alignItems:'center',
-              justifyContent:'center',
-              color:'#fff',
-              fontWeight:800,
-              fontSize:12,
-              flexShrink:0,
-            }}>
-              {String(me.name || 'A').slice(0, 1).toUpperCase()}
+    <div className="min-h-screen bg-background text-foreground">
+      <div className="flex min-h-screen">
+        <aside className="hidden xl:flex xl:w-[300px] xl:flex-col xl:border-r xl:bg-card/60 xl:backdrop-blur">
+          <div className="border-b px-6 py-6">
+            <div className="flex items-center justify-between gap-4">
+              <Logo size="md" href="/admin" />
+              <div className="rounded-full border bg-background px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                Control
+              </div>
             </div>
-            <div style={{ minWidth:0 }}>
-              <p style={{ fontSize:12.5, fontWeight:600, color:'var(--t1)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                {me.name}
-              </p>
-              <p style={{ fontSize:10.5, color:roleColor, fontWeight:600, textTransform:'capitalize' }}>{roleLabel}</p>
+            <div className="mt-6 rounded-2xl border bg-background/70 p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-sm font-black text-primary-foreground">
+                  {initials || 'A'}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{me.name}</p>
+                  <p className="truncate text-xs text-muted-foreground">{me.email}</p>
+                  <div className="mt-3 inline-flex items-center gap-2 rounded-full border bg-primary/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+                    <CircleDot className="h-3 w-3" />
+                    {roleLabel}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-          <button onClick={logout} style={{ width:'100%', padding:'7px', borderRadius:9, cursor:'pointer', background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.15)', color:'#fca5a5', fontSize:12, fontWeight:600 }}>
-            Sign Out
-          </button>
-          <Link href="/dashboard" className="nav-item" style={{ fontSize:12.5, color:'var(--t4)', border:'1px solid transparent' }}>
-            <span style={{ fontSize:13 }}>←</span>
-            <span>Back to App</span>
-          </Link>
-        </div>
-      </aside>
 
-      <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
-        <header style={{ height:'var(--topbar-h)', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 24px', borderBottom:'1px solid var(--b1)', flexShrink:0, background:'rgba(7,7,16,0.9)', backdropFilter:'blur(20px)' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <span style={{ fontSize:12, color:'var(--t4)' }}>ChatOrAI</span>
-            <span style={{ fontSize:12, color:'var(--t4)' }}>›</span>
-            <span style={{ fontSize:12, fontWeight:600, color:'#f59e0b' }}>Admin</span>
-            <span style={{ fontSize:12, color:'var(--t4)' }}>›</span>
-            <span style={{ fontSize:13, fontWeight:600, color:'var(--t2)' }}>{pageLabel}</span>
-          </div>
-
-          <div style={{ display:'flex', alignItems:'center', gap:14 }}>
-            <span style={{ fontSize:12, fontFamily:'monospace', color:'var(--t4)' }}>{time}</span>
-            <div style={{ padding:'5px 14px', borderRadius:99, fontSize:12, fontWeight:700, background:`${roleColor}12`, border:`1px solid ${roleColor}28`, color:roleColor, display:'flex', alignItems:'center', gap:6 }}>
-              <span style={{ width:6, height:6, borderRadius:'50%', background:roleColor, display:'inline-block' }} className="anim-pulse" />
-              {roleLabel}
+          <div className="flex-1 overflow-y-auto px-4 py-5">
+            <div className="space-y-6">
+              {NAV_SECTIONS.map((section) => (
+                <div key={section.label}>
+                  <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                    {section.label}
+                  </p>
+                  <div className="mt-3 space-y-1.5">
+                    {section.items.map((item) => {
+                      const Icon = item.icon;
+                      const active = isActive(item);
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          className={cn(
+                            'group flex items-center gap-3 rounded-2xl px-3.5 py-3 text-sm transition-colors',
+                            active
+                              ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
+                              : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              'flex h-9 w-9 items-center justify-center rounded-xl border transition-colors',
+                              active
+                                ? 'border-primary-foreground/20 bg-primary-foreground/10'
+                                : 'border-border bg-background/70 group-hover:bg-background',
+                            )}
+                          >
+                            <Icon className="h-4 w-4" />
+                          </span>
+                          <span className="font-medium">{item.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        </header>
 
-        <main style={{ flex:1, overflowY:'auto', overflowX:'hidden' }}>
-          {children}
-        </main>
+          <div className="border-t px-4 py-4">
+            <div className="grid grid-cols-2 gap-2">
+              <Link
+                href="/dashboard"
+                className="flex items-center justify-center rounded-xl border bg-background px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Back to app
+              </Link>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="flex items-center justify-center gap-2 rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/10"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Sign out
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-30 border-b bg-background/92 backdrop-blur">
+            <div className="mx-auto flex max-w-[1680px] items-center justify-between gap-4 px-5 py-4 md:px-8">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  <span>Platform</span>
+                  <span className="opacity-40">/</span>
+                  <span className="text-primary">Admin</span>
+                </div>
+                <h1 className="mt-1 truncate text-xl font-black tracking-tight md:text-2xl">{pageLabel}</h1>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="hidden rounded-2xl border bg-card px-4 py-2 md:block">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Runtime</p>
+                  <p className="mt-1 text-sm font-semibold">{time}</p>
+                </div>
+                <div className="hidden rounded-2xl border bg-card px-4 py-2 lg:block">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Session</p>
+                  <p className="mt-1 text-sm font-semibold">{roleLabel}</p>
+                </div>
+                <Link
+                  href="/admin/system"
+                  className="hidden items-center gap-2 rounded-2xl border bg-card px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground md:flex"
+                >
+                  <FileSearch className="h-4 w-4" />
+                  System
+                </Link>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto border-t xl:hidden">
+              <div className="flex min-w-max gap-2 px-4 py-3">
+                {flatNav.map((item) => {
+                  const Icon = item.icon;
+                  const active = isActive(item);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn(
+                        'inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold whitespace-nowrap transition-colors',
+                        active
+                          ? 'border-primary/20 bg-primary text-primary-foreground'
+                          : 'bg-card text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          </header>
+
+          <main className="min-w-0 flex-1">{children}</main>
+        </div>
       </div>
     </div>
   );

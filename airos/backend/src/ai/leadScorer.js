@@ -15,9 +15,11 @@
 function scoreLeadFromAI(aiScore, customer = {}, intent, options = {}) {
   const settings = options.settings || {};
   const message = typeof options.message === 'string' ? options.message.toLowerCase() : '';
+  const history = Array.isArray(options.history) ? options.history : [];
   const historyLength = Number.isInteger(options.historyLength) ? options.historyLength : 0;
+  const currentMessageAt = options.currentMessageAt || null;
 
-  let score = aiScore;
+  let score = clampScore(Number(aiScore || 0));
 
   const activeRules = Array.isArray(settings.leadRules) && settings.leadRules.length > 0
     ? settings.leadRules.filter((rule) => rule?.active !== false)
@@ -25,7 +27,7 @@ function scoreLeadFromAI(aiScore, customer = {}, intent, options = {}) {
 
   if (activeRules) {
     for (const rule of activeRules) {
-      if (matchesRule(rule?.signal, { message, intent, historyLength })) {
+      if (matchesRule(rule?.signal, { message, intent, history, historyLength, currentMessageAt })) {
         score = clampScore(score + Number(rule.weight || 0));
       }
     }
@@ -41,11 +43,14 @@ function scoreLeadFromAI(aiScore, customer = {}, intent, options = {}) {
   if (companyScore.enabled !== false) {
     const purchaseCount = Array.isArray(customer.purchase_history) ? customer.purchase_history.length : 0;
     const totalSpent = Number(customer.total_spent || 0);
+    const vipThreshold = finiteNumber(companyScore.vipThreshold, 5000);
+    const minRevenue = finiteNumber(companyScore.minRevenue, 1000);
+    const minOrders = finiteNumber(companyScore.minOrders, 3);
 
-    if (totalSpent >= Number(companyScore.vipThreshold || 5000)) score = clampScore(score + 10);
-    else if (totalSpent >= Number(companyScore.minRevenue || 1000)) score = clampScore(score + 5);
+    if (totalSpent >= vipThreshold) score = clampScore(score + 10);
+    else if (totalSpent >= minRevenue) score = clampScore(score + 5);
 
-    if (purchaseCount >= Number(companyScore.minOrders || 3)) score = clampScore(score + 5);
+    if (purchaseCount >= minOrders) score = clampScore(score + 5);
   }
 
   return {
@@ -62,7 +67,7 @@ function matchesRule(signal, context) {
     return context.intent === 'ready_to_buy' || /\b(order|buy|طلب|عايز|أريد|ابغى)\b/i.test(context.message);
   }
   if (normalized.includes('replies within 5 minutes')) {
-    return context.historyLength > 0;
+    return repliedWithinMinutes(context.history, context.currentMessageAt, 5);
   }
   if (normalized.includes('more than 3 messages')) {
     return context.historyLength >= 3;
@@ -80,8 +85,28 @@ function matchesRule(signal, context) {
   return false;
 }
 
+function repliedWithinMinutes(history = [], currentMessageAt, minutes) {
+  const currentTime = currentMessageAt ? new Date(currentMessageAt).getTime() : NaN;
+  if (!Number.isFinite(currentTime)) return false;
+
+  const previousMessages = history
+    .filter((message) => message?.created_at && new Date(message.created_at).getTime() < currentTime)
+    .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
+  const previous = previousMessages[0];
+  if (!previous) return false;
+
+  const previousTime = new Date(previous.created_at).getTime();
+  if (!Number.isFinite(previousTime)) return false;
+  return currentTime - previousTime <= minutes * 60 * 1000;
+}
+
 function clampScore(score) {
   return Math.max(0, Math.min(100, score));
+}
+
+function finiteNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function scoreToProbability(score) {

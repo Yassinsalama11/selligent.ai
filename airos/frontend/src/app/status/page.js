@@ -1,7 +1,11 @@
 'use client';
+
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import Image from 'next/image';
+import { CheckCircle2, AlertTriangle, XCircle, Wrench } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import PublicNav from '@/components/PublicNav';
+import PublicFooter from '@/components/PublicFooter';
 
 const SERVICES = [
   { name: 'Web Application', desc: 'chatorai.com', status: 'operational' },
@@ -20,10 +24,10 @@ const HISTORY = [
   { date: 'Mar 25, 2026', title: 'WhatsApp webhook delay — resolved', desc: 'Brief 12-minute delay in WhatsApp message delivery due to upstream Meta API latency. Resolved automatically.', type: 'resolved' },
 ];
 
-const statusConfig = {
-  operational: { label: 'Operational', color: '#34d399', bg: 'rgba(52,211,153,0.1)' },
-  degraded:    { label: 'Degraded',    color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
-  outage:      { label: 'Outage',      color: '#f87171', bg: 'rgba(248,113,113,0.1)' },
+const STATUS_CFG = {
+  operational: { label: 'Operational', cls: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/15' },
+  degraded: { label: 'Degraded', cls: 'text-amber-500 bg-amber-500/10 border-amber-500/15' },
+  outage: { label: 'Outage', cls: 'text-red-500 bg-red-500/10 border-red-500/15' },
 };
 
 export default function StatusPage() {
@@ -35,89 +39,89 @@ export default function StatusPage() {
     return () => clearInterval(t);
   }, []);
 
-  const allOk = SERVICES.every(s => s.status === 'operational');
+  const allOk = SERVICES.every((s) => s.status === 'operational');
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--t1)' }}>
-      <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Link href="/" style={{ textDecoration: 'none' }}>
-          <div style={{ display: 'inline-flex' }}>
-            <Image src="/ChatOrAi.png" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
-          </div>
-        </Link>
-        <Link href="/" style={{ fontSize: 13, color: 'var(--t4)', textDecoration: 'none' }}>← Back to Home</Link>
-      </nav>
+    <main className="min-h-screen bg-background antialiased">
+      <PublicNav />
 
-      <div style={{ maxWidth: 760, margin: '0 auto', padding: '64px 32px 100px' }}>
-        {/* Overall status */}
-        <div style={{ textAlign: 'center', marginBottom: 56 }}>
-          <div style={{ width: 72, height: 72, borderRadius: '50%', margin: '0 auto 20px', background: allOk ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)', border: `2px solid ${allOk ? '#34d399' : '#f87171'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>
-            {allOk ? '✅' : '⚠️'}
+      <section className="pt-32 pb-20 px-6 md:px-10">
+        <div className="max-w-3xl mx-auto">
+          {/* Overall */}
+          <div className="text-center mb-14">
+            <div className={cn(
+              'w-16 h-16 rounded-2xl mx-auto mb-5 flex items-center justify-center border',
+              allOk ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20',
+            )}>
+              {allOk ? <CheckCircle2 className="h-8 w-8 text-emerald-500" /> : <AlertTriangle className="h-8 w-8 text-red-500" />}
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight mb-2">
+              {allOk ? 'All Systems Operational' : 'Some Systems Affected'}
+            </h1>
+            <p className="text-xs text-muted-foreground font-mono">{time}</p>
           </div>
-          <h1 style={{ fontSize: 36, fontWeight: 900, letterSpacing: '-0.03em', marginBottom: 8 }}>
-            {allOk ? 'All Systems Operational' : 'Some Systems Affected'}
-          </h1>
-          <p style={{ fontSize: 13, color: 'var(--t4)', fontFamily: 'monospace' }}>{time}</p>
-        </div>
 
-        {/* Service list */}
-        <div style={{ marginBottom: 52 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--t2)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 11 }}>Services</h2>
-          <div style={{ borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border)' }}>
-            {SERVICES.map((svc, i) => {
-              const cfg = statusConfig[svc.status];
-              return (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: i < SERVICES.length - 1 ? '1px solid var(--border)' : 'none', background: 'var(--bg3)' }}>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--t1)', marginBottom: 2 }}>{svc.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--t4)' }}>{svc.desc}</div>
+          {/* Services */}
+          <div className="mb-12">
+            <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-4">Services</h2>
+            <div className="rounded-2xl border border-border/40 overflow-hidden">
+              {SERVICES.map((svc, i) => {
+                const cfg = STATUS_CFG[svc.status];
+                return (
+                  <div key={i} className={cn(
+                    'flex items-center justify-between p-4 bg-card',
+                    i < SERVICES.length - 1 && 'border-b border-border/30',
+                  )}>
+                    <div>
+                      <p className="text-[13px] font-semibold">{svc.name}</p>
+                      <p className="text-[11px] text-muted-foreground">{svc.desc}</p>
+                    </div>
+                    <Badge variant="outline" className={cn('text-[10px] h-5 px-2 font-bold', cfg.cls)}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-current mr-1.5" />
+                      {cfg.label}
+                    </Badge>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '4px 12px', borderRadius: 99, background: cfg.bg, border: `1px solid ${cfg.color}30` }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: cfg.color, display: 'inline-block', animation: svc.status === 'operational' ? 'blink 2s ease-in-out infinite' : 'none' }} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: cfg.color }}>{cfg.label}</span>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Uptime */}
+          <div className="mb-12">
+            <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-4">30-Day Uptime</h2>
+            <div className="grid grid-cols-3 gap-3">
+              {[['API Backend', '99.97%'], ['WhatsApp Webhooks', '99.91%'], ['AI Engine', '99.99%']].map(([name, pct]) => (
+                <div key={name} className="p-5 rounded-xl bg-card border border-border/40 text-center">
+                  <p className="text-2xl font-bold text-emerald-500 tracking-tight">{pct}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">{name}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* History */}
+          <div>
+            <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-4">Incident History</h2>
+            <div className="space-y-2.5">
+              {HISTORY.map((h, i) => (
+                <div key={i} className="p-4 rounded-xl bg-card border border-border/40">
+                  <div className="flex items-center gap-2.5 mb-1.5">
+                    {h.type === 'resolved'
+                      ? <Badge variant="outline" className="text-[10px] h-5 px-2 font-bold text-emerald-500 bg-emerald-500/5 border-emerald-500/15">Resolved</Badge>
+                      : <Badge variant="outline" className="text-[10px] h-5 px-2 font-bold text-amber-500 bg-amber-500/5 border-amber-500/15">Maintenance</Badge>
+                    }
+                    <span className="text-[11px] text-muted-foreground">{h.date}</span>
                   </div>
+                  <p className="text-[13px] font-semibold mb-0.5">{h.title}</p>
+                  <p className="text-[12px] text-muted-foreground">{h.desc}</p>
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
         </div>
+      </section>
 
-        {/* Uptime */}
-        <div style={{ marginBottom: 52 }}>
-          <h2 style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>30-Day Uptime</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
-            {[['API Backend', '99.97%'], ['WhatsApp Webhooks', '99.91%'], ['AI Engine', '99.99%']].map(([name, pct], i) => (
-              <div key={i} style={{ padding: '18px', borderRadius: 14, background: 'var(--bg3)', border: '1px solid var(--border)', textAlign: 'center' }}>
-                <div style={{ fontSize: 26, fontWeight: 900, color: '#34d399', fontFamily: 'Space Grotesk', marginBottom: 4 }}>{pct}</div>
-                <div style={{ fontSize: 12, color: 'var(--t4)' }}>{name}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Incident history */}
-        <div>
-          <h2 style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Incident History</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {HISTORY.map((h, i) => (
-              <div key={i} style={{ padding: '16px 20px', borderRadius: 14, background: 'var(--bg3)', border: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: h.type === 'resolved' ? '#34d399' : '#f59e0b' }}>
-                    {h.type === 'resolved' ? '✓ Resolved' : '🔧 Maintenance'}
-                  </span>
-                  <span style={{ fontSize: 12, color: 'var(--t4)' }}>{h.date}</span>
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--t1)', marginBottom: 4 }}>{h.title}</div>
-                <div style={{ fontSize: 13, color: 'var(--t3)' }}>{h.desc}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 32px', textAlign: 'center', fontSize: 13, color: 'var(--t4)' }}>
-        © {new Date().getFullYear()} ChatOrAI · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
-      </footer>
-    </div>
+      <PublicFooter />
+    </main>
   );
 }

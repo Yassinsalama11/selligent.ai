@@ -1,6 +1,9 @@
 'use client';
-import Link from 'next/link';
-import Image from 'next/image';
+
+import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import PublicNav from '@/components/PublicNav';
+import PublicFooter from '@/components/PublicFooter';
 
 const RELEASES = [
   {
@@ -10,7 +13,7 @@ const RELEASES = [
       { tag: 'new', text: '7-day free trial — start immediately, no credit card required' },
       { tag: 'new', text: 'Trial expiry overlay with one-click upgrade flow' },
       { tag: 'new', text: 'User profile card in sidebar with company name' },
-      { tag: 'improved', text: 'Signup flow redesigned to 5 steps: Account → Presence → AI Scan → Review → Plan' },
+      { tag: 'improved', text: 'Signup flow redesigned to 5 steps: Account -> Presence -> AI Scan -> Review -> Plan' },
       { tag: 'improved', text: 'Dashboard title now shows company name from registration' },
       { tag: 'improved', text: 'Settings profile pre-filled from JWT data' },
       { tag: 'fixed', text: 'Pricing page buttons now route through trial signup instead of direct Stripe' },
@@ -43,7 +46,7 @@ const RELEASES = [
     changes: [
       { tag: 'new', text: 'Initial release — unified inbox for WhatsApp, Instagram, Messenger' },
       { tag: 'new', text: 'AI intent detection (ready_to_buy, interested, price_objection, inquiry)' },
-      { tag: 'new', text: 'Lead scoring engine 0–100' },
+      { tag: 'new', text: 'Lead scoring engine 0-100' },
       { tag: 'new', text: 'Contact CRM with tags, filters, and bulk operations' },
       { tag: 'new', text: 'Product catalog management' },
       { tag: 'new', text: 'Admin platform dashboard' },
@@ -52,61 +55,74 @@ const RELEASES = [
   },
 ];
 
-const tagColor = { new: '#10b981', improved: '#6366f1', fixed: '#f59e0b', deprecated: '#ef4444' };
+const TAG_STYLES = {
+  new: 'text-emerald-500 bg-emerald-500/5 border-emerald-500/15',
+  improved: 'text-primary bg-primary/5 border-primary/15',
+  fixed: 'text-amber-500 bg-amber-500/5 border-amber-500/15',
+  deprecated: 'text-red-500 bg-red-500/5 border-red-500/15',
+};
 
 export default function ChangelogPage() {
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--t1)' }}>
-      <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Link href="/" style={{ textDecoration: 'none' }}>
-          <div style={{ display: 'inline-flex' }}>
-            <Image src="/ChatOrAi.png" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
+    <main className="min-h-screen bg-background antialiased">
+      <PublicNav />
+
+      <section className="pt-32 pb-20 px-6 md:px-10">
+        <div className="max-w-3xl mx-auto">
+          <div className="mb-12">
+            <Badge variant="outline" className="bg-primary/5 text-primary border-primary/15 font-bold text-[10px] uppercase tracking-widest px-3 h-6 mb-6">
+              Changelog
+            </Badge>
+            <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-3">What&apos;s New</h1>
+            <p className="text-base text-muted-foreground">Every release, every fix, every improvement — documented.</p>
           </div>
-        </Link>
-        <Link href="/" style={{ fontSize: 13, color: 'var(--t4)', textDecoration: 'none' }}>← Back to Home</Link>
-      </nav>
 
-      <div style={{ maxWidth: 760, margin: '0 auto', padding: '72px 32px 100px' }}>
-        <div style={{ marginBottom: 60 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#818cf8', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16 }}>Changelog</div>
-          <h1 style={{ fontSize: 48, fontWeight: 900, letterSpacing: '-0.04em', marginBottom: 14 }}>What's New</h1>
-          <p style={{ fontSize: 16, color: 'var(--t3)' }}>Every release, every fix, every improvement — documented.</p>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-          {RELEASES.map((rel, i) => (
-            <div key={i} style={{ display: 'flex', gap: 0 }}>
-              {/* Timeline */}
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginRight: 28, flexShrink: 0 }}>
-                <div style={{ width: 14, height: 14, borderRadius: '50%', background: rel.type === 'major' ? '#6366f1' : '#8b5cf6', border: '2px solid var(--bg)', boxShadow: `0 0 0 3px ${rel.type === 'major' ? 'rgba(99,102,241,0.3)' : 'rgba(139,92,246,0.2)'}`, flexShrink: 0, marginTop: 6 }} />
-                {i < RELEASES.length - 1 && <div style={{ width: 2, flex: 1, background: 'var(--border)', minHeight: 40, marginTop: 8 }} />}
-              </div>
-              {/* Content */}
-              <div style={{ paddingBottom: 48 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                  <span style={{ fontSize: 20, fontWeight: 800, color: 'var(--t1)', fontFamily: 'Space Grotesk' }}>{rel.version}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: rel.type === 'major' ? 'rgba(99,102,241,0.15)' : 'rgba(139,92,246,0.1)', color: rel.type === 'major' ? '#a5b4fc' : '#c4b5fd' }}>
-                    {rel.type}
-                  </span>
-                  <span style={{ fontSize: 13, color: 'var(--t4)' }}>{rel.date}</span>
+          <div className="space-y-0">
+            {RELEASES.map((rel, i) => (
+              <div key={i} className="flex gap-0">
+                {/* Timeline dot + line */}
+                <div className="flex flex-col items-center mr-6 shrink-0">
+                  <div className={cn(
+                    'w-3 h-3 rounded-full mt-1.5 shrink-0 ring-4',
+                    rel.type === 'major'
+                      ? 'bg-primary ring-primary/10'
+                      : 'bg-violet-500 ring-violet-500/10',
+                  )} />
+                  {i < RELEASES.length - 1 && <div className="w-px flex-1 bg-border/40 mt-2 min-h-[40px]" />}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {rel.changes.map((ch, j) => (
-                    <div key={j} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: `${tagColor[ch.tag]}18`, color: tagColor[ch.tag], border: `1px solid ${tagColor[ch.tag]}25`, flexShrink: 0, marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{ch.tag}</span>
-                      <span style={{ fontSize: 14, color: 'var(--t2)', lineHeight: 1.6 }}>{ch.text}</span>
-                    </div>
-                  ))}
+
+                {/* Content */}
+                <div className="pb-12">
+                  <div className="flex items-center gap-3 mb-4">
+                    <span className="text-lg font-bold tracking-tight">{rel.version}</span>
+                    <Badge variant="outline" className={cn(
+                      'text-[9px] h-5px-2 font-bold uppercase tracking-wider',
+                      rel.type === 'major'
+                        ? 'text-primary bg-primary/5 border-primary/15'
+                        : 'text-violet-500 bg-violet-500/5 border-violet-500/15',
+                    )}>
+                      {rel.type}
+                    </Badge>
+                    <span className="text-[12px] text-muted-foreground">{rel.date}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {rel.changes.map((ch, j) => (
+                      <div key={j} className="flex gap-2.5 items-start">
+                        <Badge variant="outline" className={cn('text-[9px] h-5px-1.5 font-bold uppercase tracking-wider shrink-0 mt-0.5', TAG_STYLES[ch.tag])}>
+                          {ch.tag}
+                        </Badge>
+                        <span className="text-[13px] text-muted-foreground leading-relaxed">{ch.text}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      </section>
 
-      <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 32px', textAlign: 'center', fontSize: 13, color: 'var(--t4)' }}>
-        © {new Date().getFullYear()} ChatOrAI · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
-      </footer>
-    </div>
+      <PublicFooter />
+    </main>
   );
 }

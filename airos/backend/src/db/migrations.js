@@ -1,4 +1,5 @@
-const fs = require('fs');
+const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
 const { queryAdmin } = require('./pool');
 
@@ -81,12 +82,12 @@ async function applyStatement(statement) {
 async function runMigrationFile(filename) {
   try {
     const filePath = path.join(__dirname, 'migrations', filename);
-    if (!fs.existsSync(filePath)) {
+    if (!fsSync.existsSync(filePath)) {
       console.warn(`[Migration] File not found: ${filename}`);
       return;
     }
 
-    const sql = fs.readFileSync(filePath, 'utf8');
+    const sql = await fs.readFile(filePath, 'utf8');
     const statements = splitSqlStatements(sql);
 
     console.log(`[Migration] Running ${filename} (${statements.length} statements)...`);
@@ -100,8 +101,12 @@ async function runMigrationFile(filename) {
 }
 
 async function runPerformanceMigrations() {
+  await runMigrationFile('20260422_conversation_ai_mode.sql');
   await runMigrationFile('20260424_perf_optimization.sql');
   await runMigrationFile('20260424_tenant_stats.sql');
+  await runMigrationFile('20260506_conversation_perf_indexes.sql');
+  await runMigrationFile('20260507_user_preferences.sql');
+  await runMigrationFile('20260507_user_department.sql');
 }
 
 module.exports = {

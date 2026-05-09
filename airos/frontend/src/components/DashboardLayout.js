@@ -1,123 +1,207 @@
 'use client';
+
+import * as React from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
+import { CurrencyProvider } from '@/context/CurrencyContext';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { API_BASE, clearToken, isDemo } from '@/lib/api';
+import toast from 'react-hot-toast';
+import {
+  LayoutDashboard,
+  MessageSquare,
+  Users,
+  Megaphone,
+  Mail,
+  Target,
+  Ticket,
+  Package,
+  BarChart3,
+  Brain,
+  Store,
+  ArrowLeftRight,
+  Settings,
+  CreditCard,
+  ChevronLeft,
+  ChevronRight,
+  LogOut,
+  Bell,
+  Menu,
+  Lock,
+  Clock,
+  AlertTriangle,
+} from 'lucide-react';
+import { api, API_BASE, clearToken, isDemo } from '@/lib/api';
 import Logo from '@/components/Logo';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 
 const NAV = [
-  { href: '/dashboard',               icon: '◈',  label: 'Overview',       exact: true },
-  { href: '/dashboard/conversations', icon: '💬', label: 'Conversations'               },
-  { href: '/dashboard/contacts',       icon: '👥', label: 'Contacts'                    },
-  { href: '/dashboard/broadcast',      icon: '📣', label: 'Broadcast'                   },
-  { href: '/dashboard/campaigns',      icon: '✉',  label: 'Campaigns'                  },
-  { href: '/dashboard/deals',         icon: '🎯', label: 'Deal Pipeline'               },
-  { href: '/dashboard/tickets',       icon: '🎫', label: 'Tickets'                     },
-  { href: '/dashboard/products',      icon: '📦', label: 'Products'                    },
-  { href: '/dashboard/reports',       icon: '📊', label: 'Reports'                     },
-  { href: '/dashboard/prompts',       icon: '🧠', label: 'Prompts'                     },
-  { href: '/dashboard/business-profile', icon: '🏷', label: 'Business Profile'          },
-  { href: '/dashboard/migrations',    icon: '⇄',  label: 'Migrations'                  },
-  { href: '/dashboard/settings',      icon: '⚙',  label: 'Settings'                    },
+  { href: '/dashboard',               icon: LayoutDashboard,  label: 'Overview',       exact: true },
+  { href: '/dashboard/conversations', icon: MessageSquare,    label: 'Conversations'               },
+  { href: '/dashboard/contacts',       icon: Users,           label: 'Contacts'                    },
+  { href: '/dashboard/broadcast',      icon: Megaphone,       label: 'Broadcast'                   },
+  { href: '/dashboard/campaigns',      icon: Mail,            label: 'Campaigns'                  },
+  { href: '/dashboard/deals',         icon: Target,          label: 'Deal Pipeline'               },
+  { href: '/dashboard/tickets',       icon: Ticket,          label: 'Tickets'                     },
+  { href: '/dashboard/products',      icon: Package,         label: 'Products'                    },
+  { href: '/dashboard/reports',       icon: BarChart3,       label: 'Reports'                     },
+  { href: '/dashboard/billing',       icon: CreditCard,      label: 'Billing'                     },
+  { href: '/dashboard/prompts',       icon: Brain,           label: 'Prompts'                     },
+  { href: '/dashboard/business-profile', icon: Store,         label: 'Business Profile'          },
+  { href: '/dashboard/migrations',    icon: ArrowLeftRight,  label: 'Migrations'                  },
+  { href: '/dashboard/settings',      icon: Settings,        label: 'Settings'                    },
 ];
+
+function NavItems({ collapsed = false, onNavigate }) {
+  const pathname = usePathname();
+  const isActive = (item) => item.exact ? pathname === item.href : pathname.startsWith(item.href);
+
+  return (
+    <>
+      {!collapsed && (
+        <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-3 py-2">
+          Main Menu
+        </div>
+      )}
+      {NAV.map((item) => {
+        const ActiveIcon = item.icon;
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={onNavigate}
+            className={cn(
+              "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm font-medium",
+              isActive(item)
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              collapsed && "justify-center"
+            )}
+            title={collapsed ? item.label : undefined}
+          >
+            <ActiveIcon className="h-4 w-4 shrink-0" />
+            {!collapsed && (
+              <>
+                <span className="flex-1 truncate">{item.label}</span>
+                {isActive(item) && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+                )}
+              </>
+            )}
+          </Link>
+        );
+      })}
+    </>
+  );
+}
 
 export default function DashboardLayout({ children }) {
   const pathname = usePathname();
   const router   = useRouter();
-  const [collapsed, setCollapsed] = useState(false);
-  const [time, setTime]           = useState('');
-  const [demo, setDemo]           = useState(false);
-  const [trialInfo, setTrialInfo] = useState(null); // { daysLeft, isExpired, isTrialUser }
+  const [collapsed, setCollapsed]     = useState(false);
+  const [mobileOpen, setMobileOpen]   = useState(false);
+  const [demo, setDemo]               = useState(false);
+  const [billingSummary, setBillingSummary] = useState(null);
   const [upgradeLoading, setUpgradeLoading] = useState(null);
-
   const [currentUser, setCurrentUser] = useState({});
+  // null = loading | false = disabled | 'auto' = auto-reply | 'suggest' = suggest-only
+  const [aiStatus, setAiStatus]       = useState(null);
 
   useEffect(() => {
     setDemo(isDemo());
-    const tick = () => setTime(
-      new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', second:'2-digit' })
-    );
-    tick();
-    const t = setInterval(tick, 1000);
 
-    // Load user from localStorage
     try {
       const u = JSON.parse(localStorage.getItem('airos_user') || '{}');
       setCurrentUser(u);
     } catch {}
 
-    // Check trial status
-    const trialEnd = localStorage.getItem('airos_trial_end');
-    if (trialEnd) {
-      const now = Date.now();
-      const end = parseInt(trialEnd, 10);
-      const msLeft = end - now;
-      const daysLeft = Math.ceil(msLeft / (1000 * 60 * 60 * 24));
-      setTrialInfo({ daysLeft, isExpired: msLeft <= 0, isTrialUser: true });
+    // Serve billing from sessionStorage if fresh (< 5 min), else fetch in background
+    try {
+      const cached = JSON.parse(sessionStorage.getItem('airos_billing') || 'null');
+      if (cached && Date.now() - cached._at < 300_000) {
+        setBillingSummary(cached.summary);
+      } else {
+        api.get('/api/billing').then((payload) => {
+          if (payload?.summary) {
+            setBillingSummary(payload.summary);
+            sessionStorage.setItem('airos_billing', JSON.stringify({ summary: payload.summary, _at: Date.now() }));
+          }
+        }).catch(() => {});
+      }
+    } catch {
+      api.get('/api/billing').then((payload) => {
+        if (payload?.summary) setBillingSummary(payload.summary);
+      }).catch(() => {});
     }
 
-    return () => clearInterval(t);
+    // AI status — sessionStorage cache (< 2 min)
+    try {
+      const cachedAi = JSON.parse(sessionStorage.getItem('airos_ai_status') || 'null');
+      if (cachedAi && Date.now() - cachedAi._at < 120_000) {
+        setAiStatus(cachedAi.status);
+        return;
+      }
+    } catch {}
+
+    api.get('/api/settings/ai').then((config) => {
+      let status = false;
+      if (config?.autoReply) status = 'auto';
+      else if (config?.suggestOnly !== false) status = 'suggest';
+      setAiStatus(status);
+      try { sessionStorage.setItem('airos_ai_status', JSON.stringify({ status, _at: Date.now() })); } catch {}
+    }).catch(() => setAiStatus(false));
   }, []);
+
+  // Close mobile drawer on route change
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   async function handleUpgrade(plan) {
     setUpgradeLoading(plan);
-    const user = JSON.parse(localStorage.getItem('airos_user') || '{}');
     try {
-      const res = await fetch(`${API_BASE}/api/stripe/create-checkout-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan, email: user.email }),
+      const data = await api.post('/api/billing/checkout-session', {
+        plan,
+        seatCount: billingSummary?.seatCount || 1,
+        billingCycle: billingSummary?.billingCycle || 'monthly',
       });
-      const data = await res.json();
-      if (data.url) window.location.href = data.url;
-      else { alert(data.error || 'Something went wrong'); setUpgradeLoading(null); }
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast.error(data.error || 'Something went wrong with payment.');
+        setUpgradeLoading(null);
+      }
     } catch {
-      alert('Could not connect to payment server');
+      toast.error('Could not connect to the payment server. Please try again.');
       setUpgradeLoading(null);
     }
   }
 
-  const isActive = item => item.exact ? pathname === item.href : pathname.startsWith(item.href);
-  const pageLabel = NAV.find(n => isActive(n))?.label ?? 'Dashboard';
+  const pageLabel = NAV.find((n) =>
+    n.exact ? pathname === n.href : pathname.startsWith(n.href)
+  )?.label ?? 'Dashboard';
   const userInitial = currentUser?.name?.[0]?.toUpperCase() || 'U';
   const isConversationsPage = pathname.startsWith('/dashboard/conversations');
-
-  const S = {
-    root:  { display:'flex', height:'100vh', overflow:'hidden', background:'var(--bg)' },
-    aside: {
-      width: collapsed ? 62 : 'var(--sidebar-w)',
-      flexShrink: 0, transition: 'width 0.22s ease',
-      display:'flex', flexDirection:'column',
-      background:'linear-gradient(180deg, rgba(11,18,32,0.98), rgba(5,8,22,0.98))', borderRight:'1px solid var(--b1)',
-      overflow:'hidden',
-    },
-    logoRow: {
-      height:'var(--topbar-h)', display:'flex', alignItems:'center',
-      padding:'0 14px', borderBottom:'1px solid var(--b1)',
-      flexShrink:0, gap:10,
-    },
-    nav: { flex:1, padding:'10px 8px', display:'flex', flexDirection:'column', gap:2, overflowY:'auto' },
-    bottomBar: { padding:'8px', borderTop:'1px solid var(--b1)', display:'flex', flexDirection:'column', gap:2 },
-    main: { flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 },
-    topbar: {
-      height:'var(--topbar-h)', display:'flex', alignItems:'center', justifyContent:'space-between',
-      padding:'0 24px', borderBottom:'1px solid var(--b1)', flexShrink:0,
-      background:'rgba(11,18,32,0.86)', backdropFilter:'blur(20px)',
-    },
-  };
+  const billingBanner = billingSummary?.trialBanner || null;
+  const restrictionMode = billingSummary?.restrictions?.mode || 'full';
+  const showBillingOverlay = ['restricted', 'frozen'].includes(restrictionMode) && !pathname.startsWith('/dashboard/billing');
 
   return (
-    <div style={S.root}>
-      {/* ── Sidebar ─────────────────────────────────────────────────────── */}
-      <aside style={S.aside}>
+    <div className="flex h-screen overflow-hidden bg-background">
+      {/* ── Desktop Sidebar ─────────────────────────────────────────────── */}
+      <aside
+        className={cn(
+          "hidden md:flex flex-col bg-card border-r transition-all duration-300 ease-in-out shrink-0",
+          collapsed ? "w-16" : "w-64"
+        )}
+      >
         {/* Logo */}
-        <div style={S.logoRow}>
+        <div className="h-14 flex items-center px-4 border-b shrink-0 gap-2">
           {collapsed ? (
-            <div style={{ width:38, height:38, borderRadius:10, flexShrink:0,
-              display:'flex', alignItems:'center', justifyContent:'center',
-              background:'linear-gradient(135deg,#ff7a18,#ff3d00)', color:'#fff',
-              fontWeight:800, fontSize:15, letterSpacing:'-0.03em' }}>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary text-white font-extrabold text-sm tracking-tighter">
               C
             </div>
           ) : (
@@ -126,178 +210,254 @@ export default function DashboardLayout({ children }) {
         </div>
 
         {/* Nav */}
-        <nav style={S.nav}>
-          {!collapsed && (
-            <div style={{ fontSize:10.5, fontWeight:600, color:'var(--t4)', letterSpacing:'0.08em',
-              textTransform:'uppercase', padding:'8px 12px 4px' }}>
-              Main Menu
-            </div>
-          )}
-          {NAV.map(item => (
-            <Link key={item.href} href={item.href}
-              className={`nav-item${isActive(item) ? ' active' : ''}`}
-              style={{ justifyContent: collapsed ? 'center' : undefined }}
-              title={collapsed ? item.label : undefined}>
-              <span style={{ fontSize:16, flexShrink:0 }}>{item.icon}</span>
-              {!collapsed && (
-                <>
-                  <span style={{ flex:1, whiteSpace:'nowrap' }}>{item.label}</span>
-                  {isActive(item) && (
-                    <span style={{ width:6, height:6, borderRadius:'50%', background:'#ff5a1f', flexShrink:0 }} />
-                  )}
-                </>
-              )}
-            </Link>
-          ))}
+        <nav className="flex-1 p-2 flex flex-col gap-1 overflow-y-auto">
+          <NavItems collapsed={collapsed} />
         </nav>
 
         {/* Bottom */}
-        <div style={S.bottomBar}>
-          {/* User card */}
+        <div className="p-2 border-t flex flex-col gap-1">
           {!collapsed && currentUser?.name && (
-            <div style={{ padding:'10px 12px', borderRadius:10, marginBottom:4,
-              background:'rgba(255,90,31,0.06)', border:'1px solid rgba(255,90,31,0.16)' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:9 }}>
-                <div style={{ width:30, height:30, borderRadius:'50%', flexShrink:0,
-                  background:'linear-gradient(135deg,#ff7a18,#ff3d00)',
-                  display:'flex', alignItems:'center', justifyContent:'center',
-                  color:'#fff', fontWeight:700, fontSize:12 }}>
+            <div className="p-3 rounded-lg bg-primary/5 border border-primary/10 mb-2">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full shrink-0 bg-primary flex items-center justify-center text-white font-bold text-xs">
                   {userInitial}
                 </div>
-                <div style={{ minWidth:0 }}>
-                  <div style={{ fontSize:12, fontWeight:600, color:'var(--t1)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{currentUser.name}</div>
-                  <div style={{ fontSize:11, color:'var(--t4)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{currentUser.company || currentUser.email}</div>
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold truncate">{currentUser.name}</div>
+                  <div className="text-xs text-muted-foreground truncate">{currentUser.company || currentUser.email}</div>
                 </div>
               </div>
             </div>
           )}
-          <button onClick={() => setCollapsed(c => !c)} className="nav-item"
-            style={{ justifyContent: collapsed?'center':undefined,
-              width:'100%', background:'none', border:'1px solid transparent', cursor:'pointer' }}>
-            <span style={{ fontSize:13 }}>{collapsed ? '→' : '←'}</span>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn("w-full justify-start gap-3 px-3", collapsed && "justify-center")}
+            onClick={() => setCollapsed(!collapsed)}
+          >
+            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
             {!collapsed && <span>Collapse</span>}
-          </button>
-          <button onClick={() => { clearToken(); localStorage.removeItem('airos_user'); localStorage.removeItem('airos_trial_end'); router.push('/login'); }} className="nav-item"
-            style={{ justifyContent: collapsed?'center':undefined, color:'#f87171',
-              width:'100%', background:'none', border:'1px solid transparent', cursor:'pointer' }}>
-            <span style={{ fontSize:13 }}>↪</span>
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn("w-full justify-start gap-3 px-3 text-destructive hover:text-destructive hover:bg-destructive/10", collapsed && "justify-center")}
+            onClick={() => {
+              clearToken();
+              localStorage.removeItem('airos_user');
+              router.push('/login');
+            }}
+          >
+            <LogOut className="h-4 w-4" />
             {!collapsed && <span>Sign Out</span>}
-          </button>
+          </Button>
         </div>
       </aside>
 
-      {/* ── Right side ──────────────────────────────────────────────────── */}
-      <div style={S.main}>
-        <header style={S.topbar}>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <span style={{ fontSize:12, color:'var(--t4)' }}>ChatOrAI</span>
-            <span style={{ fontSize:12, color:'var(--t4)' }}>›</span>
-            <span style={{ fontSize:13, fontWeight:600, color:'var(--t2)' }}>{pageLabel}</span>
+      {/* ── Mobile Sidebar Drawer ────────────────────────────────────────── */}
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent side="left" className="w-[280px] p-0 flex flex-col">
+          <SheetHeader className="px-4 py-3 border-b">
+            <SheetTitle className="sr-only">Navigation</SheetTitle>
+            <Logo href="/" size="lg" />
+          </SheetHeader>
+          <nav className="flex-1 p-2 flex flex-col gap-1 overflow-y-auto">
+            <NavItems onNavigate={() => setMobileOpen(false)} />
+          </nav>
+          <div className="p-2 border-t flex flex-col gap-1">
+            {currentUser?.name && (
+              <div className="p-3 rounded-lg bg-primary/5 border border-primary/10 mb-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full shrink-0 bg-primary flex items-center justify-center text-white font-bold text-xs">
+                    {userInitial}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold truncate">{currentUser.name}</div>
+                    <div className="text-xs text-muted-foreground truncate">{currentUser.company || currentUser.email}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start gap-3 px-3 text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={() => {
+                clearToken();
+                localStorage.removeItem('airos_user');
+                router.push('/login');
+              }}
+            >
+              <LogOut className="h-4 w-4" />
+              <span>Sign Out</span>
+            </Button>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:14 }}>
-            <span style={{ fontSize:12, fontFamily:'monospace', color:'var(--t4)', letterSpacing:'0.02em' }}>
-              {time}
-            </span>
-            <div style={{ display:'flex', alignItems:'center', gap:7,
-              background:'rgba(6,182,212,0.07)', border:'1px solid rgba(6,182,212,0.18)',
-              padding:'5px 13px', borderRadius:99, fontSize:12, fontWeight:600, color:'#67e8f9' }}>
-              <span style={{ width:6, height:6, borderRadius:'50%', background:'#67e8f9',
-                display:'inline-block' }} className="anim-pulse" />
-              AI Active
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Main Content ────────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <header className="h-14 flex items-center justify-between px-4 md:px-6 border-b shrink-0 bg-card/80 backdrop-blur-md sticky top-0 z-50">
+          <div className="flex items-center gap-2">
+            {/* Mobile hamburger — hidden on desktop */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 md:hidden"
+              onClick={() => setMobileOpen(true)}
+              aria-label="Open navigation"
+            >
+              <Menu className="h-4 w-4" />
+            </Button>
+
+            <div className="flex items-center gap-2 text-xs font-medium">
+              <span className="text-muted-foreground hidden sm:inline">ChatOrAI</span>
+              <span className="text-muted-foreground hidden sm:inline">/</span>
+              <span className="text-foreground font-semibold">{pageLabel}</span>
             </div>
-            <button style={{ width:34, height:34, borderRadius:'var(--r)',
-              background:'var(--s1)', border:'1px solid var(--b1)',
-              display:'flex', alignItems:'center', justifyContent:'center',
-              cursor:'pointer', position:'relative', fontSize:15 }}>
-              🔔
-              <span style={{ position:'absolute', top:7, right:7, width:7, height:7, borderRadius:'50%',
-                background:'#ff5a1f', border:'1.5px solid var(--bg2)' }} />
-            </button>
-            <div style={{ width:34, height:34, borderRadius:'50%',
-              background:'linear-gradient(135deg,#ff7a18,#ff3d00)',
-              display:'flex', alignItems:'center', justifyContent:'center',
-              color:'#fff', fontWeight:700, fontSize:13, cursor:'pointer', flexShrink:0 }}>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {aiStatus && (
+              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-xs font-bold text-cyan-500">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
+                <span className="hidden sm:inline">{aiStatus === 'auto' ? 'AI Auto' : 'AI Suggest'}</span>
+              </div>
+            )}
+
+            <ThemeToggle />
+
+            <Button variant="outline" size="icon" className="h-8 w-8 relative">
+              <Bell className="h-4 w-4" />
+              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-primary border-2 border-card" />
+            </Button>
+
+            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white font-bold text-xs cursor-pointer hover:ring-2 hover:ring-primary/20 transition-all shrink-0">
               {userInitial}
             </div>
           </div>
         </header>
 
         {demo && (
-          <div style={{ background:'rgba(255,90,31,0.08)', borderBottom:'1px solid rgba(255,90,31,0.18)',
-            padding:'8px 24px', display:'flex', alignItems:'center', justifyContent:'space-between',
-            flexShrink:0, fontSize:13 }}>
-            <span style={{ color:'#ffb48a' }}>
-              🚀 <strong>Demo mode</strong> — exploring with sample data.{' '}
-              <Link href="/signup" style={{ color:'#ffd0b8', textDecoration:'underline', fontWeight:600 }}>
-                Create a free account
-              </Link>{' '}
-              to connect real channels.
+          <div className="bg-primary/10 border-b border-primary/20 px-6 py-2.5 flex items-center justify-between shrink-0 text-[13px] shadow-sm relative z-40">
+            <span className="text-foreground font-medium flex items-center gap-2">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white text-[10px] font-bold">!</span>
+              <strong className="text-primary font-bold uppercase tracking-wide">Demo Environment</strong>
+              <span className="opacity-30 hidden sm:inline">|</span>
+              <span className="opacity-80 hidden sm:inline">You are exploring with sample data.</span>
+              <Link href="/signup" className="text-primary hover:text-primary/80 underline font-bold transition-colors">
+                Create a production workspace
+              </Link>
             </span>
-            <span style={{ fontSize:11, color:'var(--t4)', fontFamily:'monospace' }}>preview@demo.chatorai.local</span>
+            <Badge variant="outline" className="font-mono text-xs bg-background border-primary/20 text-primary px-2 py-0.5 shrink-0">
+              PREVIEW
+            </Badge>
           </div>
         )}
 
-        {/* Trial banner — shows when active trial */}
-        {trialInfo?.isTrialUser && !trialInfo.isExpired && (
-          <div style={{ background:'rgba(245,158,11,0.08)', borderBottom:'1px solid rgba(245,158,11,0.2)',
-            padding:'8px 24px', display:'flex', alignItems:'center', justifyContent:'space-between',
-            flexShrink:0, fontSize:13 }}>
-            <span style={{ color:'#fcd34d' }}>
-              ⏳ <strong>Free trial</strong> — {trialInfo.daysLeft > 0 ? `${trialInfo.daysLeft} day${trialInfo.daysLeft !== 1 ? 's' : ''} remaining` : 'expires today'}.
-              Upgrade to keep your account active.
+        {billingBanner && (
+          <div className={cn(
+            "border-b px-6 py-3 flex items-center justify-between shrink-0 text-xs gap-3",
+            billingBanner.tone === 'critical'
+              ? 'bg-red-500/10 border-red-500/20'
+              : billingBanner.tone === 'warning'
+                ? 'bg-amber-500/10 border-amber-500/20'
+                : 'bg-primary/10 border-primary/20',
+          )}>
+            <span className={cn(
+              "flex items-center gap-2",
+              billingBanner.tone === 'critical'
+                ? 'text-red-500'
+                : billingBanner.tone === 'warning'
+                  ? 'text-amber-500'
+                  : 'text-primary',
+            )}>
+              {billingBanner.tone === 'critical' ? <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> : <Clock className="h-3.5 w-3.5 shrink-0" />}
+              <strong>{billingBanner.headline}</strong>
+              <span className="hidden sm:inline">{billingBanner.body}</span>
             </span>
-            <button onClick={() => handleUpgrade('pro')} disabled={!!upgradeLoading}
-              style={{ padding:'6px 18px', borderRadius:8, border:'none', cursor:'pointer',
-                background:'#f59e0b', color:'#000', fontWeight:700, fontSize:12, opacity: upgradeLoading ? 0.7 : 1 }}>
-              {upgradeLoading ? 'Loading…' : 'Upgrade Now'}
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button asChild variant="outline" size="sm" className="h-8">
+                <Link href="/dashboard/billing">Open Billing</Link>
+              </Button>
+              <Button
+                size="sm"
+                className="h-8 bg-primary hover:bg-primary/90 text-white font-bold px-4"
+                onClick={() => handleUpgrade(billingSummary?.plan || 'pro')}
+                disabled={!!upgradeLoading}
+              >
+                {upgradeLoading ? 'Loading…' : billingSummary?.upgradeCta?.label || 'Pay now'}
+              </Button>
+            </div>
           </div>
         )}
 
-        <main style={{ flex:1, overflowY: isConversationsPage ? 'hidden' : 'auto', overflowX:'hidden', position:'relative', minHeight:0 }}>
+        <main className={cn(
+          "flex-1 relative overflow-x-hidden",
+          isConversationsPage ? "overflow-y-hidden" : "overflow-y-auto"
+        )}>
           {/* Trial expired overlay */}
-          {trialInfo?.isExpired && (
-            <div style={{ position:'absolute', inset:0, zIndex:100,
-              background:'rgba(7,7,16,0.92)', backdropFilter:'blur(8px)',
-              display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <div style={{ textAlign:'center', maxWidth:480, padding:40 }}>
-                <div style={{ fontSize:56, marginBottom:16 }}>🔒</div>
-                <h2 style={{ fontSize:26, fontWeight:800, color:'var(--t1)', marginBottom:8, letterSpacing:'-0.03em' }}>
-                  Your trial has ended
-                </h2>
-                <p style={{ fontSize:15, color:'var(--t3)', marginBottom:32, lineHeight:1.6 }}>
-                  Your 7-day free trial has expired. Upgrade to a paid plan to continue using ChatOrAI and keep all your data.
-                </p>
-                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          {showBillingOverlay && (
+            <div className="absolute inset-0 z-[100] bg-background/95 backdrop-blur-sm flex items-center justify-center p-6">
+              <div className="text-center max-w-md w-full space-y-6">
+                <div className="w-16 h-16 rounded-2xl bg-muted border flex items-center justify-center mx-auto">
+                  <Lock className="h-7 w-7 text-muted-foreground" />
+                </div>
+                <div className="space-y-2">
+                  <h2 className="text-2xl font-bold tracking-tight">
+                    {billingSummary?.subscriptionStatus === 'payment_due' && 'Trial ended. Billing required.'}
+                    {billingSummary?.subscriptionStatus === 'overdue' && 'Payment retry required.'}
+                    {billingSummary?.subscriptionStatus === 'suspended' && 'Workspace suspended.'}
+                    {billingSummary?.subscriptionStatus === 'cancelled' && 'Workspace cancelled.'}
+                  </h2>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    {billingSummary?.restrictions?.reason || 'Billing action is required to restore operational access.'}
+                  </p>
+                </div>
+
+                <div className="grid gap-2">
                   {[
-                    { plan:'starter', label:'Starter', price:'€49/mo', desc:'1 channel · 500 conv/mo' },
-                    { plan:'pro',     label:'Pro',     price:'€149/mo', desc:'All channels · 5,000 conv/mo', popular:true },
-                    { plan:'enterprise', label:'Enterprise', price:'€299/mo', desc:'Unlimited everything' },
-                  ].map(p => (
-                    <button key={p.plan} onClick={() => handleUpgrade(p.plan)} disabled={!!upgradeLoading}
-                      style={{ padding:'14px 20px', borderRadius:12, border:'none', cursor:'pointer',
-                        display:'flex', alignItems:'center', justifyContent:'space-between',
-                        background: p.popular ? '#ff5a1f' : 'rgba(255,255,255,0.06)',
-                        opacity: upgradeLoading === p.plan ? 0.7 : 1,
-                        border: p.popular ? 'none' : '1px solid rgba(255,255,255,0.1)' }}>
-                      <span style={{ fontWeight:700, color: p.popular ? '#fff' : 'var(--t1)', fontSize:14 }}>
-                        {upgradeLoading === p.plan ? 'Redirecting…' : p.label}
-                        {p.popular && <span style={{ marginLeft:8, fontSize:10, background:'rgba(255,255,255,0.2)', padding:'2px 8px', borderRadius:99 }}>POPULAR</span>}
-                      </span>
-                      <span style={{ fontSize:13, color: p.popular ? 'rgba(255,255,255,0.8)' : 'var(--t3)' }}>
-                        {p.price} · {p.desc}
-                      </span>
-                    </button>
+                    { plan: 'starter',    label: 'Starter',    price: '€49/mo',  desc: '1 channel · 500 conv/mo' },
+                    { plan: 'pro',        label: 'Pro',        price: '€149/mo', desc: 'All channels · 5,000 conv/mo', popular: true },
+                    { plan: 'enterprise', label: 'Enterprise', price: '€299/mo', desc: 'Unlimited everything' },
+                  ].map((p) => (
+                    <Button
+                      key={p.plan}
+                      variant={p.popular ? 'default' : 'outline'}
+                      className="h-auto p-4 justify-between"
+                      onClick={() => handleUpgrade(p.plan)}
+                      disabled={!!upgradeLoading}
+                    >
+                      <div className="text-left">
+                        <div className="font-bold flex items-center gap-2 text-sm">
+                          {p.label}
+                          {p.popular && (
+                            <Badge variant="secondary" className="text-xs h-4 bg-primary/20 text-primary border-primary/10">
+                              POPULAR
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground font-normal">{p.desc}</div>
+                      </div>
+                      <div className="text-right font-bold text-sm">{p.price}</div>
+                    </Button>
                   ))}
                 </div>
-                <p style={{ marginTop:20, fontSize:12, color:'var(--t4)' }}>
-                  Need help?{' '}
-                  <a href="mailto:support@chatorai.com" style={{ color:'#ffb48a' }}>Contact support</a>
-                </p>
+
+                <div className="flex justify-center gap-3">
+                  <Button asChild variant="outline">
+                    <Link href="/dashboard/billing">Open Billing Center</Link>
+                  </Button>
+                  <a href="mailto:support@chatorai.com" className="text-xs text-primary hover:underline self-center">
+                    Contact support
+                  </a>
+                </div>
               </div>
             </div>
           )}
-          {children}
+          <CurrencyProvider>{children}</CurrencyProvider>
         </main>
       </div>
     </div>

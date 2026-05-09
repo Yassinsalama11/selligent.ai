@@ -68,4 +68,5 @@ router.get('/summary', requireReadRole, (req, res, next) => {
   handleReportRequest(req, res, next, '/summary', getOverviewReport);
 });
 
+
 module.exports = router;

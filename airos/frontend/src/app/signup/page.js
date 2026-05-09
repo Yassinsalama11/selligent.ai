@@ -1,190 +1,220 @@
 'use client';
+
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
+import { motion } from 'framer-motion';
+import { CheckCircle2, ArrowRight, ArrowLeft, Sparkles, Globe, Palette, Package, MessageSquare, Smartphone } from 'lucide-react';
+import Logo from '@/components/Logo';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
 import { API_BASE, clearToken, setToken } from '@/lib/api';
 
 const STEPS = [
-  { n: 1, label: 'Account'  },
-  { n: 2, label: 'Presence' },
-  { n: 3, label: 'AI Scan'  },
-  { n: 4, label: 'Review'   },
-  { n: 5, label: 'Plan'     },
+  { n: 1, label: 'Account' },
+  { n: 2, label: 'Channels' },
+  { n: 3, label: 'AI Scan' },
+  { n: 4, label: 'Review' },
+  { n: 5, label: 'Plan' },
 ];
 
 const FALLBACK_PLANS = [
-  { name: 'Starter',    plan: 'starter',    price: 49,  desc: 'For small stores',          features: ['1 channel', '500 conversations/mo', 'AI intent detection', '1 agent seat'] },
-  { name: 'Pro',        plan: 'pro',        price: 149, desc: 'For growing brands',         features: ['All 4 channels', '5,000 conversations/mo', 'AI replies + scoring', '5 agent seats'], popular: true },
-  { name: 'Enterprise', plan: 'enterprise', price: 299, desc: 'For high-volume operations', features: ['Unlimited everything', 'Full AI engine', 'Unlimited agents', 'Priority support'] },
+  { name: 'Starter', plan: 'starter', price: 49, desc: 'For small teams', features: ['1 channel', '500 conversations/mo', 'AI intent detection', '1 agent seat'] },
+  { name: 'Pro', plan: 'pro', price: 149, desc: 'For growing brands', features: ['All 4 channels', '5,000 conversations/mo', 'AI replies + scoring', '5 agent seats'], popular: true },
+  { name: 'Enterprise', plan: 'enterprise', price: 299, desc: 'For high-volume ops', features: ['Unlimited everything', 'Full AI engine', 'Unlimited agents', 'Priority support'] },
 ];
-
-const inputStyle = {
-  width: '100%', padding: '11px 14px', borderRadius: 10, fontSize: 14,
-  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-  color: 'var(--t1)', outline: 'none', boxSizing: 'border-box',
-};
-
-const chip = {
-  fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 99,
-  background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', color: '#a5b4fc',
-};
 
 const SCAN_STEPS = [
-  { icon: '🌐', text: 'Fetching your website content…'     },
-  { icon: '🎨', text: 'Detecting brand colors and logo…'   },
-  { icon: '📦', text: 'Analyzing products and services…'   },
-  { icon: '💬', text: 'Reading your brand voice and tone…' },
-  { icon: '📱', text: 'Scanning social media profiles…'    },
-  { icon: '✨', text: 'Building your AI profile…'          },
+  { icon: Globe, text: 'Fetching your website content...' },
+  { icon: Palette, text: 'Detecting brand colors and logo...' },
+  { icon: Package, text: 'Analyzing products and services...' },
+  { icon: MessageSquare, text: 'Reading your brand voice and tone...' },
+  { icon: Smartphone, text: 'Scanning social media profiles...' },
+  { icon: Sparkles, text: 'Building your AI profile...' },
 ];
 
+const TONE_OPTIONS = [
+  'Professional & friendly',
+  'Casual & fun',
+  'Formal',
+  'Direct & concise',
+  'Warm & personal',
+];
+
+function emptyAiData(companyName = '') {
+  return {
+    companyName,
+    description: '',
+    industry: '',
+    country: '',
+    language: '',
+    products: '',
+    tone: '',
+    sourceStats: null,
+  };
+}
+
 export default function SignupPage() {
-  const [step, setStep]           = useState(1);
-  const [payLoading, setPayLoading] = useState(null);
+  const [step, setStep] = useState(1);
+  const [trialLaunchLoading, setTrialLaunchLoading] = useState(null);
   const [planSeats, setPlanSeats] = useState(1);
   const [planCountry, setPlanCountry] = useState('EU');
+  const [planBillingCycle, setPlanBillingCycle] = useState('monthly');
   const [plans, setPlans] = useState(FALLBACK_PLANS);
 
   const [account, setAccount] = useState({ name: '', email: '', password: '', company: '', phone: '' });
   const [presence, setPresence] = useState({ website: '', whatsapp: '', instagram: '', facebook: '', other: '' });
-  const [scanIdx, setScanIdx]   = useState(0);
+  const [scanIdx, setScanIdx] = useState(0);
   const [scanDone, setScanDone] = useState(false);
-  const [aiData, setAiData]     = useState({
-    companyName: '', description: '', industry: '', country: '',
-    language: 'Arabic + English', products: '', tone: 'Professional & friendly',
-  });
+  const [scanError, setScanError] = useState('');
+  const [scanWarning, setScanWarning] = useState('');
+  const [scanRunId, setScanRunId] = useState(0);
+  const [aiData, setAiData] = useState(() => emptyAiData());
+  const toneOptions = aiData.tone && !TONE_OPTIONS.includes(aiData.tone)
+    ? [aiData.tone, ...TONE_OPTIONS]
+    : TONE_OPTIONS;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    const plan = params.get('plan');
     const seats = Number.parseInt(params.get('seats') || '1', 10);
     const country = (params.get('country') || '').trim().toUpperCase();
-    if (plan) {
-      setStep(5);
-    }
+    const cycle = (params.get('billingCycle') || '').trim().toLowerCase();
     if (Number.isFinite(seats) && seats > 0) setPlanSeats(seats);
     if (country) setPlanCountry(country);
+    if (['monthly', 'yearly'].includes(cycle)) setPlanBillingCycle(cycle);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     if (planCountry && planCountry !== 'EU') return undefined;
-
     fetch(`${API_BASE}/api/stripe/location`)
-      .then((response) => response.ok ? response.json() : null)
+      .then((r) => r.ok ? r.json() : null)
       .then((payload) => {
-        if (!cancelled && payload?.country) {
-          setPlanCountry(String(payload.country).trim().toUpperCase());
-        }
+        if (!cancelled && payload?.country) setPlanCountry(String(payload.country).trim().toUpperCase());
       })
       .catch(() => {});
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [planCountry]);
 
   useEffect(() => {
     let cancelled = false;
     fetch(`${API_BASE}/api/stripe/plans?country=${encodeURIComponent(planCountry)}&seats=${encodeURIComponent(planSeats)}`)
-      .then((response) => response.ok ? response.json() : null)
+      .then((r) => r.ok ? r.json() : null)
       .then((payload) => {
         if (cancelled) return;
-        const nextPlans = Array.isArray(payload?.plans) && payload.plans.length
-          ? payload.plans.map((plan) => ({
-            name: plan.name,
-            plan: plan.key,
-            price: Number(plan.discountedSeatPrice ?? plan.seatPrice ?? 0),
-            desc: plan.description || '',
-            features: Array.isArray(plan.features) ? plan.features : [],
-            popular: plan.metadata?.popular === true,
-            currency: plan.currency || 'EUR',
-            total: Number(plan.total || 0),
-            seats: Number(plan.seats || plan.includedSeats || planSeats),
-            offer: plan.offer || null,
-            basePrice: Number(plan.seatPrice || 0),
+        const next = Array.isArray(payload?.plans) && payload.plans.length
+          ? payload.plans.map((p) => ({
+            name: p.name, plan: p.key,
+            price: Number(p.discountedSeatPrice ?? p.seatPrice ?? 0),
+            desc: p.description || '', features: Array.isArray(p.features) ? p.features : [],
+            popular: p.metadata?.popular === true, currency: p.currency || 'EUR',
+            total: Number(p.total || 0), seats: Number(p.seats || p.includedSeats || planSeats),
+            offer: p.offer || null, basePrice: Number(p.seatPrice || 0),
           }))
           : FALLBACK_PLANS;
-        setPlans(nextPlans);
+        setPlans(next);
       })
-      .catch(() => {
-        if (!cancelled) setPlans(FALLBACK_PLANS);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .catch(() => { if (!cancelled) setPlans(FALLBACK_PLANS); });
+    return () => { cancelled = true; };
   }, [planCountry, planSeats]);
 
   useEffect(() => {
     if (step !== 3) return;
-    setScanIdx(0); setScanDone(false);
-
-    // Animate scan steps while AI runs in background
+    let active = true;
+    setScanIdx(0);
+    setScanDone(false);
+    setScanError('');
+    setScanWarning('');
+    setAiData(emptyAiData(account.company));
     let i = 0;
     const t = setInterval(() => {
-      i++;
-      setScanIdx(i);
+      i += 1;
+      if (!active) return;
+      setScanIdx(Math.min(i, SCAN_STEPS.length));
       if (i >= SCAN_STEPS.length) clearInterval(t);
     }, 900);
 
-    // Call real AI scan
-    fetch(`${API_BASE}/api/scan/brand`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        website:   presence.website,
-        instagram: presence.instagram,
-        facebook:  presence.facebook,
-        whatsapp:  presence.whatsapp,
-        company:   account.company,
-      }),
-    })
-      .then(r => r.json())
-      .then(data => {
+    (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/scan/brand`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            website: presence.website,
+            instagram: presence.instagram,
+            facebook: presence.facebook,
+            whatsapp: presence.whatsapp,
+            company: account.company,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data?.error || 'AI scan failed');
+        }
+        if (!active) return;
         clearInterval(t);
         setScanIdx(SCAN_STEPS.length);
-        setAiData(d => ({ ...d, ...data, companyName: data.companyName || account.company }));
-        setTimeout(() => { setScanDone(true); setTimeout(() => setStep(4), 800); }, 400);
-      })
-      .catch(() => {
-        // Fallback if AI fails
+        const warnings = Array.isArray(data?.sourceStats?.warnings)
+          ? data.sourceStats.warnings.filter(Boolean)
+          : [];
+        const degraded = data?.sourceStats?.analysisStatus === 'failed'
+          || data?.sourceStats?.crawlStatus === 'blocked'
+          || data?.sourceStats?.crawlStatus === 'failed'
+          || data?.sourceStats?.mode === 'blocked'
+          || data?.sourceStats?.mode === 'no_content';
+        setAiData({
+          ...emptyAiData(account.company),
+          ...data,
+          companyName: data.companyName || account.company,
+        });
+        setScanWarning(degraded ? (warnings[0] || 'AI enrichment unavailable. Review the extracted profile before continuing.') : '');
+        setTimeout(() => {
+          if (!active) return;
+          setScanDone(true);
+          setTimeout(() => {
+            if (active) setStep(4);
+          }, 800);
+        }, 400);
+      } catch (err) {
+        if (!active) return;
         clearInterval(t);
-        setScanIdx(SCAN_STEPS.length);
-        setAiData(d => ({ ...d, companyName: account.company, industry: 'eCommerce', country: 'MENA Region' }));
-        setTimeout(() => { setScanDone(true); setTimeout(() => setStep(4), 800); }, 400);
-      });
+        setScanDone(false);
+        setScanError(err.message || 'AI scan failed');
+      }
+    })();
 
-    return () => clearInterval(t);
-  }, [step]);
+    return () => {
+      active = false;
+      clearInterval(t);
+    };
+  }, [step, scanRunId, account.company, presence.website, presence.instagram, presence.facebook, presence.whatsapp]);
 
   function nextStep() {
     if (step === 1) {
       if (!account.name || !account.email || !account.password || !account.company)
         return alert('Please fill in all required fields');
-      if (account.password.length < 8)
-        return alert('Password must be at least 8 characters');
+      if (account.password.length < 8) return alert('Password must be at least 8 characters');
     }
     if (step === 2) {
       if (!presence.website && !presence.whatsapp && !presence.instagram)
         return alert('Please add at least your website or one social link');
     }
-    setStep(s => s + 1);
+    setStep((s) => s + 1);
   }
 
-  async function handlePay(plan) {
-    setPayLoading(plan);
+  async function handleStartTrial(plan) {
+    setTrialLaunchLoading(plan);
     try {
       const res = await fetch(`${API_BASE}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenantName: aiData.companyName || account.company,
-          email: account.email,
-          password: account.password,
-          name: account.name,
-          plan,
-          seats: planSeats,
+          email: account.email, password: account.password,
+          name: account.name, plan, seats: planSeats, billingCycle: planBillingCycle,
         }),
       });
       const data = await res.json();
@@ -192,335 +222,373 @@ export default function SignupPage() {
         clearToken();
         setToken(data.token);
         localStorage.setItem('airos_user', JSON.stringify(data.user));
-        localStorage.removeItem('airos_trial_end');
-
-        await fetch(`${API_BASE}/api/onboarding/start`, {
+        const onboardingRes = await fetch(`${API_BASE}/api/onboarding/start`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${data.token}`,
-          },
-          body: JSON.stringify({
-            account,
-            presence,
-            aiData,
-            plan,
-            seats: planSeats,
-          }),
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.token}` },
+          body: JSON.stringify({ account, presence, aiData, plan, seats: planSeats, billingCycle: planBillingCycle }),
         }).catch(() => null);
-
+        if (!onboardingRes?.ok) {
+          const payload = onboardingRes ? await onboardingRes.json().catch(() => ({})) : null;
+          alert(payload?.error || 'Workspace created, but onboarding initialization did not complete. You can continue from onboarding.');
+        }
         window.location.href = '/dashboard/onboarding';
       } else {
         alert(data.error || 'Registration failed');
-        setPayLoading(null);
+        setTrialLaunchLoading(null);
       }
     } catch {
       alert('Could not connect to server. Please try again.');
-      setPayLoading(null);
+      setTrialLaunchLoading(null);
     }
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-
+    <div className="min-h-screen bg-background flex flex-col">
       {/* Top bar */}
-      <div style={{ padding: '16px 32px', display: 'flex', alignItems: 'center',
-        justifyContent: 'space-between', borderBottom: '1px solid var(--b1)' }}>
-        <div style={{ display: 'inline-flex' }}>
-          <Image src="/ChatOrAi.png" alt="ChatOrAI" width={110} height={28}
-            style={{ height: 28, width: 'auto', objectFit: 'contain' }} priority />
-        </div>
-        <p style={{ fontSize: 13, color: 'var(--t4)' }}>
+      <div className="px-6 md:px-10 py-4 flex items-center justify-between border-b border-border/40">
+        <Logo href="/" size="md" />
+        <p className="text-[13px] text-muted-foreground">
           Already have an account?{' '}
-          <Link href="/login" style={{ color: '#818cf8', fontWeight: 600 }}>Sign in</Link>
+          <Link href="/login" className="text-primary font-semibold hover:underline">Sign in</Link>
         </p>
       </div>
 
-      {/* Progress stepper */}
-      <div style={{ padding: '28px 32px 0', maxWidth: 680, margin: '0 auto', width: '100%' }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 36 }}>
+      {/* Stepper */}
+      <div className="px-6 md:px-10 pt-8 max-w-[640px] mx-auto w-full">
+        <div className="flex items-center mb-10">
           {STEPS.map((s, i) => (
             <React.Fragment key={s.n}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 34, height: 34, borderRadius: '50%', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13,
-                  background: step >= s.n ? '#6366f1' : 'rgba(255,255,255,0.05)',
-                  border: `2px solid ${step >= s.n ? '#6366f1' : 'rgba(255,255,255,0.1)'}`,
-                  color: step >= s.n ? '#fff' : 'var(--t4)' }}>
-                  {step > s.n ? '✓' : s.n}
+              <div className="flex flex-col items-center gap-1.5">
+                <div className={cn(
+                  'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all',
+                  step > s.n ? 'bg-primary text-white' : step === s.n ? 'bg-primary text-white ring-4 ring-primary/15' : 'bg-muted text-muted-foreground border border-border/40',
+                )}>
+                  {step > s.n ? <CheckCircle2 className="h-4 w-4" /> : s.n}
                 </div>
-                <span style={{ fontSize: 11, color: step >= s.n ? '#a5b4fc' : 'var(--t4)',
-                  fontWeight: step === s.n ? 700 : 400 }}>{s.label}</span>
+                <span className={cn('text-[10px] font-medium', step >= s.n ? 'text-primary' : 'text-muted-foreground/50')}>{s.label}</span>
               </div>
               {i < STEPS.length - 1 && (
-                <div style={{ flex: 1, height: 2, marginBottom: 20,
-                  background: step > s.n ? '#6366f1' : 'rgba(255,255,255,0.07)' }} />
+                <div className={cn('flex-1 h-0.5 mb-5 rounded-full transition-colors', step > s.n ? 'bg-primary' : 'bg-border/40')} />
               )}
             </React.Fragment>
           ))}
         </div>
       </div>
 
-      {/* Step content */}
-      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '0 32px 48px' }}>
-        <div style={{ width: '100%', maxWidth: step === 5 ? 860 : 540 }}>
+      {/* Content */}
+      <div className="flex-1 flex justify-center px-6 md:px-10 pb-16">
+        <div className={cn('w-full', step === 5 ? 'max-w-[900px]' : 'max-w-[520px]')}>
 
-          {/* ── Step 1 ── */}
+          {/* Step 1: Account */}
           {step === 1 && (
-            <div>
-              <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--t1)', letterSpacing: '-0.03em', marginBottom: 6 }}>Create your account</h1>
-              <p style={{ fontSize: 14, color: 'var(--t4)', marginBottom: 28 }}>No credit card needed yet</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              <h1 className="text-2xl font-bold tracking-tight mb-1">Create your account</h1>
+              <p className="text-sm text-muted-foreground mb-7">No credit card required</p>
+              <div className="space-y-3.5">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Full Name *</label>
-                    <input style={inputStyle} placeholder="Ahmed Hassan" value={account.name}
-                      onChange={e => setAccount(a => ({ ...a, name: e.target.value }))} />
+                    <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Full Name *</label>
+                    <input className="input" placeholder="Your name" value={account.name}
+                      onChange={(e) => setAccount((a) => ({ ...a, name: e.target.value }))} />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Company Name *</label>
-                    <input style={inputStyle} placeholder="My Store" value={account.company}
-                      onChange={e => setAccount(a => ({ ...a, company: e.target.value }))} />
+                    <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Company Name *</label>
+                    <input className="input" placeholder="My Company" value={account.company}
+                      onChange={(e) => setAccount((a) => ({ ...a, company: e.target.value }))} />
                   </div>
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Email *</label>
-                  <input style={inputStyle} type="email" placeholder="you@company.com" value={account.email}
-                    onChange={e => setAccount(a => ({ ...a, email: e.target.value }))} />
+                  <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Email *</label>
+                  <input className="input" type="email" placeholder="you@company.com" value={account.email}
+                    onChange={(e) => setAccount((a) => ({ ...a, email: e.target.value }))} />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Phone Number</label>
-                  <input style={inputStyle} placeholder="+20 100 000 0000" value={account.phone}
-                    onChange={e => setAccount(a => ({ ...a, phone: e.target.value }))} />
+                  <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Phone Number</label>
+                  <input className="input" placeholder="+1 234 567 8900" value={account.phone}
+                    onChange={(e) => setAccount((a) => ({ ...a, phone: e.target.value }))} />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Password *</label>
-                  <input style={inputStyle} type="password" placeholder="Min 8 characters" value={account.password}
-                    onChange={e => setAccount(a => ({ ...a, password: e.target.value }))} />
+                  <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Password *</label>
+                  <input className="input" type="password" placeholder="Min 8 characters" value={account.password}
+                    onChange={(e) => setAccount((a) => ({ ...a, password: e.target.value }))} />
                 </div>
-                <button onClick={nextStep} style={{ padding: '13px', borderRadius: 12, border: 'none',
-                  background: '#6366f1', color: '#fff', fontWeight: 800, fontSize: 14, cursor: 'pointer', marginTop: 4 }}>
-                  Continue →
-                </button>
+                <Button onClick={nextStep} className="w-full h-11 rounded-xl text-sm font-bold bg-primary text-white border-none mt-1">
+                  Continue <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
               </div>
-            </div>
+            </motion.div>
           )}
 
-          {/* ── Step 2 ── */}
+          {/* Step 2: Online Presence */}
           {step === 2 && (
-            <div>
-              <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--t1)', letterSpacing: '-0.03em', marginBottom: 6 }}>Your online presence</h1>
-              <p style={{ fontSize: 14, color: 'var(--t4)', marginBottom: 10 }}>Our AI will scan these to automatically set up your account</p>
-              <div style={{ padding: '10px 14px', borderRadius: 10, marginBottom: 22,
-                background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)' }}>
-                <p style={{ fontSize: 12.5, color: '#a5b4fc' }}>
-                  ✨ <strong>AI-powered setup</strong> — We'll read your website and social profiles to auto-fill your brand info, products, tone of voice, and channel settings.
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              <h1 className="text-2xl font-bold tracking-tight mb-1">Your online presence</h1>
+              <p className="text-sm text-muted-foreground mb-4">Our AI will scan these to automatically set up your account</p>
+              <div className="p-3.5 rounded-xl bg-primary/5 border border-primary/15 mb-6">
+                <p className="text-[12px] text-primary font-medium flex items-center gap-2">
+                  <Sparkles className="h-3.5 w-3.5 shrink-0" />
+                  <strong>AI-powered setup</strong> — We&apos;ll read your website and socials to auto-fill brand info, products, and tone.
                 </p>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="space-y-3.5">
                 {[
-                  { key: 'website',   label: '🌐 Website URL',                placeholder: 'https://mystore.com' },
-                  { key: 'whatsapp',  label: '📱 WhatsApp Business Number',    placeholder: '+20 100 000 0000' },
-                  { key: 'instagram', label: '📸 Instagram Profile URL',       placeholder: 'https://instagram.com/mybusiness' },
-                  { key: 'facebook',  label: '💬 Facebook Page URL',           placeholder: 'https://facebook.com/mybusiness' },
-                  { key: 'other',     label: '🔗 Other Links (TikTok, X…)',   placeholder: 'https://tiktok.com/@mybusiness' },
-                ].map(f => (
+                  { key: 'website', label: 'Website URL', placeholder: 'https://mystore.com' },
+                  { key: 'whatsapp', label: 'WhatsApp Business Number', placeholder: '+1 234 567 8900' },
+                  { key: 'instagram', label: 'Instagram Profile URL', placeholder: 'https://instagram.com/mybusiness' },
+                  { key: 'facebook', label: 'Facebook Page URL', placeholder: 'https://facebook.com/mybusiness' },
+                  { key: 'other', label: 'Other Links (TikTok, X...)', placeholder: 'https://tiktok.com/@mybusiness' },
+                ].map((f) => (
                   <div key={f.key}>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>{f.label}</label>
-                    <input style={inputStyle} placeholder={f.placeholder} value={presence[f.key]}
-                      onChange={e => setPresence(p => ({ ...p, [f.key]: e.target.value }))} />
+                    <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">{f.label}</label>
+                    <input className="input" placeholder={f.placeholder} value={presence[f.key]}
+                      onChange={(e) => setPresence((p) => ({ ...p, [f.key]: e.target.value }))} />
                   </div>
                 ))}
-                <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-                  <button onClick={() => setStep(1)} style={{ padding: '13px 24px', borderRadius: 12, cursor: 'pointer',
-                    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-                    color: 'var(--t3)', fontWeight: 600, fontSize: 14 }}>← Back</button>
-                  <button onClick={nextStep} style={{ flex: 1, padding: '13px', borderRadius: 12, border: 'none',
-                    background: '#6366f1', color: '#fff', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
-                    Scan My Brand →
-                  </button>
+                <div className="flex gap-3 mt-1">
+                  <Button variant="outline" onClick={() => setStep(1)} className="h-11 px-6 rounded-xl text-sm font-semibold">
+                    <ArrowLeft className="h-4 w-4 mr-2" /> Back
+                  </Button>
+                  <Button onClick={nextStep} className="flex-1 h-11 rounded-xl text-sm font-bold bg-primary text-white border-none">
+                    Scan My Brand <Sparkles className="h-4 w-4 ml-2" />
+                  </Button>
                 </div>
               </div>
-            </div>
+            </motion.div>
           )}
 
-          {/* ── Step 3: AI Scan ── */}
+          {/* Step 3: AI Scan */}
           {step === 3 && (
-            <div style={{ textAlign: 'center', padding: '20px 0' }}>
-              <div style={{ width: 80, height: 80, borderRadius: '50%', margin: '0 auto 24px',
-                background: 'rgba(99,102,241,0.1)', border: '2px solid rgba(99,102,241,0.3)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34 }}>
-                {scanDone ? '✨' : '🤖'}
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="text-center pt-6">
+              <div className={cn(
+                'w-20 h-20 rounded-2xl mx-auto mb-6 flex items-center justify-center transition-colors border',
+                scanDone ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-primary/10 border-primary/20',
+              )}>
+                {scanDone
+                  ? <CheckCircle2 className="h-10 w-10 text-emerald-500" />
+                  : <Sparkles className="h-10 w-10 text-primary animate-pulse" />
+                }
               </div>
-              <h2 style={{ fontSize: 24, fontWeight: 800, color: 'var(--t1)', letterSpacing: '-0.03em', marginBottom: 8 }}>
-                {scanDone ? 'Brand profile ready!' : 'AI is scanning your brand…'}
+              <h2 className="text-xl font-bold mb-2">
+                {scanDone ? (scanWarning ? 'Partial brand profile ready' : 'Brand profile ready!') : 'AI is scanning your brand...'}
               </h2>
-              <p style={{ fontSize: 14, color: 'var(--t4)', marginBottom: 36 }}>
-                {scanDone ? 'Taking you to review your details…' : 'This takes just a few seconds'}
+              <p className="text-sm text-muted-foreground mb-8">
+                {scanDone
+                  ? (scanWarning ? 'We extracted what we could. Review the details before continuing.' : 'Taking you to review your details...')
+                  : scanError ? 'Resolve the scan issue to continue.' : 'This takes just a few seconds'}
               </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 420, margin: '0 auto' }}>
-                {SCAN_STEPS.map((s, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12,
-                    padding: '12px 16px', borderRadius: 10, transition: 'all 0.3s ease',
-                    background: i < scanIdx ? 'rgba(52,211,153,0.06)' : 'rgba(255,255,255,0.02)',
-                    border: `1px solid ${i < scanIdx ? 'rgba(52,211,153,0.2)' : 'rgba(255,255,255,0.06)'}` }}>
-                    <span style={{ fontSize: 18 }}>{s.icon}</span>
-                    <span style={{ fontSize: 13, color: i < scanIdx ? '#34d399' : 'var(--t4)', flex: 1, textAlign: 'left' }}>{s.text}</span>
-                    {i < scanIdx && <span style={{ color: '#34d399' }}>✓</span>}
-                    {i === scanIdx && (
-                      <span style={{ width: 16, height: 16, borderRadius: '50%',
-                        border: '2px solid #6366f1', borderTopColor: 'transparent',
-                        display: 'inline-block', animation: 'spin 0.8s linear infinite' }} />
-                    )}
-                  </div>
-                ))}
+              {scanError && (
+                <div className="max-w-[420px] mx-auto mb-6 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-500">
+                  {scanError}
+                </div>
+              )}
+              {!scanError && scanWarning && (
+                <div className="max-w-[480px] mx-auto mb-6 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+                  {scanWarning}
+                </div>
+              )}
+              <div className="space-y-2.5 max-w-[380px] mx-auto">
+                {SCAN_STEPS.map((s, i) => {
+                  const Icon = s.icon;
+                  return (
+                    <div key={i} className={cn(
+                      'flex items-center gap-3 p-3 rounded-xl border transition-all text-left',
+                      i < scanIdx ? 'bg-emerald-500/5 border-emerald-500/15' : 'bg-card border-border/30',
+                    )}>
+                      <Icon className={cn('h-4 w-4 shrink-0', i < scanIdx ? 'text-emerald-500' : 'text-muted-foreground/40')} />
+                      <span className={cn('text-[12px] flex-1', i < scanIdx ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground/60')}>
+                        {s.text}
+                      </span>
+                      {i < scanIdx && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />}
+                      {i === scanIdx && (
+                        <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            </div>
+              {scanError && (
+                <div className="flex gap-3 justify-center mt-6">
+                  <Button variant="outline" onClick={() => setStep(2)} className="h-11 px-6 rounded-xl text-sm font-semibold">
+                    <ArrowLeft className="h-4 w-4 mr-2" /> Back
+                  </Button>
+                  <Button onClick={() => setScanRunId((value) => value + 1)} className="h-11 px-6 rounded-xl text-sm font-bold bg-primary text-white border-none">
+                    Retry Scan
+                  </Button>
+                </div>
+              )}
+            </motion.div>
           )}
 
-          {/* ── Step 4: Review ── */}
+          {/* Step 4: Review */}
           {step === 4 && (
-            <div>
-              <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--t1)', letterSpacing: '-0.03em', marginBottom: 6 }}>Review your brand profile</h1>
-              <p style={{ fontSize: 14, color: 'var(--t4)', marginBottom: 24 }}>Our AI filled this in from your website. Edit anything before continuing.</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Company Name</label>
-                    <input style={inputStyle} value={aiData.companyName}
-                      onChange={e => setAiData(d => ({ ...d, companyName: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Industry</label>
-                    <input style={inputStyle} value={aiData.industry} placeholder="eCommerce, Fashion…"
-                      onChange={e => setAiData(d => ({ ...d, industry: e.target.value }))} />
-                  </div>
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              <h1 className="text-2xl font-bold tracking-tight mb-1">Review your brand profile</h1>
+              <p className="text-sm text-muted-foreground mb-6">Review the extracted profile before continuing.</p>
+              {scanWarning && (
+                <div className="mb-6 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+                  <p className="font-semibold">AI enrichment unavailable</p>
+                  <p className="mt-1">{scanWarning}</p>
+                  {aiData?.sourceStats?.websiteTitle && (
+                    <p className="mt-2 text-xs text-amber-700/80 dark:text-amber-200/80">
+                      Detected website title: {aiData.sourceStats.websiteTitle}
+                    </p>
+                  )}
                 </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Business Description</label>
-                  <textarea style={{ ...inputStyle, resize: 'none' }} rows={3} value={aiData.description}
-                    onChange={e => setAiData(d => ({ ...d, description: e.target.value }))} placeholder="What does your business do?" />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              )}
+              <div className="space-y-3.5">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Country / Region</label>
-                    <input style={inputStyle} value={aiData.country} placeholder="Egypt, Saudi Arabia…"
-                      onChange={e => setAiData(d => ({ ...d, country: e.target.value }))} />
+                    <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Company Name</label>
+                    <input className="input" value={aiData.companyName}
+                      onChange={(e) => setAiData((d) => ({ ...d, companyName: e.target.value }))} />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Language</label>
-                    <input style={inputStyle} value={aiData.language} placeholder="Arabic, English…"
-                      onChange={e => setAiData(d => ({ ...d, language: e.target.value }))} />
+                    <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Industry</label>
+                    <input className="input" value={aiData.industry} placeholder="eCommerce, Fashion..."
+                      onChange={(e) => setAiData((d) => ({ ...d, industry: e.target.value }))} />
                   </div>
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Main Products / Services</label>
-                  <input style={inputStyle} value={aiData.products} placeholder="Clothing, Electronics…"
-                    onChange={e => setAiData(d => ({ ...d, products: e.target.value }))} />
+                  <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Business Description</label>
+                  <textarea className="input resize-none" rows={3} value={aiData.description}
+                    onChange={(e) => setAiData((d) => ({ ...d, description: e.target.value }))} placeholder="What does your business do?" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Country / Region</label>
+                    <input className="input" value={aiData.country} placeholder="United States, Germany..."
+                      onChange={(e) => setAiData((d) => ({ ...d, country: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Language</label>
+                    <input className="input" value={aiData.language} placeholder="English, Arabic..."
+                      onChange={(e) => setAiData((d) => ({ ...d, language: e.target.value }))} />
+                  </div>
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>AI Reply Tone</label>
-                  <select style={{ ...inputStyle, cursor: 'pointer' }} value={aiData.tone}
-                    onChange={e => setAiData(d => ({ ...d, tone: e.target.value }))}>
-                    {['Professional & friendly','Casual & fun','Formal','Direct & concise','Warm & personal'].map(t => (
+                  <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Main Products / Services</label>
+                  <input className="input" value={aiData.products} placeholder="Clothing, Electronics..."
+                    onChange={(e) => setAiData((d) => ({ ...d, products: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">AI Reply Tone</label>
+                  <select className="input cursor-pointer" value={aiData.tone}
+                    onChange={(e) => setAiData((d) => ({ ...d, tone: e.target.value }))}>
+                    <option value="">Select manually</option>
+                    {toneOptions.map((t) => (
                       <option key={t} value={t}>{t}</option>
                     ))}
                   </select>
                 </div>
-                <div style={{ padding: '12px 16px', borderRadius: 10,
-                  background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.15)' }}>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: '#a5b4fc', marginBottom: 8 }}>Detected channels</p>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {presence.website   && <span style={chip}>🌐 Website</span>}
-                    {presence.whatsapp  && <span style={chip}>📱 WhatsApp</span>}
-                    {presence.instagram && <span style={chip}>📸 Instagram</span>}
-                    {presence.facebook  && <span style={chip}>💬 Facebook</span>}
-                    {presence.other     && <span style={chip}>🔗 Other</span>}
-                    {!presence.website && !presence.whatsapp && !presence.instagram && !presence.facebook &&
-                      <span style={{ fontSize: 12, color: 'var(--t4)' }}>None added</span>}
+                <div className="p-3.5 rounded-xl bg-muted/30 border border-border/40">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mb-2.5">Detected channels</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {presence.website && <Badge variant="outline" className="text-[11px] h-6 px-2.5">Website</Badge>}
+                    {presence.whatsapp && <Badge variant="outline" className="text-[11px] h-6 px-2.5">WhatsApp</Badge>}
+                    {presence.instagram && <Badge variant="outline" className="text-[11px] h-6 px-2.5">Instagram</Badge>}
+                    {presence.facebook && <Badge variant="outline" className="text-[11px] h-6 px-2.5">Facebook</Badge>}
+                    {presence.other && <Badge variant="outline" className="text-[11px] h-6 px-2.5">Other</Badge>}
+                    {!presence.website && !presence.whatsapp && !presence.instagram && !presence.facebook && (
+                      <span className="text-xs text-muted-foreground/50">None added</span>
+                    )}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-                  <button onClick={() => setStep(2)} style={{ padding: '13px 24px', borderRadius: 12, cursor: 'pointer',
-                    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-                    color: 'var(--t3)', fontWeight: 600, fontSize: 14 }}>← Back</button>
-                  <button onClick={() => setStep(5)} style={{ flex: 1, padding: '13px', borderRadius: 12, border: 'none',
-                    background: '#6366f1', color: '#fff', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
-                    Choose Your Plan →
-                  </button>
+                <div className="flex gap-3 mt-1">
+                  <Button variant="outline" onClick={() => setStep(2)} className="h-11 px-6 rounded-xl text-sm font-semibold">
+                    <ArrowLeft className="h-4 w-4 mr-2" /> Back
+                  </Button>
+                  <Button onClick={() => setStep(5)} className="flex-1 h-11 rounded-xl text-sm font-bold bg-primary text-white border-none">
+                    Choose Your Plan <ArrowRight className="h-4 w-4 ml-2" />
+                  </Button>
                 </div>
               </div>
-            </div>
+            </motion.div>
           )}
 
-          {/* ── Step 5: Plan & Pay ── */}
+          {/* Step 5: Plan & Trial Setup */}
           {step === 5 && (
-            <div>
-              <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--t1)', letterSpacing: '-0.03em', marginBottom: 6, textAlign: 'center' }}>Choose your plan</h1>
-              <p style={{ fontSize: 14, color: 'var(--t4)', marginBottom: 18, textAlign: 'center' }}>7-day free trial · No credit card needed · Admin-managed pricing</p>
-              <div style={{ display:'flex', justifyContent:'center', marginBottom:22 }}>
-                <div style={{ display:'inline-flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:12, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
-                  <span style={{ fontSize:12.5, color:'var(--t4)', fontWeight:700 }}>Seats</span>
-                  <input value={planSeats} min="1" max="500" type="number" onChange={(e) => setPlanSeats(Math.max(1, Number.parseInt(e.target.value || '1', 10)))} style={{ ...inputStyle, width:88, padding:'8px 10px' }} />
-                  <span style={{ fontSize:12, color:'var(--t4)' }}>Region: {planCountry}</span>
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              <div className="text-center mb-6">
+                <h1 className="text-2xl font-bold tracking-tight mb-1">Choose your plan</h1>
+                <p className="text-sm text-muted-foreground">7-day free trial &middot; No credit card needed</p>
+              </div>
+              <div className="flex justify-center mb-6">
+                <div className="inline-flex items-center gap-3 p-2.5 rounded-xl bg-muted/30 border border-border/40">
+                  <span className="text-[11px] font-bold text-muted-foreground">Seats</span>
+                  <input
+                    type="number" min="1" max="500"
+                    value={planSeats}
+                    onChange={(e) => setPlanSeats(Math.max(1, Number.parseInt(e.target.value || '1', 10)))}
+                    className="input w-20 h-8 text-center text-sm"
+                  />
+                  <select
+                    value={planBillingCycle}
+                    onChange={(e) => setPlanBillingCycle(e.target.value)}
+                    className="input h-8 text-sm pr-8 min-w-[120px]"
+                  >
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                  <span className="text-[11px] text-muted-foreground">Region: {planCountry}</span>
                 </div>
               </div>
-              <p style={{ fontSize:12.5, color:'var(--t4)', textAlign:'center', marginBottom:18 }}>
-                Local currency is shown for estimation. Checkout and platform billing remain in EUR.
+              <p className="text-[11px] text-center text-muted-foreground/50 mb-6">
+                Local currency shown for estimation. Billing settles in EUR.
               </p>
-              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(Math.max(plans.length, 1), 4)},1fr)`, gap: 16 }}>
-                {plans.map(p => (
-                  <div key={p.plan} style={{ borderRadius: 20, padding: 28, display: 'flex', flexDirection: 'column',
-                    position: 'relative',
-                    background: p.popular ? 'linear-gradient(160deg,rgba(99,102,241,0.15),rgba(139,92,246,0.1))' : 'var(--bg3)',
-                    border: p.popular ? '1.5px solid rgba(99,102,241,0.45)' : '1px solid var(--b1)',
-                    boxShadow: p.popular ? '0 0 40px rgba(99,102,241,0.12)' : 'none' }}>
+              <div className={cn('grid gap-4', `grid-cols-${Math.min(Math.max(plans.length, 1), 4)}`)}>
+                {plans.map((p) => (
+                  <Card key={p.plan} className={cn(
+                    'relative rounded-2xl flex flex-col transition-all',
+                    p.popular ? 'border-primary/30 shadow-lg ring-4 ring-primary/5' : 'border-border/40',
+                  )}>
                     {p.popular && (
-                      <div style={{ position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)',
-                        background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', fontSize: 10,
-                        fontWeight: 700, padding: '4px 14px', borderRadius: 99, whiteSpace: 'nowrap' }}>
-                        MOST POPULAR
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                        <Badge className="bg-primary text-white border-none font-bold text-[9px] uppercase tracking-widest px-3 h-5 shadow-md">Most Popular</Badge>
                       </div>
                     )}
-                    <p style={{ fontSize: 17, fontWeight: 800, color: 'var(--t1)', marginBottom: 3 }}>{p.name}</p>
-                    <p style={{ fontSize: 12, color: 'var(--t4)', marginBottom: 16 }}>{p.desc}</p>
-                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, marginBottom: 20 }}>
-                      <span style={{ fontSize: 42, fontWeight: 900, color: 'var(--t1)', letterSpacing: '-0.04em', lineHeight: 1 }}>{p.currency || 'EUR'} {p.price}</span>
-                      <span style={{ fontSize: 13, color: 'var(--t4)', marginBottom: 4 }}>/user</span>
-                    </div>
-                    {p.offer && p.basePrice && p.basePrice !== p.price && (
-                      <p style={{ fontSize: 11.5, color: 'var(--t4)', marginTop: -14, marginBottom: 14 }}>
-                        <span style={{ textDecoration:'line-through' }}>{p.currency || 'EUR'} {p.basePrice}</span> · {p.offer.badgeLabel || p.offer.saleLabel || 'Offer active'}
+                    <CardContent className="p-6 flex flex-col flex-1">
+                      <h3 className="text-sm font-bold">{p.name}</h3>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{p.desc}</p>
+                      <div className="mt-3 flex items-baseline gap-1">
+                        <span className="text-3xl font-bold tracking-tight">{p.currency || 'EUR'} {p.price}</span>
+                        <span className="text-xs text-muted-foreground">/user</span>
+                      </div>
+                      {p.offer && p.basePrice && p.basePrice !== p.price && (
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          <span className="line-through">{p.currency || 'EUR'} {p.basePrice}</span> &middot; {p.offer.badgeLabel || p.offer.saleLabel || 'Offer active'}
+                        </p>
+                      )}
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        {p.seats || planSeats} seats total &middot; {p.currency || 'EUR'} {p.total || p.price}
                       </p>
-                    )}
-                    <p style={{ fontSize: 12, color:'var(--t3)', marginBottom: 18 }}>
-                      {p.seats || planSeats} seats total · {p.currency || 'EUR'} {p.total || p.price}
-                    </p>
-                    <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8, flex: 1, marginBottom: 20 }}>
-                      {p.features.map(f => (
-                        <li key={f} style={{ display: 'flex', gap: 8, fontSize: 13, color: 'var(--t2)' }}>
-                          <span style={{ color: '#34d399', flexShrink: 0 }}>✓</span>{f}
-                        </li>
-                      ))}
-                    </ul>
-                    <button onClick={() => handlePay(p.plan)} disabled={!!payLoading}
-                      style={{ padding: '11px', borderRadius: 10, border: 'none', cursor: payLoading ? 'not-allowed' : 'pointer',
-                        fontWeight: 700, fontSize: 13, opacity: payLoading === p.plan ? 0.7 : 1,
-                        background: p.popular ? '#6366f1' : 'rgba(255,255,255,0.07)',
-                        color: p.popular ? '#fff' : 'var(--t2)' }}>
-                      {payLoading === p.plan ? 'Redirecting…' : 'Start Free Trial →'}
-                    </button>
-                  </div>
+                      <Separator className="my-4 opacity-30" />
+                      <ul className="space-y-2 flex-1">
+                        {p.features.map((f) => (
+                          <li key={f} className="flex items-start gap-2 text-[12px]">
+                            <CheckCircle2 className={cn('h-3.5 w-3.5 shrink-0 mt-0.5', p.popular ? 'text-primary' : 'text-muted-foreground/40')} />
+                            <span>{f}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <Button
+                        onClick={() => handleStartTrial(p.plan)}
+                        disabled={!!trialLaunchLoading}
+                        className={cn(
+                          'w-full h-10 rounded-xl text-[13px] font-bold mt-5 border-none transition-all',
+                          p.popular ? 'bg-primary hover:bg-primary/90 text-white shadow-md shadow-primary/15' : 'bg-muted hover:bg-muted/80 text-foreground',
+                        )}
+                      >
+                        {trialLaunchLoading === p.plan ? 'Launching...' : 'Start Free Trial'}
+                      </Button>
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
-              <button onClick={() => setStep(4)} style={{ display: 'block', margin: '20px auto 0',
-                padding: '10px 24px', borderRadius: 10, cursor: 'pointer',
-                background: 'none', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--t4)', fontSize: 13 }}>
-                ← Back
-              </button>
-            </div>
+              <Button variant="ghost" onClick={() => setStep(4)} className="mx-auto mt-5 text-[13px] text-muted-foreground block">
+                <ArrowLeft className="h-3.5 w-3.5 mr-1.5" /> Back
+              </Button>
+            </motion.div>
           )}
-
         </div>
       </div>
     </div>

@@ -149,7 +149,7 @@ export default function MigrationsPage() {
           return (
             <section key={type.id} style={{ padding:'22px', borderRadius:18, background:'var(--bg2)', border:'1px solid var(--b1)', display:'grid', gap:14 }}>
               <div>
-                <p style={{ fontSize:12, color:'#67e8f9', fontWeight:900, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>{type.id}</p>
+                <p style={{ fontSize:12, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8, color:'var(--t3)' }}>{type.id}</p>
                 <h2 style={{ fontSize:18, fontWeight:900, marginBottom:6 }}>{type.title}</h2>
                 <p style={{ fontSize:13, color:'var(--t3)', lineHeight:1.6 }}>{type.description}</p>
               </div>
@@ -158,7 +158,7 @@ export default function MigrationsPage() {
                 <div style={{ fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:8 }}>Expected columns</div>
                 <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
                   {type.fields.map((field) => (
-                    <span key={field} style={{ fontSize:11.5, padding:'4px 10px', borderRadius:99, background:'rgba(99,102,241,0.1)', color:'#a5b4fc', border:'1px solid rgba(99,102,241,0.2)' }}>
+                    <span key={field} style={{ fontSize:12, padding:'4px 10px', borderRadius:99, background:'rgba(99,102,241,0.1)', color:'var(--color-primary)', border:'1px solid rgba(99,102,241,0.2)' }}>
                       {field}
                     </span>
                   ))}

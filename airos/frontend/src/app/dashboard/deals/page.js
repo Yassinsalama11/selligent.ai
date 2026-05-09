@@ -1,172 +1,176 @@
 'use client';
 
-import { startTransition, useMemo, useState } from 'react';
+import * as React from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useCurrency } from '@/context/CurrencyContext';
 import toast from 'react-hot-toast';
+import { 
+  Trophy, 
+  RefreshCcw, 
+  Plus, 
+  MoreHorizontal, 
+  Trash2, 
+  DollarSign, 
+  Target, 
+  Clock, 
+  ChevronRight, 
+  Search,
+  MessageSquare,
+  AlertCircle,
+  Filter,
+  CheckCircle2,
+  Users
+} from 'lucide-react';
 
 import { api } from '@/lib/api';
 import { usePollingResource } from '@/lib/usePollingResource';
+import { cn } from '@/lib/utils';
 import {
-  EmptyState,
-  LoadingGrid,
-  StatusBanner,
-} from '@/components/dashboard/ResourceState';
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { SectionHeader } from '@/components/ui/section-header';
+import { Separator } from '@/components/ui/separator';
 
 const STAGES = [
-  { id: 'new_lead', label: 'New Leads', color: '#ff7a18', bg: 'rgba(255,90,31,0.14)' },
-  { id: 'engaged', label: 'Engaged', color: '#00e5ff', bg: 'rgba(0,229,255,0.1)' },
-  { id: 'negotiation', label: 'Negotiation', color: '#f59e0b', bg: 'rgba(245,158,11,0.14)' },
-  { id: 'closing', label: 'Closing', color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
-  { id: 'won', label: 'Won', color: '#22c55e', bg: 'rgba(34,197,94,0.08)' },
-  { id: 'lost', label: 'Lost', color: '#f97316', bg: 'rgba(249,115,22,0.08)' },
+  { id: 'new_lead', label: 'New Leads', color: 'bg-indigo-500' },
+  { id: 'engaged', label: 'Engaged', color: 'bg-purple-500' },
+  { id: 'negotiation', label: 'Negotiation', color: 'bg-amber-500' },
+  { id: 'closing', label: 'Closing', color: 'bg-cyan-500' },
+  { id: 'won', label: 'Won', color: 'bg-emerald-500' },
+  { id: 'lost', label: 'Lost', color: 'bg-red-500' },
 ];
-
-const intentColors = {
-  ready_to_buy: '#10b981',
-  interested: '#6366f1',
-  price_objection: '#f59e0b',
-  inquiry: '#94a3b8',
-  complaint: '#ef4444',
-  other: '#64748b',
-};
-
-function formatMoney(value) {
-  const amount = Number(value || 0);
-  return amount ? `$${amount.toLocaleString()}` : 'Unqualified';
-}
 
 function formatStageLabel(stage) {
   return String(stage || 'new_lead').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function DealCard({ deal, onMove, moving }) {
+function DealCard({ deal, onMove, onRemove, moving }) {
+  const { formatMoney } = useCurrency();
   return (
-    <div className="deal-card" style={{ position: 'relative', opacity: moving ? 0.6 : 1 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--t1)' }}>
-            {deal.customer_name || 'Unknown customer'}
+    <Card className="group border shadow-sm hover:shadow-md hover:border-primary/20 transition-all cursor-grab active:cursor-grabbing bg-card">
+      <CardContent className="p-4 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h4 className="text-[13px] font-semibold truncate leading-tight group-hover:text-primary transition-colors">{deal.customer_name}</h4>
+            <div className="flex items-center gap-1.5 mt-1 text-[11px] font-medium text-muted-foreground">
+               <Clock className="h-3 w-3 opacity-40" />
+               {new Date(deal.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+            </div>
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--t4)', marginTop: 4 }}>
-            {deal.channel || 'unknown'} • {formatStageLabel(deal.stage)}
+          <div className="text-[13px] font-bold text-foreground tabular-nums">
+            {formatMoney(deal.estimated_value || 0)}
           </div>
         </div>
-        <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--t1)' }}>
-          {formatMoney(deal.estimated_value)}
+
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <Badge variant="secondary" className="text-[10px] font-medium px-2 py-0.5 bg-muted/50 text-muted-foreground/80 border-none">
+            {deal.channel || 'direct'}
+          </Badge>
+          
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity">
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuItem onClick={() => onMove('won')} className="text-emerald-600 font-medium">Mark Won</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onMove('lost')} className="text-red-600 font-medium">Mark Lost</DropdownMenuItem>
+              <Separator className="my-1" />
+              {STAGES.slice(0, 4).map(s => (
+                <DropdownMenuItem key={s.id} onClick={() => onMove(s.id)} disabled={deal.stage === s.id}>
+                  Move to {s.label}
+                </DropdownMenuItem>
+              ))}
+              <Separator className="my-1" />
+              <DropdownMenuItem onClick={onRemove} className="text-destructive font-medium">Delete Deal</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-      </div>
-
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-        <span style={{
-          fontSize: 11,
-          fontWeight: 700,
-          padding: '4px 8px',
-          borderRadius: 999,
-          background: `${intentColors[deal.intent] || '#64748b'}18`,
-          color: intentColors[deal.intent] || '#64748b',
-        }}>
-          {(deal.intent || 'other').replace(/_/g, ' ')}
-        </span>
-        <span style={{
-          fontSize: 11,
-          fontWeight: 700,
-          padding: '4px 8px',
-          borderRadius: 999,
-          background: 'rgba(148,163,184,0.12)',
-          color: 'var(--t3)',
-        }}>
-          Score {Number(deal.lead_score || 0)}
-        </span>
-      </div>
-
-      <div style={{ height: 5, borderRadius: 999, background: 'var(--s3)', marginBottom: 12 }}>
-        <div style={{
-          height: 5,
-          borderRadius: 999,
-          width: `${Math.max(0, Math.min(100, Number(deal.lead_score || 0)))}%`,
-          background: Number(deal.lead_score || 0) >= 70 ? '#10b981' : Number(deal.lead_score || 0) >= 40 ? '#f59e0b' : '#ef4444',
-        }} />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        {STAGES.filter((stage) => stage.id !== deal.stage).slice(0, 2).map((stage) => (
-          <button
-            key={stage.id}
-            className="btn btn-ghost btn-sm"
-            disabled={moving}
-            onClick={() => onMove(deal, stage.id)}
-            style={{ justifyContent: 'center' }}
-          >
-            Move to {stage.label}
-          </button>
-        ))}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
 export default function DealsPage() {
-  const { data, error, loading, reload, setData } = usePollingResource(async () => {
+  const { currency, formatMoney } = useCurrency();
+  const { data, loading, error, reload, setData } = usePollingResource(async () => {
     const deals = await api.get('/api/deals');
     return Array.isArray(deals) ? deals : [];
-  }, [], { intervalMs: 30000, initialData: [] });
+  }, [], { intervalMs: 90000, initialData: [] });
 
+  const [isPending, startTransition] = useTransition();
   const [movingDealId, setMovingDealId] = useState(null);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [manualLead, setManualLead] = useState({
-    customer_name: '',
-    customer_phone: '',
-    customer_email: '',
-    estimated_value: '',
-    currency: 'USD',
-    notes: '',
-  });
+  const [manualLead, setManualLead] = useState({ customer_name: '', customer_phone: '', customer_email: '', estimated_value: '', currency: 'USD', notes: '' });
+  // Sync new lead currency with global setting
+  React.useEffect(() => { setManualLead(f => ({ ...f, currency })); }, [currency]);
 
-  const groupedDeals = useMemo(() => {
-    const groups = Object.fromEntries(STAGES.map((stage) => [stage.id, []]));
-    for (const deal of data || []) {
-      const key = groups[deal.stage] ? deal.stage : 'new_lead';
-      groups[key].push(deal);
-    }
-    for (const key of Object.keys(groups)) {
-      groups[key].sort((left, right) => new Date(right.updated_at) - new Date(left.updated_at));
+  const stages = useMemo(() => {
+    const groups = {};
+    for (const s of STAGES) groups[s.id] = [];
+    for (const d of data) {
+      if (groups[d.stage]) groups[d.stage].push(d);
     }
     return groups;
   }, [data]);
 
   const totals = useMemo(() => ({
-    count: (data || []).length,
-    pipeline: (data || [])
-      .filter((deal) => !['won', 'lost'].includes(deal.stage))
-      .reduce((sum, deal) => sum + Number(deal.estimated_value || 0), 0),
-    won: (data || [])
-      .filter((deal) => deal.stage === 'won')
-      .reduce((sum, deal) => sum + Number(deal.estimated_value || 0), 0),
+    count: data.filter(d => !['won', 'lost'].includes(d.stage)).length,
+    pipeline: data.filter(d => !['won', 'lost'].includes(d.stage)).reduce((s, d) => s + Number(d.estimated_value || 0), 0),
+    won: data.filter(d => d.stage === 'won').reduce((s, d) => s + Number(d.estimated_value || 0), 0),
   }), [data]);
 
   async function moveDeal(deal, stage) {
+    if (movingDealId) return;
     setMovingDealId(deal.id);
-    const previous = data || [];
-
+    const previous = data;
     startTransition(() => {
-      setData((current) => (
-        current.map((entry) => (
-          entry.id === deal.id
-            ? { ...entry, stage, updated_at: new Date().toISOString() }
-            : entry
-        ))
-      ));
+      setData((current) => current.map((entry) => (
+        entry.id === deal.id ? { ...entry, stage, updated_at: new Date().toISOString() } : entry
+      )));
     });
-
     try {
-      const updated = await api.post(`/api/deals/${deal.id}/stage`, { stage });
+      const result = await api.post(`/api/deals/${deal.id}/stage`, { stage });
+      const updated = result || { ...deal, stage, updated_at: new Date().toISOString() };
       startTransition(() => {
         setData((current) => current.map((entry) => (entry.id === deal.id ? updated : entry)));
       });
       toast.success(`Moved to ${formatStageLabel(stage)}`);
     } catch (err) {
-      startTransition(() => {
-        setData(previous);
-      });
+      startTransition(() => setData(previous));
       toast.error(err.message || 'Could not update deal stage');
     } finally {
       setMovingDealId(null);
@@ -175,11 +179,7 @@ export default function DealsPage() {
 
   async function createManualLead(event) {
     event.preventDefault();
-    if (!manualLead.customer_name.trim()) {
-      toast.error('Customer name is required');
-      return;
-    }
-
+    if (!manualLead.customer_name.trim()) return;
     setCreating(true);
     try {
       const created = await api.post('/api/deals', {
@@ -190,8 +190,29 @@ export default function DealsPage() {
         lead_score: 0,
         estimated_value: Number(manualLead.estimated_value || 0),
       });
-      setData((current) => [{ ...created, customer_name: created.customer_name || manualLead.customer_name, channel: created.channel || 'manual' }, ...(current || [])]);
+
+      const dealToAdd = created || {
+        id: `demo-${Date.now()}`,
+        ...manualLead,
+        channel: 'manual',
+        stage: 'new_lead',
+        intent: 'manual',
+        lead_score: 0,
+        estimated_value: Number(manualLead.estimated_value || 0),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      setData((current) => [
+        { 
+          ...dealToAdd, 
+          customer_name: dealToAdd.customer_name || manualLead.customer_name, 
+          channel: dealToAdd.channel || 'manual' 
+        }, 
+        ...(current || [])
+      ]);
       setManualLead({ customer_name: '', customer_phone: '', customer_email: '', estimated_value: '', currency: 'USD', notes: '' });
+      setShowAddForm(false);
       toast.success('Manual lead added');
     } catch (err) {
       toast.error(err.message || 'Could not create lead');
@@ -201,131 +222,153 @@ export default function DealsPage() {
   }
 
   return (
-    <div style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: 20, height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 900, marginBottom: 6 }}>Deal Pipeline</h1>
-          <p style={{ fontSize: 13, color: 'var(--t3)' }}>
-            Live deal stages from `/api/deals` with backend stage transitions.
-          </p>
+    <div className="flex flex-col h-full bg-background animate-in fade-in duration-500 overflow-hidden">
+      <header className="h-16 border-b px-8 flex items-center justify-between shrink-0 bg-background/80 backdrop-blur-md sticky top-0 z-10">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-primary/5 flex items-center justify-center">
+             <Trophy className="h-5 w-5 text-primary" />
+          </div>
+          <SectionHeader 
+            title="Deal Pipeline" 
+            description="Manage your sales funnel and track revenue progression across all lead stages."
+            className="sm:flex-col sm:items-start gap-0"
+          />
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={reload}>Refresh</button>
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={() => setShowAddForm(true)} className="h-9 font-medium shadow-sm">
+            <Plus className="h-3.5 w-3.5 mr-1.5" />
+            Create Lead
+          </Button>
+          <Button variant="outline" size="sm" onClick={reload} className="h-9 font-medium shadow-sm">
+            <RefreshCcw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+            Sync
+          </Button>
+        </div>
+      </header>
+
+      <div className="flex-1 overflow-hidden flex flex-col">
+        {/* Metric Bar */}
+        <div className="px-8 py-6 border-b bg-muted/5 flex items-center gap-12 shrink-0 overflow-x-auto no-scrollbar">
+           <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-indigo-500/10 flex items-center justify-center"><Target className="h-5 w-5 text-indigo-600" /></div>
+              <div>
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Active Pipeline</p>
+                <p className="text-xl font-bold tracking-tight">{totals.count}</p>
+              </div>
+           </div>
+           <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center"><DollarSign className="h-5 w-5 text-emerald-600" /></div>
+              <div>
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Estimated Value</p>
+                <p className="text-xl font-bold tracking-tight">{formatMoney(totals.pipeline)}</p>
+              </div>
+           </div>
+           <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center"><Trophy className="h-5 w-5 text-amber-600" /></div>
+              <div>
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Revenue Won</p>
+                <p className="text-xl font-bold tracking-tight">{formatMoney(totals.won)}</p>
+              </div>
+           </div>
+        </div>
+
+        {/* Board */}
+        <ScrollArea direction="horizontal" className="flex-1 h-full">
+          <div className="flex p-8 gap-6 h-full min-w-max pb-12">
+            {STAGES.map((stage) => (
+              <div key={stage.id} className="w-[300px] flex flex-col gap-4 group">
+                <div className="flex items-center justify-between px-2">
+                  <div className="flex items-center gap-2">
+                    <div className={cn("w-2 h-2 rounded-full", stage.color)} />
+                    <h3 className="text-[13px] font-semibold text-foreground/80">{stage.label}</h3>
+                    <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-bold bg-muted/50 border-none">
+                      {stages[stage.id]?.length || 0}
+                    </Badge>
+                  </div>
+                </div>
+
+                <ScrollArea className="flex-1">
+                  <div className="flex flex-col gap-3 pr-4">
+                    {stages[stage.id]?.map((deal) => (
+                      <DealCard
+                        key={deal.id}
+                        deal={deal}
+                        moving={movingDealId === deal.id}
+                        onMove={(next) => moveDeal(deal, next)}
+                        onRemove={() => setData(d => d.filter(x => x.id !== deal.id))}
+                      />
+                    ))}
+                    {stages[stage.id]?.length === 0 && (
+                      <div className="py-8 flex flex-col items-center justify-center text-center border-2 border-dashed border-border/40 rounded-2xl">
+                        <span className="text-xs font-medium text-muted-foreground/40">No deals here</span>
+                      </div>
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
       </div>
 
-      {error && (
-        <StatusBanner
-          tone="error"
-          title="Deals could not be loaded"
-          description={error}
-          actionLabel="Retry"
-          onAction={reload}
-        />
-      )}
-
-      <form
-        onSubmit={createManualLead}
-        className="card"
-        style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:12, alignItems:'end' }}
-      >
-        <div style={{ gridColumn:'1 / -1' }}>
-          <div style={{ fontSize:15, fontWeight:800, color:'var(--t1)' }}>Add manual lead</div>
-          <div style={{ fontSize:12.5, color:'var(--t4)', marginTop:4 }}>
-            Create a real pipeline opportunity when a lead starts outside a conversation.
-          </div>
-        </div>
-        <input className="input" placeholder="Customer name" value={manualLead.customer_name}
-          onChange={(event) => setManualLead((current) => ({ ...current, customer_name:event.target.value }))} />
-        <input className="input" placeholder="Phone" value={manualLead.customer_phone}
-          onChange={(event) => setManualLead((current) => ({ ...current, customer_phone:event.target.value }))} />
-        <input className="input" placeholder="Email" value={manualLead.customer_email}
-          onChange={(event) => setManualLead((current) => ({ ...current, customer_email:event.target.value }))} />
-        <input className="input" placeholder="Value" type="number" min="0" step="0.01" value={manualLead.estimated_value}
-          onChange={(event) => setManualLead((current) => ({ ...current, estimated_value:event.target.value }))} />
-        <input className="input" placeholder="Currency" value={manualLead.currency}
-          onChange={(event) => setManualLead((current) => ({ ...current, currency:event.target.value.toUpperCase() }))} />
-        <textarea className="input" placeholder="Notes" value={manualLead.notes}
-          onChange={(event) => setManualLead((current) => ({ ...current, notes:event.target.value }))}
-          style={{ gridColumn:'1 / -1', minHeight:70, resize:'vertical' }} />
-        <button className="btn btn-primary" type="submit" disabled={creating} style={{ justifySelf:'start' }}>
-          {creating ? 'Adding…' : 'Add lead'}
-        </button>
-      </form>
-
-      {loading ? (
-        <LoadingGrid />
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 14 }}>
-          <div className="card-sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>Active deals</span>
-            <span style={{ fontSize: 24, fontWeight: 900, color: '#ff7a18' }}>{totals.count}</span>
-          </div>
-          <div className="card-sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>Pipeline value</span>
-            <span style={{ fontSize: 24, fontWeight: 900, color: '#10b981' }}>${totals.pipeline.toLocaleString()}</span>
-          </div>
-          <div className="card-sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>Won revenue</span>
-            <span style={{ fontSize: 24, fontWeight: 900, color: '#22c55e' }}>${totals.won.toLocaleString()}</span>
-          </div>
-        </div>
-      )}
-
-      {loading ? null : (data || []).length === 0 ? (
-        <EmptyState
-          title="No deals yet"
-          description="As conversations qualify into pipeline opportunities, they will appear here automatically."
-        />
-      ) : (
-        <div style={{ display: 'flex', gap: 14, overflowX: 'auto', flex: 1, paddingBottom: 12 }}>
-          {STAGES.map((stage) => {
-            const deals = groupedDeals[stage.id] || [];
-            const stageValue = deals.reduce((sum, deal) => sum + Number(deal.estimated_value || 0), 0);
-
-            return (
-              <div key={stage.id} className="kanban-col">
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: stage.color }} />
-                      <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--t1)' }}>{stage.label}</span>
-                    </div>
-                    <span style={{
-                      padding: '2px 9px',
-                      borderRadius: 999,
-                      background: stage.bg,
-                      color: stage.color,
-                      fontSize: 12,
-                      fontWeight: 800,
-                    }}>
-                      {deals.length}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--t4)', paddingLeft: 16 }}>
-                    ${stageValue.toLocaleString()}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, overflowY: 'auto' }}>
-                  {deals.map((deal) => (
-                    <DealCard
-                      key={deal.id}
-                      deal={deal}
-                      moving={movingDealId === deal.id}
-                      onMove={moveDeal}
+      {/* Manual Lead Modal */}
+      <Dialog open={showAddForm} onOpenChange={setShowAddForm}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+               <Plus className="h-5 w-5 text-primary" />
+               New Manual Lead
+            </DialogTitle>
+            <DialogDescription>Initialize a new deal in the conversion pipeline manually.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={createManualLead} className="grid gap-5 py-4">
+            <div className="grid gap-2">
+              <Label>Client Display Name</Label>
+              <Input 
+                value={manualLead.customer_name} 
+                onChange={e => setManualLead({...manualLead, customer_name: e.target.value})} 
+                placeholder="e.g. Acme Corp" 
+                required 
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+               <div className="grid gap-2">
+                  <Label>Estimated Value</Label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    <Input 
+                      type="number" 
+                      value={manualLead.estimated_value} 
+                      onChange={e => setManualLead({...manualLead, estimated_value: e.target.value})} 
+                      className="pl-8" 
                     />
-                  ))}
-
-                  {deals.length === 0 && (
-                    <div style={{ textAlign: 'center', padding: '26px 0', color: 'var(--t4)', fontSize: 12 }}>
-                      No deals in this stage
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+                  </div>
+               </div>
+               <div className="grid gap-2">
+                  <Label>Currency</Label>
+                  <Select value={manualLead.currency} onValueChange={v => setManualLead({...manualLead, currency: v})}>
+                     <SelectTrigger><SelectValue /></SelectTrigger>
+                     <SelectContent>
+                        <SelectItem value="USD">USD ($)</SelectItem>
+                        <SelectItem value="EGP">EGP (LE)</SelectItem>
+                     </SelectContent>
+                  </Select>
+               </div>
+            </div>
+            <div className="grid gap-2">
+               <Label>Contact Email</Label>
+               <Input type="email" value={manualLead.customer_email} onChange={e => setManualLead({...manualLead, customer_email: e.target.value})} />
+            </div>
+            <div className="grid gap-2">
+               <Label>Notes / Context</Label>
+               <Textarea value={manualLead.notes} onChange={e => setManualLead({...manualLead, notes: e.target.value})} className="min-h-[80px]" />
+            </div>
+            <Button type="submit" disabled={creating} className="w-full bg-primary font-semibold h-11 shadow-lg mt-2">
+               {creating ? 'Initializing Lead...' : 'Finalize Deal Entry'}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

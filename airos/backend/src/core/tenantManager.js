@@ -72,7 +72,8 @@ function decryptCredentials(rawJson) {
     if (!parsed.encrypted) return parsed;
 
     const [ivHex, tagHex, encHex] = parsed.encrypted.split(':');
-    const key = Buffer.from(process.env.ENCRYPTION_KEY || '').slice(0, 32);
+    const raw = process.env.ENCRYPTION_KEY || '';
+    const key = raw ? crypto.createHash('sha256').update(raw).digest() : Buffer.alloc(32);
     const decipher = crypto.createDecipheriv(ALGO, key, Buffer.from(ivHex, 'hex'));
     decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
     const dec = Buffer.concat([decipher.update(Buffer.from(encHex, 'hex')), decipher.final()]);

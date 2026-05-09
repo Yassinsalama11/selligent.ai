@@ -1,105 +1,109 @@
 'use client';
+
 import Link from 'next/link';
-import Image from 'next/image';
+import { CheckCircle2, Copy, ArrowRight } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import Logo from '@/components/Logo';
+import PublicNav from '@/components/PublicNav';
+import PublicFooter from '@/components/PublicFooter';
+
+const BOILERPLATE = 'ChatOrAI is an AI Revenue Operating System for businesses worldwide. The platform unifies WhatsApp, Instagram, Messenger, and Live Chat into a single inbox, using AI to detect customer intent, score leads in real-time, and generate replies in 50+ languages.';
+
+const FACTS = [
+  'AI Revenue Operating System for eCommerce',
+  'Unified inbox: WhatsApp, Instagram, Messenger, Live Chat',
+  'AI intent detection, lead scoring 0-100, reply generation',
+  'Multilingual AI supporting 50+ languages',
+  'Plans from $49/month, 7-day free trial',
+  'Shopify, WooCommerce, Salla, and WordPress integration',
+];
 
 export default function PressPage() {
-  const facts = [
-    'AI Revenue Operating System for Arabic eCommerce',
-    'Unified inbox: WhatsApp, Instagram, Messenger, Live Chat',
-    'AI intent detection, lead scoring 0–100, reply generation',
-    'Built for the MENA market — Arabic-first AI',
-    'Plans from €49/month, 7-day free trial',
-    'Shopify and WooCommerce catalog sync',
-  ];
-
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--t1)' }}>
-      <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Link href="/" style={{ textDecoration: 'none' }}>
-          <div style={{ display: 'inline-flex' }}>
-            <Image src="/ChatOrAi.png" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
-          </div>
-        </Link>
-        <Link href="/" style={{ fontSize: 13, color: 'var(--t4)', textDecoration: 'none' }}>← Back to Home</Link>
-      </nav>
+    <main className="min-h-screen bg-background antialiased">
+      <PublicNav />
 
-      <div style={{ maxWidth: 1000, margin: '0 auto', padding: '72px 32px 100px' }}>
-        <div style={{ marginBottom: 60 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#818cf8', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16 }}>Press & Media</div>
-          <h1 style={{ fontSize: 52, fontWeight: 900, letterSpacing: '-0.04em', marginBottom: 16 }}>Press Kit</h1>
-          <p style={{ fontSize: 16, color: 'var(--t3)', lineHeight: 1.7 }}>
-            Resources for journalists, analysts, and media partners covering ChatOrAI and the Arabic eCommerce AI space.
-          </p>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
-          {/* Boilerplate */}
-          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 18, padding: '28px' }}>
-            <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 16 }}>📋 Company Boilerplate</h2>
-            <p style={{ fontSize: 14, color: 'var(--t3)', lineHeight: 1.8, marginBottom: 16 }}>
-              ChatOrAI is an AI Revenue Operating System built for Arabic eCommerce businesses. The platform unifies WhatsApp, Instagram, Messenger, and Live Chat into a single inbox, using AI to detect customer intent, score leads in real-time, and generate replies in Arabic and English. Founded in Egypt, ChatOrAI serves eCommerce businesses across the MENA region.
+      <section className="pt-32 pb-20 px-6 md:px-10">
+        <div className="max-w-4xl mx-auto">
+          <div className="mb-12">
+            <Badge variant="outline" className="bg-primary/5 text-primary border-primary/15 font-bold text-[10px] uppercase tracking-widest px-3 h-6 mb-6">
+              Press & Media
+            </Badge>
+            <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-3">Press Kit</h1>
+            <p className="text-base text-muted-foreground">
+              Resources for journalists, analysts, and media partners covering ChatOrAI.
             </p>
-            <button onClick={() => navigator.clipboard?.writeText('ChatOrAI is an AI Revenue Operating System built for Arabic eCommerce businesses. The platform unifies WhatsApp, Instagram, Messenger, and Live Chat into a single inbox, using AI to detect customer intent, score leads in real-time, and generate replies in Arabic and English.')}
-              style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.1)', color: '#a5b4fc', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-              Copy boilerplate
-            </button>
           </div>
 
-          {/* Key facts */}
-          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 18, padding: '28px' }}>
-            <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 16 }}>📊 Key Facts</h2>
-            <ul style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {facts.map((f, i) => (
-                <li key={i} style={{ display: 'flex', gap: 10, fontSize: 14, color: 'var(--t2)' }}>
-                  <span style={{ color: '#34d399', flexShrink: 0 }}>✓</span>{f}
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Logo download */}
-          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 18, padding: '28px' }}>
-            <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 16 }}>🎨 Logo & Brand Assets</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ padding: '24px', borderRadius: 12, background: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Image src="/ChatOrAi.png" alt="ChatOrAI" width={180} height={46} style={{ height: 46, width: 'auto', objectFit: 'contain' }} />
-              </div>
-              <div style={{ padding: '24px', borderRadius: 12, background: '#08080f', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Image src="/ChatOrAi.png" alt="ChatOrAI" width={180} height={46} style={{ height: 46, width: 'auto', objectFit: 'contain' }} />
-              </div>
-              <p style={{ fontSize: 12, color: 'var(--t4)' }}>Logo files available on request. Please contact press@chatorai.com.</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Boilerplate */}
+            <div className="p-6 rounded-2xl bg-card border border-border/40">
+              <h2 className="text-sm font-bold mb-3">Company Boilerplate</h2>
+              <p className="text-[13px] text-muted-foreground leading-relaxed mb-4">{BOILERPLATE}</p>
+              <Button
+                variant="outline"
+                onClick={() => navigator.clipboard?.writeText(BOILERPLATE)}
+                className="h-8 px-3 rounded-lg text-[12px] font-semibold"
+              >
+                <Copy className="h-3 w-3 mr-1.5" /> Copy
+              </Button>
             </div>
-          </div>
 
-          {/* Contact */}
-          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 18, padding: '28px' }}>
-            <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 16 }}>📬 Media Contact</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontSize: 14 }}>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t4)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 }}>Press Inquiries</div>
-                <a href="mailto:press@chatorai.com" style={{ color: '#818cf8', fontWeight: 600 }}>press@chatorai.com</a>
+            {/* Key facts */}
+            <div className="p-6 rounded-2xl bg-card border border-border/40">
+              <h2 className="text-sm font-bold mb-3">Key Facts</h2>
+              <ul className="space-y-2.5">
+                {FACTS.map((f) => (
+                  <li key={f} className="flex gap-2.5 text-[13px] text-muted-foreground">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" /> {f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Logo */}
+            <div className="p-6 rounded-2xl bg-card border border-border/40">
+              <h2 className="text-sm font-bold mb-3">Logo & Brand Assets</h2>
+              <div className="space-y-3">
+                <div className="p-6 rounded-xl bg-white flex items-center justify-center">
+                  <Logo size="xl" />
+                </div>
+                <div className="p-6 rounded-xl bg-[#08080f] border border-white/5 flex items-center justify-center">
+                  <Logo size="xl" />
+                </div>
+                <p className="text-[11px] text-muted-foreground/60">Logo files available on request. Contact press@chatorai.com.</p>
               </div>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t4)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 }}>Partnerships</div>
-                <a href="mailto:partnerships@chatorai.com" style={{ color: '#818cf8', fontWeight: 600 }}>partnerships@chatorai.com</a>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t4)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 }}>Response Time</div>
-                <div style={{ color: 'var(--t3)' }}>Within 24 hours on business days</div>
-              </div>
-              <div style={{ marginTop: 4 }}>
-                <Link href="/contact" style={{ display: 'inline-block', padding: '10px 20px', borderRadius: 10, background: '#6366f1', color: '#fff', fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>
-                  Send a message →
+            </div>
+
+            {/* Contact */}
+            <div className="p-6 rounded-2xl bg-card border border-border/40">
+              <h2 className="text-sm font-bold mb-4">Media Contact</h2>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/50 mb-0.5">Press Inquiries</p>
+                  <a href="mailto:press@chatorai.com" className="text-[13px] text-primary font-semibold hover:underline">press@chatorai.com</a>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/50 mb-0.5">Partnerships</p>
+                  <a href="mailto:partnerships@chatorai.com" className="text-[13px] text-primary font-semibold hover:underline">partnerships@chatorai.com</a>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/50 mb-0.5">Response Time</p>
+                  <p className="text-[13px] text-muted-foreground">Within 24 hours on business days</p>
+                </div>
+                <Link href="/contact">
+                  <Button className="h-9 px-5 rounded-xl text-[13px] font-bold bg-primary text-white border-none shadow-sm mt-1">
+                    Send a message <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+                  </Button>
                 </Link>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 32px', textAlign: 'center', fontSize: 13, color: 'var(--t4)' }}>
-        © {new Date().getFullYear()} ChatOrAI · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
-      </footer>
-    </div>
+      <PublicFooter />
+    </main>
   );
 }

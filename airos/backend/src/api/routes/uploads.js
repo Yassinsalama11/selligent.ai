@@ -16,6 +16,8 @@ const ALLOWED_MIME = new Set([
   'text/csv',
   'application/json',
   'application/zip',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
 ]);
 
 const EXTENSIONS = {
@@ -28,6 +30,8 @@ const EXTENSIONS = {
   'text/csv': 'csv',
   'application/json': 'json',
   'application/zip': 'zip',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-excel': 'xls',
 };
 
 function getUploadRoot() {

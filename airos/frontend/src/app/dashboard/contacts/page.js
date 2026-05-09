@@ -1,38 +1,109 @@
 'use client';
-import Link from 'next/link';
+
+import * as React from 'react';
 import { useEffect, useMemo, useState } from 'react';
+import { useCurrency } from '@/context/CurrencyContext';
+import Link from 'next/link';
 import toast from 'react-hot-toast';
-import Modal from '@/components/Modal';
+import {
+  Plus,
+  Search,
+  MoreHorizontal,
+  Download,
+  Trash2,
+  Edit2,
+  History,
+  Filter,
+  ArrowUpDown,
+  FileSpreadsheet,
+  FileJson as FileCsv,
+  ChevronRight,
+  ExternalLink,
+  Users,
+  RefreshCcw,
+  Globe,
+  MapPin,
+  Smartphone,
+  Camera,
+  MessageCircle,
+  Monitor,
+} from 'lucide-react';
+import * as XLSX from 'xlsx';
+
 import { api } from '@/lib/api';
+import { cn } from '@/lib/utils';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { SectionHeader } from '@/components/ui/section-header';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Skeleton } from '@/components/ui/skeleton';
 
-/* ── Seed data ────────────────────────────────────────────────────────────── */
-const SEED_CONTACTS = [
-  { id:'1',  name:'Ahmed Mohamed',    phone:'+20 100 123 4567', email:'ahmed.m@gmail.com',       ch:'whatsapp',  orders:12, revenue:4820,  tags:['VIP'],          lastSeen:'2m ago',   country:'EG' },
-  { id:'2',  name:'Sara Khalil',      phone:'+20 111 987 6543', email:'sara.k@hotmail.com',      ch:'instagram', orders:5,  revenue:1350,  tags:['Interested'],   lastSeen:'8m ago',   country:'EG' },
-  { id:'3',  name:'Omar Hassan',      phone:'+971 50 234 5678', email:'omar.h@company.ae',       ch:'messenger', orders:3,  revenue:740,   tags:['Price Obj.'],   lastSeen:'15m ago',  country:'AE' },
-  { id:'4',  name:'Layla Samir',      phone:'+971 55 876 5432', email:'layla.s@gmail.com',       ch:'livechat',  orders:8,  revenue:2960,  tags:['Follow Up'],    lastSeen:'22m ago',  country:'AE' },
-  { id:'5',  name:'Youssef Ali',      phone:'+20 122 456 7890', email:'youssef.ali@store.com',   ch:'whatsapp',  orders:21, revenue:9100,  tags:['VIP','Loyal'],  lastSeen:'35m ago',  country:'EG' },
-  { id:'6',  name:'Nour Adel',        phone:'+966 50 111 2233', email:'nour.adel@gmail.com',     ch:'instagram', orders:2,  revenue:380,   tags:[],               lastSeen:'1h ago',   country:'SA' },
-  { id:'7',  name:'Khaled Mansour',   phone:'+20 100 333 4444', email:'khaled.m@yahoo.com',      ch:'whatsapp',  orders:17, revenue:6540,  tags:['VIP'],          lastSeen:'2h ago',   country:'EG' },
-  { id:'8',  name:'Fatima Al-Zahra',  phone:'+966 55 444 5555', email:'fatima.z@business.sa',   ch:'messenger', orders:9,  revenue:3210,  tags:['Regular'],      lastSeen:'3h ago',   country:'SA' },
-  { id:'9',  name:'Mostafa Ibrahim',  phone:'+20 115 666 7777', email:'mostafa.i@gmail.com',     ch:'livechat',  orders:4,  revenue:1020,  tags:['New Lead'],     lastSeen:'5h ago',   country:'EG' },
-  { id:'10', name:'Rania Fouad',      phone:'+971 52 888 9999', email:'rania.f@work.ae',         ch:'whatsapp',  orders:14, revenue:5600,  tags:['VIP','Loyal'],  lastSeen:'1d ago',   country:'AE' },
-  { id:'11', name:'Tarek Saleh',      phone:'+20 100 222 3333', email:'tarek.s@mail.com',        ch:'instagram', orders:1,  revenue:199,   tags:[],               lastSeen:'2d ago',   country:'EG' },
-  { id:'12', name:'Dina Kamal',       phone:'+966 54 777 8888', email:'dina.k@company.sa',       ch:'whatsapp',  orders:6,  revenue:2100,  tags:['Follow Up'],    lastSeen:'3d ago',   country:'SA' },
-  { id:'13', name:'Bassem Naguib',    phone:'+20 111 000 1111', email:'bassem.n@gmail.com',      ch:'messenger', orders:19, revenue:8250,  tags:['VIP'],          lastSeen:'4d ago',   country:'EG' },
-  { id:'14', name:'Amira Lotfy',      phone:'+971 56 333 4444', email:'amira.l@hotmail.com',     ch:'livechat',  orders:7,  revenue:2590,  tags:['Regular'],      lastSeen:'5d ago',   country:'AE' },
-  { id:'15', name:'Sherif Wahba',     phone:'+20 122 555 6666', email:'sherif.w@business.com',   ch:'whatsapp',  orders:11, revenue:4100,  tags:['Loyal'],        lastSeen:'1w ago',   country:'EG' },
-];
+/* ── Constants ────────────────────────────────────────────────────────────── */
+const CH_ICONS = { whatsapp: Smartphone, instagram: Camera, messenger: MessageCircle, livechat: Monitor };
+const CH_COLORS = { whatsapp: '#25D366', instagram: '#E1306C', messenger: '#0099FF', livechat: '#ff5a1f' };
+const EMPTY_FORM = { name:'', phone:'', email:'', channel:'whatsapp', country:'EG', tags:'', customFields:{} };
+const PAGE_SIZE = 50;
 
-const CH_ICON  = { whatsapp:'📱', instagram:'📸', messenger:'💬', livechat:'⚡' };
-const CH_COLOR = { whatsapp:'#25D366', instagram:'#E1306C', messenger:'#0099FF', livechat:'#6366f1' };
-const FLAG     = { EG:'🇪🇬', AE:'🇦🇪', SA:'🇸🇦' };
+/* ── Helpers ─────────────────────────────────────────────────────────────── */
+function ChannelIcon({ channel, className = 'h-4 w-4' }) {
+  const Icon = CH_ICONS[String(channel).toLowerCase()] || MessageCircle;
+  const color = CH_COLORS[String(channel).toLowerCase()] || 'currentColor';
+  return <Icon className={className} style={{ color }} />;
+}
 
-const EMPTY_FORM = { name:'', phone:'', email:'', ch:'whatsapp', country:'EG', tags:'', customFields:{} };
-
-function fmtRevenue(n) {
-  if (n >= 1000) return `EGP ${(n/1000).toFixed(1)}k`;
-  return `EGP ${n}`;
+/* ── Helpers ─────────────────────────────────────────────────────────────── */
+function fmtRevenue(n, currency = 'USD') {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 0,
+    }).format(n);
+  } catch {
+    return `${currency} ${Number(n).toLocaleString('en-US')}`;
+  }
 }
 
 function relativeTimeLabel(value) {
@@ -50,59 +121,56 @@ function relativeTimeLabel(value) {
 function normalizeContact(contact = {}) {
   return {
     ...contact,
-    lastSeen: relativeTimeLabel(contact.lastSeen),
+    ch: contact.channel || contact.ch || 'whatsapp',
+    lastSeenLabel: relativeTimeLabel(contact.lastSeen || contact.updated_at),
     customFields: contact.customFields || {},
+    tags: Array.isArray(contact.tags) ? contact.tags : [],
+    orders: contact.orders ?? 0,
+    revenue: contact.revenue ?? 0,
   };
 }
 
 /* ── Page ─────────────────────────────────────────────────────────────────── */
 export default function ContactsPage() {
+  const { currency } = useCurrency();
   const [contacts, setContacts]   = useState([]);
+  const [loading, setLoading]     = useState(true);
   const [search, setSearch]       = useState('');
   const [chFilter, setChFilter]   = useState('all');
   const [sort, setSort]           = useState({ col:'revenue', dir:'desc' });
   const [selected, setSelected]   = useState(new Set());
-  const [viewContact, setView]    = useState(null);
-  const [editModal, setEditModal] = useState(false);
-  const [deleteModal, setDelModal]= useState(false);
+  
+  // Modals
   const [addModal, setAddModal]   = useState(false);
+  const [editModal, setEditModal] = useState(false);
+  const [viewModal, setViewModal] = useState(false);
+  const [deleteModal, setDelModal]= useState(false);
+  
+  const [activeContact, setActiveContact] = useState(null);
   const [form, setForm]           = useState(EMPTY_FORM);
-  const [formError, setFormError] = useState('');
-  const [profileFields, setProfileFields] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadPageData() {
-      setLoading(true);
-      try {
-        const [customers, settings] = await Promise.all([
-          api.get('/api/customers'),
-          api.get('/api/settings'),
-        ]);
-
-        if (cancelled) return;
-
-        setContacts(Array.isArray(customers) ? customers.map(normalizeContact) : []);
-        setProfileFields(Array.isArray(settings?.profileFields) ? settings.profileFields : []);
-      } catch (err) {
-        if (!cancelled) {
-          toast.error(err.message || 'Could not load contacts');
-          setContacts(SEED_CONTACTS);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    loadPageData();
-    return () => {
-      cancelled = true;
-    };
+    loadContacts();
   }, []);
 
-  /* ── derived list ─────────────────────────────────────────────────────── */
+  async function loadContacts() {
+    setLoading(true);
+    try {
+      const data = await api.get('/api/customers');
+      setContacts(Array.isArray(data) ? data.map(normalizeContact) : []);
+    } catch (err) {
+      toast.error(err.message || 'Could not load contacts');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Reset page when filters change
+  React.useEffect(() => { setPage(0); }, [search, chFilter, sort]);
+
   const displayed = useMemo(() => {
     let list = contacts.filter(c => {
       if (chFilter !== 'all' && c.ch !== chFilter) return false;
@@ -124,7 +192,9 @@ export default function ContactsPage() {
     return list;
   }, [contacts, search, chFilter, sort]);
 
-  /* ── stats ────────────────────────────────────────────────────────────── */
+  const pageRows = useMemo(() => displayed.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [displayed, page]);
+  const totalPages = Math.max(1, Math.ceil(displayed.length / PAGE_SIZE));
+
   const stats = useMemo(() => ({
     total:   contacts.length,
     revenue: contacts.reduce((s, c) => s + c.revenue, 0),
@@ -132,534 +202,596 @@ export default function ContactsPage() {
     vip:     contacts.filter(c => c.tags.includes('VIP')).length,
   }), [contacts]);
 
-  /* ── selection ────────────────────────────────────────────────────────── */
-  function toggleSelect(id) {
-    setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  }
-  function toggleAll() {
-    if (selected.size === displayed.length) setSelected(new Set());
-    else setSelected(new Set(displayed.map(c => c.id)));
-  }
-
-  /* ── sort helper ──────────────────────────────────────────────────────── */
-  function toggleSort(col) {
-    setSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'desc' });
-  }
-  function SortIcon({ col }) {
-    if (sort.col !== col) return <span style={{ opacity:0.3, marginLeft:4 }}>↕</span>;
-    return <span style={{ color:'#818cf8', marginLeft:4 }}>{sort.dir === 'asc' ? '↑' : '↓'}</span>;
-  }
-
-  /* ── add / edit / delete ──────────────────────────────────────────────── */
-  function openAdd() {
+  /* ── Actions ──────────────────────────────────────────────────────────── */
+  function handleOpenAdd() {
     setForm(EMPTY_FORM);
-    setFormError('');
     setAddModal(true);
   }
 
-  function openEdit(c, e) {
-    e?.stopPropagation();
+  function handleOpenEdit(c) {
     setForm({
-      name:c.name,
-      phone:c.phone,
-      email:c.email,
-      ch:c.ch,
-      country:c.country,
-      tags:c.tags.join(', '),
+      name: c.name,
+      phone: c.phone,
+      email: c.email,
+      channel: c.ch,
+      country: c.country || 'EG',
+      tags: c.tags.join(', '),
       customFields: c.customFields || {},
     });
-    setFormError('');
-    setView(c);
+    setActiveContact(c);
     setEditModal(true);
   }
 
-  async function saveContact(isNew) {
-    if (!form.name.trim()) { setFormError('Name is required'); return; }
-    if (!form.phone.trim()) { setFormError('Phone is required'); return; }
-    const tagsArr = form.tags.split(',').map(t => t.trim()).filter(Boolean);
+  function handleOpenView(c) {
+    setActiveContact(c);
+    setViewModal(true);
+  }
 
+  async function handleSaveContact(isNew) {
+    if (!form.name.trim()) return toast.error('Name is required');
+    if (!form.phone.trim()) return toast.error('Phone is required');
+    
+    setSubmitting(true);
+    const tagsArr = form.tags.split(',').map(t => t.trim()).filter(Boolean);
     const payload = {
+      ...form,
       name: form.name.trim(),
       phone: form.phone.trim(),
       email: form.email.trim(),
-      channel: form.ch,
-      country: form.country,
       tags: tagsArr,
-      customFields: form.customFields || {},
     };
 
     try {
       if (isNew) {
         const created = await api.post('/api/customers', payload);
-        setContacts((current) => [normalizeContact(created), ...current]);
+        const contactToAdd = created || {
+          id: `demo-${Date.now()}`,
+          ...payload,
+          orders: 0,
+          revenue: 0,
+          lastSeen: new Date().toISOString(),
+        };
+        setContacts(prev => [normalizeContact(contactToAdd), ...prev]);
         setAddModal(false);
-        toast.success('Contact added');
+        toast.success('Contact created');
       } else {
-        const updated = await api.patch(`/api/customers/${viewContact.id}`, payload);
-        setContacts((current) => current.map((entry) => (
-          entry.id === viewContact.id ? normalizeContact(updated) : entry
-        )));
-        setView((current) => current?.id === viewContact.id ? normalizeContact(updated) : current);
+        const updated = await api.patch(`/api/customers/${activeContact.id}`, payload);
+        const contactToUpdate = updated || {
+          ...activeContact,
+          ...payload,
+        };
+        setContacts(prev => prev.map(c => c.id === activeContact.id ? normalizeContact(contactToUpdate) : c));
         setEditModal(false);
         toast.success('Contact updated');
       }
-      setFormError('');
     } catch (err) {
-      setFormError(err.message || 'Could not save contact');
+      toast.error(err.message || 'Operation failed');
+    } finally {
+      setSubmitting(false);
     }
   }
 
-  function confirmDelete(c, e) {
-    e?.stopPropagation();
-    setView(c);
-    setDelModal(true);
-  }
-
-  async function deleteContact() {
+  async function handleDelete() {
+    if (!activeContact) return;
+    setSubmitting(true);
     try {
-      await api.delete(`/api/customers/${viewContact.id}`);
-      setContacts(c => c.filter(x => x.id !== viewContact.id));
-      setSelected(s => { const n = new Set(s); n.delete(viewContact.id); return n; });
+      await api.delete(`/api/customers/${activeContact.id}`);
+      setContacts(prev => prev.filter(c => c.id !== activeContact.id));
+      setSelected(prev => { const n = new Set(prev); n.delete(activeContact.id); return n; });
       setDelModal(false);
-      toast.success('Contact moved to recycle bin');
+      setViewModal(false);
+      toast.success('Contact removed');
     } catch (err) {
-      toast.error(err.message || 'Could not delete contact');
+      toast.error(err.message || 'Delete failed');
+    } finally {
+      setSubmitting(false);
     }
   }
 
-  async function deleteSelected() {
-    const ids = Array.from(selected);
+  /* ── Export ───────────────────────────────────────────────────────────── */
+  async function exportToCSV() {
+    setExporting(true);
     try {
-      await Promise.all(ids.map((id) => api.delete(`/api/customers/${id}`)));
-      setContacts(c => c.filter(x => !selected.has(x.id)));
-      setSelected(new Set());
-      toast.success(`${ids.length} contacts moved to recycle bin`);
+      const headers = ['Name', 'Phone', 'Email', 'Channel', 'Country', 'Tags', 'Orders', 'Revenue', 'Last Seen'];
+      const rows = displayed.map(c => [
+        c.name,
+        c.phone,
+        c.email,
+        c.ch,
+        c.country,
+        c.tags.join('; '),
+        c.orders,
+        c.revenue,
+        c.lastSeenLabel
+      ]);
+
+      const csvContent = [headers, ...rows].map(r => r.join(',')).join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `contacts_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      toast.success('CSV Exported');
     } catch (err) {
-      toast.error(err.message || 'Could not delete selected contacts');
+      toast.error('Export failed');
+    } finally {
+      setExporting(false);
     }
   }
 
-  /* ── contact form ─────────────────────────────────────────────────────── */
-  function ContactForm({ isNew }) {
-    const customProfileFields = profileFields.filter((field) => !field.system);
-    return (
-      <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-        {formError && (
-          <div style={{ padding:'10px 14px', borderRadius:10, background:'rgba(239,68,68,0.08)',
-            border:'1px solid rgba(239,68,68,0.2)', color:'#fca5a5', fontSize:13 }}>
-            {formError}
+  async function exportToExcel() {
+    setExporting(true);
+    try {
+      const data = displayed.map(c => ({
+        Name: c.name,
+        Phone: c.phone,
+        Email: c.email,
+        Channel: c.ch,
+        Country: c.country,
+        Tags: c.tags.join(', '),
+        Orders: c.orders,
+        Revenue: c.revenue,
+        'Last Seen': c.lastSeenLabel
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Contacts');
+      XLSX.writeFile(wb, `contacts_export_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      toast.success('Excel Exported');
+    } catch (err) {
+      toast.error('Export failed');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  /* ── Render ───────────────────────────────────────────────────────────── */
+  return (
+    <div className="p-8 pb-12 flex flex-col gap-8 max-w-[1600px] mx-auto animate-in fade-in duration-500">
+      <SectionHeader 
+        title="Contact Registry" 
+        description="Manage your customer database, track spending patterns, and segment audiences."
+      >
+        <div className="flex items-center gap-3">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-9 gap-2 shadow-sm bg-background" disabled={exporting}>
+                <Download className="h-3.5 w-3.5" />
+                {exporting ? 'Exporting...' : 'Export'}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel>Export Options</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={exportToCSV} className="gap-2 cursor-pointer font-medium">
+                <FileCsv className="h-4 w-4 text-muted-foreground" />
+                Download CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={exportToExcel} className="gap-2 cursor-pointer font-medium">
+                <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                Download Excel
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button onClick={handleOpenAdd} size="sm" className="h-9 gap-2 bg-primary shadow-sm font-semibold">
+            <Plus className="h-3.5 w-3.5" />
+            Add Contact
+          </Button>
+        </div>
+      </SectionHeader>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label:'Total Contacts', value:stats.total,               icon:Users, color:'#6366f1' },
+          { label:'Total Revenue',  value:fmtRevenue(stats.revenue, currency), icon:Download, color:'#10b981' },
+          { label:'Total Orders',   value:stats.orders,              icon:Filter, color:'#06b6d4' },
+          { label:'VIP Contacts',   value:stats.vip,                 icon:History, color:'#f59e0b' },
+        ].map(s => (
+          <Card key={s.label} className="border bg-card">
+            <CardContent className="p-6 flex items-center gap-4">
+              <div 
+                className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ backgroundColor: `${s.color}10`, border: `1px solid ${s.color}20` }}
+              >
+                <s.icon className="h-5 w-5" style={{ color: s.color }} />
+              </div>
+              <div>
+                <p className="text-xl font-semibold tracking-tight" style={{ color: s.color }}>{s.value}</p>
+                <p className="text-[12px] font-medium text-muted-foreground mt-0.5">{s.label}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="border shadow-sm bg-card overflow-hidden">
+        <CardHeader className="bg-muted/5 border-b pb-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
+              <Input 
+                placeholder="Search database..." 
+                className="pl-9 bg-background border-input"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0">
+              {['all','whatsapp','instagram','messenger','livechat'].map(f => (
+                <Button
+                  key={f}
+                  variant={chFilter === f ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setChFilter(f)}
+                  className={cn(
+                    "h-8 rounded-full text-[11px] font-medium transition-all",
+                    chFilter === f ? "bg-primary shadow-sm" : "bg-background border-border"
+                  )}
+                >
+                  {f === 'all' ? 'All Channels' : (
+                    <span className="flex items-center gap-1.5 capitalize">
+                      <ChannelIcon channel={f} className="h-3.5 w-3.5" /> {f}
+                    </span>
+                  )}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent bg-muted/10">
+                <TableHead className="w-[50px]">
+                  <input 
+                    type="checkbox" 
+                    className="rounded border-input text-primary focus:ring-primary h-4 w-4"
+                    checked={selected.size === displayed.length && displayed.length > 0}
+                    onChange={() => {
+                      if (selected.size === displayed.length) setSelected(new Set());
+                      else setSelected(new Set(displayed.map(c => c.id)));
+                    }}
+                  />
+                </TableHead>
+                <TableHead className="cursor-pointer group" onClick={() => setSort({ col:'name', dir: sort.dir === 'asc' ? 'desc' : 'asc' })}>
+                  <div className="flex items-center gap-2">
+                    Name
+                    <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-50 transition-opacity" />
+                  </div>
+                </TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead className="hidden md:table-cell">Email</TableHead>
+                <TableHead className="text-center">Channel</TableHead>
+                <TableHead className="text-center cursor-pointer group" onClick={() => setSort({ col:'orders', dir: sort.dir === 'asc' ? 'desc' : 'asc' })}>
+                  <div className="flex items-center justify-center gap-2">
+                    Orders
+                    <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-50 transition-opacity" />
+                  </div>
+                </TableHead>
+                <TableHead className="text-right cursor-pointer group" onClick={() => setSort({ col:'revenue', dir: sort.dir === 'asc' ? 'desc' : 'asc' })}>
+                  <div className="flex items-center justify-end gap-2">
+                    Revenue
+                    <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-50 transition-opacity" />
+                  </div>
+                </TableHead>
+                <TableHead className="w-[80px]"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell><Skeleton className="h-4 w-4 rounded" /></TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="h-8 w-8 rounded-full shrink-0" />
+                        <div className="space-y-1.5">
+                          <Skeleton className="h-4 w-28" />
+                          <Skeleton className="h-3 w-16 opacity-70" />
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell><Skeleton className="h-3.5 w-24" /></TableCell>
+                    <TableCell className="hidden md:table-cell"><Skeleton className="h-3.5 w-32" /></TableCell>
+                    <TableCell className="text-center"><Skeleton className="h-4 w-4 mx-auto rounded" /></TableCell>
+                    <TableCell className="text-center"><Skeleton className="h-3.5 w-8 mx-auto" /></TableCell>
+                    <TableCell className="text-right"><Skeleton className="h-3.5 w-16 ml-auto" /></TableCell>
+                    <TableCell />
+                  </TableRow>
+                ))
+              ) : displayed.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-32 text-center text-muted-foreground italic text-sm">
+                    No contacts found matching your criteria.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                pageRows.map((c) => (
+                  <TableRow 
+                    key={c.id} 
+                    className={cn(
+                      "cursor-pointer transition-colors group",
+                      selected.has(c.id) ? "bg-primary/5" : "hover:bg-muted/20"
+                    )}
+                    onClick={() => handleOpenView(c)}
+                  >
+                    <TableCell onClick={e => e.stopPropagation()}>
+                      <input 
+                        type="checkbox" 
+                        className="rounded border-input text-primary focus:ring-primary h-4 w-4"
+                        checked={selected.has(c.id)}
+                        onChange={() => {
+                          const n = new Set(selected);
+                          if (n.has(c.id)) n.delete(c.id); else n.add(c.id);
+                          setSelected(n);
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-8 w-8 border">
+                          <AvatarFallback className="bg-primary/5 text-primary text-[11px] font-semibold">
+                            {c.name[0]}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-medium text-sm truncate">{c.name}</span>
+                          <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                            {c.country && <span className="font-medium">{c.country}</span>}
+                            {c.lastSeenLabel}
+                            {c.tags.includes('VIP') && <Badge className="h-3.5 px-1 text-[9px] bg-amber-500/10 text-amber-600 border-none font-medium">VIP</Badge>}
+                          </span>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-[12px] text-muted-foreground">{c.phone}</TableCell>
+                    <TableCell className="hidden md:table-cell text-[12px] max-w-[150px] truncate text-muted-foreground">{c.email}</TableCell>
+                    <TableCell className="text-center">
+                      <span className="flex justify-center"><ChannelIcon channel={c.ch} className="h-4 w-4" /></span>
+                    </TableCell>
+                    <TableCell className="text-center font-medium text-sm">{c.orders}</TableCell>
+                    <TableCell className="text-right font-semibold text-sm text-emerald-600">{fmtRevenue(c.revenue, currency)}</TableCell>
+                    <TableCell className="text-right" onClick={e => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleOpenView(c)} className="gap-2 font-medium">
+                            <ExternalLink className="h-3.5 w-3.5" /> View Profile
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleOpenEdit(c)} className="gap-2 font-medium">
+                            <Edit2 className="h-3.5 w-3.5" /> Edit Details
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => { setActiveContact(c); setDelModal(true); }} className="gap-2 text-destructive font-medium">
+                            <Trash2 className="h-3.5 w-3.5" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-6 py-3 border-t text-xs text-muted-foreground">
+            <span>{page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, displayed.length)} of {displayed.length}</span>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}>Prev</Button>
+              <span className="font-medium">{page + 1} / {totalPages}</span>
+              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}>Next</Button>
+            </div>
           </div>
         )}
-        {[
-          { key:'name',    label:'Full Name',   type:'text',  ph:'Ahmed Mohamed' },
-          { key:'phone',   label:'Phone',        type:'text',  ph:'+20 100 123 4567' },
-          { key:'email',   label:'Email',        type:'email', ph:'email@example.com' },
-        ].map(f => (
-          <div key={f.key}>
-            <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>{f.label}</label>
-            <input className="input" type={f.type} placeholder={f.ph} style={{ fontSize:13 }}
-              value={form[f.key]} onChange={e => setForm(x => ({ ...x, [f.key]: e.target.value }))} />
-          </div>
-        ))}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-          <div>
-            <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>Channel</label>
-            <select className="input" style={{ fontSize:13 }}
-              value={form.ch} onChange={e => setForm(x => ({ ...x, ch: e.target.value }))}>
-              {['whatsapp','instagram','messenger','livechat'].map(c => (
-                <option key={c} value={c}>{CH_ICON[c]} {c}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>Country</label>
-            <select className="input" style={{ fontSize:13 }}
-              value={form.country} onChange={e => setForm(x => ({ ...x, country: e.target.value }))}>
-              <option value="EG">🇪🇬 Egypt</option>
-              <option value="AE">🇦🇪 UAE</option>
-              <option value="SA">🇸🇦 Saudi Arabia</option>
-            </select>
-          </div>
-        </div>
-        <div>
-          <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>
-            Tags <span style={{ fontWeight:400, color:'var(--t4)' }}>(comma-separated)</span>
-          </label>
-          <input className="input" style={{ fontSize:13 }} placeholder="VIP, Loyal, Follow Up…"
-            value={form.tags} onChange={e => setForm(x => ({ ...x, tags: e.target.value }))} />
-        </div>
-        {customProfileFields.length > 0 && (
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-            {customProfileFields.map((field) => (
-              <div key={field.id}>
-                <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>
-                  {field.label}{field.required ? ' *' : ''}
-                </label>
-                <input
-                  className="input"
-                  type={field.type === 'number' ? 'number' : 'text'}
-                  placeholder={field.label}
-                  style={{ fontSize:13 }}
-                  value={form.customFields?.[field.label] || ''}
-                  onChange={(e) => setForm((current) => ({
-                    ...current,
-                    customFields: {
-                      ...(current.customFields || {}),
-                      [field.label]: e.target.value,
-                    },
-                  }))}
+      </Card>
+
+      {/* ── Add/Edit Modal ────────────────────────────────────────────────── */}
+      <Dialog open={addModal || editModal} onOpenChange={(o) => { if(!o) { setAddModal(false); setEditModal(false); } }}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>{addModal ? 'Add New Contact' : 'Edit Contact Profile'}</DialogTitle>
+            <DialogDescription>
+              {addModal 
+                ? 'Register a new customer node in your workspace.' 
+                : 'Modify identity and segmentation tags for this contact.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-5 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="name">Full Name</Label>
+              <Input 
+                id="name" 
+                placeholder="Ahmed Mohamed" 
+                value={form.name} 
+                onChange={e => setForm({...form, name: e.target.value})}
+                className="h-10"
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="phone">Phone Number</Label>
+                <Input 
+                  id="phone" 
+                  placeholder="+20 100..." 
+                  value={form.phone} 
+                  onChange={e => setForm({...form, phone: e.target.value})}
+                  className="h-10 font-mono text-sm"
                 />
               </div>
-            ))}
-          </div>
-        )}
-        <div style={{ display:'flex', gap:10, marginTop:4 }}>
-          <button className="btn btn-ghost" style={{ flex:1 }}
-            onClick={() => isNew ? setAddModal(false) : setEditModal(false)}>Cancel</button>
-          <button className="btn btn-primary" style={{ flex:2 }}
-            onClick={() => saveContact(isNew)}>
-            {isNew ? '+ Add Contact' : '✓ Save Changes'}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  /* ── render ───────────────────────────────────────────────────────────── */
-  return (
-    <>
-      <div style={{ padding:'28px 28px 40px', maxWidth:1200 }}>
-
-        {/* Header */}
-        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between',
-          marginBottom:24, gap:12, flexWrap:'wrap' }}>
-          <div>
-            <h1 style={{ fontSize:22, fontWeight:800, letterSpacing:'-0.03em', color:'var(--t1)', marginBottom:4 }}>
-              Contacts
-            </h1>
-            <p style={{ fontSize:13, color:'var(--t4)' }}>
-              {loading ? 'Loading contacts…' : `${contacts.length} contacts · ${displayed.length} shown`}
-            </p>
-          </div>
-          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-            {selected.size > 0 && (
-              <button className="btn btn-sm" onClick={deleteSelected}
-                style={{ background:'rgba(239,68,68,0.1)', color:'#fca5a5',
-                  border:'1px solid rgba(239,68,68,0.2)', fontWeight:600 }}>
-                🗑 Delete {selected.size} selected
-              </button>
-            )}
-            <button className="btn btn-primary btn-sm" onClick={openAdd}>+ Add Contact</button>
-          </div>
-        </div>
-
-        {/* Stats */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14, marginBottom:24 }}>
-          {[
-            { label:'Total Contacts', value:stats.total,               icon:'👥', color:'#818cf8' },
-            { label:'Total Revenue',  value:fmtRevenue(stats.revenue), icon:'💰', color:'#34d399' },
-            { label:'Total Orders',   value:stats.orders,              icon:'📦', color:'#38bdf8' },
-            { label:'VIP Contacts',   value:stats.vip,                 icon:'⭐', color:'#fbbf24' },
-          ].map(s => (
-            <div key={s.label} style={{ padding:'18px 20px', borderRadius:14, background:'var(--bg2)',
-              border:'1px solid var(--b1)', display:'flex', alignItems:'center', gap:14 }}>
-              <div style={{ width:42, height:42, borderRadius:11, background:`${s.color}14`,
-                display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>
-                {s.icon}
-              </div>
-              <div>
-                <p style={{ fontSize:20, fontWeight:800, color:s.color, letterSpacing:'-0.03em',
-                  fontFamily:'Space Grotesk', lineHeight:1 }}>{s.value}</p>
-                <p style={{ fontSize:12, color:'var(--t4)', marginTop:3 }}>{s.label}</p>
+              <div className="grid gap-2">
+                <Label htmlFor="email">Email Address</Label>
+                <Input 
+                  id="email" 
+                  type="email"
+                  placeholder="name@company.com" 
+                  value={form.email} 
+                  onChange={e => setForm({...form, email: e.target.value})}
+                  className="h-10"
+                />
               </div>
             </div>
-          ))}
-        </div>
 
-        {/* Filters */}
-        <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
-          <input className="input" style={{ fontSize:13, width:260 }}
-            placeholder="Search by name, email or phone…"
-            value={search} onChange={e => setSearch(e.target.value)} />
-          <div style={{ display:'flex', gap:4 }}>
-            {['all','whatsapp','instagram','messenger','livechat'].map(f => (
-              <button key={f} onClick={() => setChFilter(f)}
-                style={{ fontSize:11, padding:'5px 11px', borderRadius:99, fontWeight:600, cursor:'pointer',
-                  background: chFilter===f ? 'rgba(99,102,241,0.15)' : 'var(--s1)',
-                  color:       chFilter===f ? '#a5b4fc' : 'var(--t4)',
-                  border:      chFilter===f ? '1px solid rgba(99,102,241,0.3)' : '1px solid var(--b1)',
-                  transition:'all 0.15s' }}>
-                {f === 'all' ? 'All channels' : CH_ICON[f]}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Table */}
-        <div style={{ background:'var(--bg2)', border:'1px solid var(--b1)', borderRadius:16, overflow:'hidden' }}>
-          {/* Table header */}
-          <div style={{ display:'grid',
-            gridTemplateColumns:'40px 2fr 1.4fr 1.5fr 80px 90px 110px 170px',
-            gap:0, padding:'0 16px', borderBottom:'1px solid var(--b1)',
-            background:'rgba(255,255,255,0.02)' }}>
-            {/* Checkbox */}
-            <div style={{ display:'flex', alignItems:'center', padding:'12px 0' }}>
-              <input type="checkbox" style={{ cursor:'pointer', accentColor:'#6366f1', width:15, height:15 }}
-                checked={selected.size === displayed.length && displayed.length > 0}
-                onChange={toggleAll} />
-            </div>
-            {/* Name */}
-            <div style={{ padding:'12px 8px', fontSize:11.5, fontWeight:600, color:'var(--t4)',
-              textTransform:'uppercase', letterSpacing:'0.06em', display:'flex', alignItems:'center' }}>
-              Name
-            </div>
-            {/* Phone */}
-            <div style={{ padding:'12px 8px', fontSize:11.5, fontWeight:600, color:'var(--t4)',
-              textTransform:'uppercase', letterSpacing:'0.06em', display:'flex', alignItems:'center' }}>
-              Phone
-            </div>
-            {/* Email */}
-            <div style={{ padding:'12px 8px', fontSize:11.5, fontWeight:600, color:'var(--t4)',
-              textTransform:'uppercase', letterSpacing:'0.06em', display:'flex', alignItems:'center' }}>
-              Email
-            </div>
-            {/* Channel */}
-            <div style={{ padding:'12px 8px', fontSize:11.5, fontWeight:600, color:'var(--t4)',
-              textTransform:'uppercase', letterSpacing:'0.06em', display:'flex', alignItems:'center' }}>
-              Ch.
-            </div>
-            {/* Orders */}
-            <button onClick={() => toggleSort('orders')}
-              style={{ padding:'12px 8px', fontSize:11.5, fontWeight:600, color:'var(--t4)',
-                textTransform:'uppercase', letterSpacing:'0.06em', display:'flex', alignItems:'center',
-                background:'none', border:'none', cursor:'pointer', textAlign:'left' }}>
-              Orders <SortIcon col="orders" />
-            </button>
-            {/* Revenue */}
-            <button onClick={() => toggleSort('revenue')}
-              style={{ padding:'12px 8px', fontSize:11.5, fontWeight:600, color:'var(--t4)',
-                textTransform:'uppercase', letterSpacing:'0.06em', display:'flex', alignItems:'center',
-                background:'none', border:'none', cursor:'pointer', textAlign:'left' }}>
-              Revenue <SortIcon col="revenue" />
-            </button>
-            {/* Actions */}
-            <div style={{ padding:'12px 8px', fontSize:11.5, fontWeight:600, color:'var(--t4)',
-              textTransform:'uppercase', letterSpacing:'0.06em', display:'flex', alignItems:'center' }}>
-              Actions
-            </div>
-          </div>
-
-          {/* Rows */}
-          {displayed.length === 0 ? (
-            <div style={{ padding:'48px', textAlign:'center', color:'var(--t4)', fontSize:14 }}>
-              No contacts found
-            </div>
-          ) : displayed.map((c, i) => (
-            <div key={c.id}
-              onClick={() => setView(c)}
-              style={{ display:'grid',
-                gridTemplateColumns:'40px 2fr 1.4fr 1.5fr 80px 90px 110px 170px',
-                gap:0, padding:'0 16px', cursor:'pointer',
-                borderBottom: i < displayed.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
-                background: selected.has(c.id) ? 'rgba(99,102,241,0.06)' : 'transparent',
-                transition:'background 0.1s' }}
-              onMouseEnter={e => { if (!selected.has(c.id)) e.currentTarget.style.background='var(--s1)'; }}
-              onMouseLeave={e => { if (!selected.has(c.id)) e.currentTarget.style.background='transparent'; }}>
-
-              {/* Checkbox */}
-              <div style={{ display:'flex', alignItems:'center', padding:'14px 0' }}
-                onClick={e => { e.stopPropagation(); toggleSelect(c.id); }}>
-                <input type="checkbox" style={{ cursor:'pointer', accentColor:'#6366f1', width:15, height:15 }}
-                  checked={selected.has(c.id)} onChange={() => {}} />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Primary Channel</Label>
+                <Select value={form.channel} onValueChange={v => setForm({...form, channel: v})}>
+                  <SelectTrigger className="h-10 bg-background font-medium text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {['whatsapp', 'instagram', 'messenger', 'livechat'].map((id) => (
+                      <SelectItem key={id} value={id} className="capitalize">
+                        <span className="flex items-center gap-2">
+                          <ChannelIcon channel={id} className="h-3.5 w-3.5" />
+                          {id}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
+              <div className="grid gap-2">
+                <Label>Country/Region</Label>
+                <Select value={form.country} onValueChange={v => setForm({...country, country: v})}>
+                  <SelectTrigger className="h-10 bg-background font-medium text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="EG">Egypt (EG)</SelectItem>
+                    <SelectItem value="AE">UAE (AE)</SelectItem>
+                    <SelectItem value="SA">Saudi Arabia (SA)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
-              {/* Name */}
-              <div style={{ display:'flex', alignItems:'center', gap:10, padding:'14px 8px' }}>
-                <div style={{ width:34, height:34, borderRadius:'50%', flexShrink:0,
-                  background:'linear-gradient(135deg,rgba(99,102,241,0.22),rgba(139,92,246,0.18))',
-                  display:'flex', alignItems:'center', justifyContent:'center',
-                  fontWeight:700, fontSize:13, color:'var(--t1)' }}>
-                  {c.name[0]}
-                </div>
-                <div style={{ minWidth:0 }}>
-                  <p style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)',
-                    whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.name}</p>
-                  <p style={{ fontSize:11, color:'var(--t4)', marginTop:1 }}>
-                    {FLAG[c.country]} {c.lastSeen}
-                    {c.tags.includes('VIP') && (
-                      <span style={{ marginLeft:6, color:'#fbbf24', fontSize:10, fontWeight:700 }}>⭐ VIP</span>
-                    )}
-                  </p>
+            <div className="grid gap-2">
+              <Label htmlFor="tags">
+                Tags <span className="font-normal italic opacity-50 ml-1">(comma separated)</span>
+              </Label>
+              <Input 
+                id="tags" 
+                placeholder="VIP, Loyal, Follow Up..." 
+                value={form.tags} 
+                onChange={e => setForm({...form, tags: e.target.value})}
+                className="h-10"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="bg-muted/10 p-6 -mx-6 -mb-6 mt-2 border-t">
+            <Button variant="ghost" onClick={() => { setAddModal(false); setEditModal(false); }} className="font-medium">Cancel</Button>
+            <Button 
+              onClick={() => handleSaveContact(addModal)} 
+              disabled={submitting} 
+              className="bg-primary px-8 font-semibold"
+            >
+              {submitting ? 'Processing...' : (addModal ? 'Initialize Contact' : 'Save Changes')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── View Detail Modal ─────────────────────────────────────────────── */}
+      <Dialog open={viewModal} onOpenChange={setViewModal}>
+        <DialogContent className="sm:max-w-[460px] p-0 overflow-hidden">
+          {activeContact && (
+            <div className="flex flex-col">
+              <div className="p-8 bg-muted/5 border-b">
+                <div className="flex items-center gap-6">
+                  <Avatar className="h-20 w-20 border-4 border-background shadow-xl">
+                    <AvatarFallback className="bg-primary/5 text-primary text-2xl font-bold uppercase">
+                      {activeContact.name[0]}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-xl font-semibold truncate leading-tight">{activeContact.name}</h3>
+                    <div className="flex items-center gap-2 mt-2">
+                      <Badge variant="outline" className="bg-background text-[10px] font-medium py-0.5 px-2 flex items-center gap-1.5">
+                        <ChannelIcon channel={activeContact.ch} className="h-3 w-3" />
+                        {activeContact.ch}
+                      </Badge>
+                      {activeContact.country && (
+                        <Badge variant="outline" className="bg-background text-[10px] font-medium py-0.5 px-2 flex items-center gap-1.5">
+                          <Globe className="h-3 w-3 text-muted-foreground" />
+                          {activeContact.country}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mt-3">
+                      {activeContact.tags.map(t => (
+                        <Badge key={t} variant="secondary" className="bg-primary/5 text-primary border-primary/10 text-[10px] font-medium py-0">{t}</Badge>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Phone */}
-              <div style={{ display:'flex', alignItems:'center', padding:'14px 8px' }}>
-                <span style={{ fontSize:13, color:'var(--t2)', fontFamily:'monospace' }}>{c.phone}</span>
-              </div>
-
-              {/* Email */}
-              <div style={{ display:'flex', alignItems:'center', padding:'14px 8px', minWidth:0 }}>
-                <span style={{ fontSize:12.5, color:'var(--t3)', overflow:'hidden',
-                  textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.email}</span>
-              </div>
-
-              {/* Channel */}
-              <div style={{ display:'flex', alignItems:'center', padding:'14px 8px' }}>
-                <span style={{ fontSize:16 }} title={c.ch}>{CH_ICON[c.ch]}</span>
-              </div>
-
-              {/* Orders */}
-              <div style={{ display:'flex', alignItems:'center', padding:'14px 8px' }}>
-                <span style={{ fontSize:13.5, fontWeight:700, color:'var(--t1)' }}>{c.orders}</span>
-              </div>
-
-              {/* Revenue */}
-              <div style={{ display:'flex', alignItems:'center', padding:'14px 8px' }}>
-                <span style={{ fontSize:13.5, fontWeight:700, color:'#34d399' }}>{fmtRevenue(c.revenue)}</span>
-              </div>
-
-              {/* Actions */}
-              <div style={{ display:'flex', alignItems:'center', gap:6, padding:'14px 8px' }}
-                onClick={e => e.stopPropagation()}>
-                <Link href={`/dashboard/contacts/timeline?id=${encodeURIComponent(c.id)}`}
-                  style={{ fontSize:11, padding:'4px 9px', borderRadius:7, cursor:'pointer', fontWeight:600,
-                    background:'rgba(6,182,212,0.09)', color:'#67e8f9',
-                    border:'1px solid rgba(6,182,212,0.18)', transition:'all 0.15s' }}>
-                  Timeline
-                </Link>
-                <button onClick={e => openEdit(c, e)}
-                  style={{ fontSize:11, padding:'4px 9px', borderRadius:7, cursor:'pointer', fontWeight:600,
-                    background:'rgba(99,102,241,0.1)', color:'#a5b4fc',
-                    border:'1px solid rgba(99,102,241,0.2)', transition:'all 0.15s' }}
-                  onMouseEnter={e => e.currentTarget.style.background='rgba(99,102,241,0.2)'}
-                  onMouseLeave={e => e.currentTarget.style.background='rgba(99,102,241,0.1)'}>
-                  Edit
-                </button>
-                <button onClick={e => confirmDelete(c, e)}
-                  style={{ fontSize:11, padding:'4px 9px', borderRadius:7, cursor:'pointer', fontWeight:600,
-                    background:'rgba(239,68,68,0.07)', color:'#fca5a5',
-                    border:'1px solid rgba(239,68,68,0.15)', transition:'all 0.15s' }}
-                  onMouseEnter={e => e.currentTarget.style.background='rgba(239,68,68,0.15)'}
-                  onMouseLeave={e => e.currentTarget.style.background='rgba(239,68,68,0.07)'}>
-                  ✕
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Footer count */}
-        {displayed.length > 0 && (
-          <p style={{ fontSize:12, color:'var(--t4)', marginTop:12, textAlign:'center' }}>
-            Showing {displayed.length} of {contacts.length} contacts
-            {selected.size > 0 && ` · ${selected.size} selected`}
-          </p>
-        )}
-      </div>
-
-      {/* ── Contact Detail Modal ──────────────────────────────────────────── */}
-      <Modal open={!!viewContact && !editModal && !deleteModal}
-        onClose={() => setView(null)} title="Contact Details" width={460}>
-        {viewContact && (
-          <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
-            {/* Avatar + name */}
-            <div style={{ display:'flex', alignItems:'center', gap:16, marginTop:-4 }}>
-              <div style={{ width:58, height:58, borderRadius:'50%', flexShrink:0,
-                background:'linear-gradient(135deg,rgba(99,102,241,0.25),rgba(139,92,246,0.2))',
-                display:'flex', alignItems:'center', justifyContent:'center',
-                fontWeight:800, fontSize:22, border:'2px solid rgba(99,102,241,0.2)' }}>
-                {viewContact.name[0]}
-              </div>
-              <div>
-                <p style={{ fontSize:17, fontWeight:800, color:'var(--t1)' }}>{viewContact.name}</p>
-                <p style={{ fontSize:13, color:CH_COLOR[viewContact.ch], marginTop:2 }}>
-                  {CH_ICON[viewContact.ch]} {viewContact.ch} · {FLAG[viewContact.country]}
-                </p>
-                <div style={{ display:'flex', gap:5, marginTop:6, flexWrap:'wrap' }}>
-                  {viewContact.tags.map(t => (
-                    <span key={t} style={{ fontSize:10.5, padding:'2px 8px', borderRadius:99,
-                      background:'rgba(99,102,241,0.12)', color:'#a5b4fc',
-                      border:'1px solid rgba(99,102,241,0.2)', fontWeight:600 }}>{t}</span>
+              <div className="p-8 space-y-6">
+                <div className="space-y-3">
+                  {[
+                    { label: 'Identity / Phone', value: activeContact.phone, icon: History },
+                    { label: 'Contact / Email', value: activeContact.email || 'No email saved', icon: Search },
+                    { label: 'System / Last Seen', value: activeContact.lastSeenLabel, icon: ChevronRight },
+                  ].map(row => (
+                    <div key={row.label} className="flex items-center justify-between p-3.5 rounded-xl bg-muted/10 border border-border/30">
+                      <span className="text-[11px] font-medium text-muted-foreground/60">{row.label}</span>
+                      <span className="text-[13px] font-semibold text-foreground">{row.value}</span>
+                    </div>
                   ))}
                 </div>
-              </div>
-            </div>
 
-            {/* Contact info */}
-            <div style={{ background:'var(--s1)', borderRadius:12, border:'1px solid var(--b1)', overflow:'hidden' }}>
-              {[
-                { label:'📞 Phone',   value: viewContact.phone,   mono:true },
-                { label:'✉️ Email',   value: viewContact.email,   mono:false },
-                { label:'⏱ Last seen', value: viewContact.lastSeen, mono:false },
-              ].map((r, i, arr) => (
-                <div key={r.label} style={{ display:'flex', justifyContent:'space-between',
-                  alignItems:'center', padding:'12px 16px',
-                  borderBottom: i < arr.length-1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                  <span style={{ fontSize:13, color:'var(--t4)' }}>{r.label}</span>
-                  <span style={{ fontSize:13, fontWeight:600, color:'var(--t1)',
-                    fontFamily: r.mono ? 'monospace' : 'inherit' }}>{r.value}</span>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-5 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 text-center">
+                    <p className="text-3xl font-bold text-indigo-600 tracking-tight">{activeContact.orders}</p>
+                    <p className="text-[11px] font-medium text-indigo-500/60 mt-1 uppercase">Total Orders</p>
+                  </div>
+                  <div className="p-5 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 text-center">
+                    <p className="text-2xl font-bold text-emerald-600 tracking-tight">{fmtRevenue(activeContact.revenue, currency)}</p>
+                    <p className="text-[11px] font-medium text-emerald-500/60 mt-2 uppercase">Fiscal Lifetime</p>
+                  </div>
                 </div>
-              ))}
-            </div>
-
-            {/* Stats */}
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-              <div style={{ padding:'16px', borderRadius:12, background:'rgba(99,102,241,0.07)',
-                border:'1px solid rgba(99,102,241,0.15)', textAlign:'center' }}>
-                <p style={{ fontSize:26, fontWeight:800, color:'#818cf8',
-                  fontFamily:'Space Grotesk', letterSpacing:'-0.03em' }}>{viewContact.orders}</p>
-                <p style={{ fontSize:12, color:'var(--t4)', marginTop:4 }}>Total Orders</p>
               </div>
-              <div style={{ padding:'16px', borderRadius:12, background:'rgba(52,211,153,0.07)',
-                border:'1px solid rgba(52,211,153,0.15)', textAlign:'center' }}>
-                <p style={{ fontSize:26, fontWeight:800, color:'#34d399',
-                  fontFamily:'Space Grotesk', letterSpacing:'-0.03em' }}>{fmtRevenue(viewContact.revenue)}</p>
-                <p style={{ fontSize:12, color:'var(--t4)', marginTop:4 }}>Delivered Revenue</p>
+
+              <div className="p-6 bg-muted/10 flex items-center gap-3 border-t">
+                <Button variant="outline" className="flex-1 font-semibold h-11" onClick={() => setViewModal(false)}>Close</Button>
+                <Button variant="outline" className="flex-1 font-semibold h-11 text-destructive hover:bg-destructive/5" onClick={() => setDelModal(true)}>Delete</Button>
+                <Button className="flex-1 font-semibold h-11 bg-primary shadow-sm" onClick={() => handleOpenEdit(activeContact)}>Edit Profile</Button>
               </div>
             </div>
-
-            {/* Actions */}
-            <div style={{ display:'flex', gap:8 }}>
-              <button className="btn btn-ghost" style={{ flex:1 }}
-                onClick={() => setView(null)}>Close</button>
-              <button className="btn btn-ghost" style={{ flex:1, color:'#fca5a5', borderColor:'rgba(239,68,68,0.2)' }}
-                onClick={e => confirmDelete(viewContact, e)}>🗑 Delete</button>
-              <button className="btn btn-primary" style={{ flex:1 }}
-                onClick={e => openEdit(viewContact, e)}>Edit</button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* ── Add Contact Modal ─────────────────────────────────────────────── */}
-      <Modal open={addModal} onClose={() => setAddModal(false)} title="Add Contact" width={480}>
-        <ContactForm isNew={true} />
-      </Modal>
-
-      {/* ── Edit Contact Modal ────────────────────────────────────────────── */}
-      <Modal open={editModal} onClose={() => setEditModal(false)}
-        title={`Edit — ${viewContact?.name}`} width={480}>
-        <ContactForm isNew={false} />
-      </Modal>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ── Delete Confirm Modal ──────────────────────────────────────────── */}
-      <Modal open={deleteModal} onClose={() => setDelModal(false)} title="Delete Contact" width={400}>
-        <div style={{ textAlign:'center', padding:'8px 0 4px' }}>
-          <div style={{ fontSize:44, marginBottom:12 }}>🗑</div>
-          <p style={{ fontSize:15, fontWeight:700, color:'var(--t1)', marginBottom:8 }}>Delete contact?</p>
-          <p style={{ fontSize:13, color:'var(--t3)', lineHeight:1.6 }}>
-            <strong style={{ color:'var(--t1)' }}>{viewContact?.name}</strong> will be permanently removed.
-            This cannot be undone.
-          </p>
-        </div>
-        <div style={{ display:'flex', gap:10, marginTop:4 }}>
-          <button className="btn btn-ghost" style={{ flex:1 }} onClick={() => setDelModal(false)}>Cancel</button>
-          <button className="btn" style={{ flex:1, background:'rgba(239,68,68,0.12)', color:'#fca5a5',
-            border:'1px solid rgba(239,68,68,0.25)', fontWeight:700 }}
-            onClick={deleteContact}>Delete</button>
-        </div>
-      </Modal>
-    </>
+      <Dialog open={deleteModal} onOpenChange={setDelModal}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Finalize Deletion?
+            </DialogTitle>
+            <DialogDescription className="pt-2 leading-relaxed">
+              This will permanently purge <strong className="text-foreground font-semibold">{activeContact?.name}</strong> from your production registry. This operation is irreversible.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="bg-muted/10 p-6 -mx-6 -mb-6 mt-4 border-t">
+            <Button variant="ghost" onClick={() => setDelModal(false)} className="font-medium">Keep Contact</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={submitting} className="font-semibold px-6">
+              {submitting ? 'Purging...' : 'Delete Permanently'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

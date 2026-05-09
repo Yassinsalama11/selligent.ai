@@ -13,10 +13,12 @@ export default function ComposerV2({
   filteredCanned,
   onInsertCanned,
   onManageCanned,
+  currentUser,
   fileInputRef,
   imageInputRef,
   onFileSelect,
 }) {
+  const canManageCanned = currentUser?.role === 'owner' || currentUser?.role === 'admin';
   return (
     <footer className="shrink-0 border-t border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-5 py-4">
       <input ref={fileInputRef} type="file" className="hidden" onChange={event => onFileSelect?.(event, 'file')} />
@@ -46,9 +48,11 @@ export default function ComposerV2({
                   <p className="mt-1 text-[12px] text-[var(--inbox-text-muted)]">Type `/` to filter, click to insert.</p>
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" onClick={onManageCanned} className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-elevated)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
-                    Manage
-                  </button>
+                  {canManageCanned && (
+                    <button type="button" onClick={onManageCanned} className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-elevated)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
+                      Manage
+                    </button>
+                  )}
                   <button type="button" onClick={() => setShowCannedPicker(false)} className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-elevated)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)]">
                     Close
                   </button>
@@ -61,7 +65,7 @@ export default function ComposerV2({
                   <button
                     type="button"
                     key={replyItem.id}
-                    onClick={() => onInsertCanned(replyItem.text)}
+                    onClick={() => onInsertCanned(replyItem.body || '')}
                     className="flex w-full items-start gap-3 border-b border-[var(--inbox-border)] px-4 py-3 text-left transition hover:bg-[var(--inbox-elevated)]"
                   >
                     <span className="shrink-0 rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-2 py-1 text-[12px] font-mono text-[var(--inbox-text-secondary)]">
@@ -69,7 +73,7 @@ export default function ComposerV2({
                     </span>
                     <span className="min-w-0">
                       <span className="block text-[14px] font-semibold text-[var(--inbox-text-primary)]">{replyItem.title}</span>
-                      <span className="mt-1 block truncate text-[12px] text-[var(--inbox-text-secondary)]" dir="auto">{replyItem.text}</span>
+                      <span className="mt-1 block truncate text-[12px] text-[var(--inbox-text-secondary)]" dir="auto">{replyItem.body}</span>
                     </span>
                   </button>
                 ))}

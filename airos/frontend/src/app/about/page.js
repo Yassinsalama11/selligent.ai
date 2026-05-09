@@ -1,74 +1,109 @@
 'use client';
+
 import Link from 'next/link';
-import Image from 'next/image';
+import { motion } from 'framer-motion';
+import { Globe, Zap, Brain } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import PublicNav from '@/components/PublicNav';
+import PublicFooter from '@/components/PublicFooter';
 
 export default function AboutPage() {
+  const values = [
+    { icon: Globe, title: 'Global first', desc: 'We build for businesses everywhere — supporting 50+ languages, local commerce patterns, and regional platform integrations.' },
+    { icon: Brain, title: 'AI with context', desc: 'Our AI understands conversation history, product catalogs, and brand voice — not just keywords.' },
+    { icon: Zap, title: 'Speed above all', desc: 'Every second of delay costs deals. We obsess over response time at every layer of the stack.' },
+  ];
+
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--t1)' }}>
-      <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Link href="/" style={{ textDecoration: 'none' }}>
-          <div style={{ display: 'inline-flex' }}>
-            <Image src="/ChatOrAi.png" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
-          </div>
-        </Link>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Link href="/login" style={{ fontSize: 13, color: 'var(--t3)', textDecoration: 'none' }}>Sign In</Link>
-          <Link href="/signup" style={{ fontSize: 13, color: '#818cf8', fontWeight: 600, textDecoration: 'none' }}>Start Free →</Link>
-        </div>
-      </nav>
+    <main className="min-h-screen bg-background antialiased">
+      <PublicNav />
 
       {/* Hero */}
-      <div style={{ maxWidth: 860, margin: '0 auto', padding: '80px 32px 60px', textAlign: 'center' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#818cf8', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16 }}>About Us</div>
-        <h1 style={{ fontSize: 'clamp(36px,5vw,64px)', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1.05, marginBottom: 24 }}>
-          Built for the <span style={{ background: 'linear-gradient(135deg,#818cf8,#a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Arabic internet economy</span>
-        </h1>
-        <p style={{ fontSize: 18, color: 'var(--t3)', lineHeight: 1.7, maxWidth: 640, margin: '0 auto' }}>
-          ChatOrAI was born from a simple frustration: Arabic eCommerce businesses were losing sales every day because they couldn't keep up with the volume of WhatsApp and Instagram messages pouring in.
-        </p>
-      </div>
+      <section className="pt-32 pb-16 px-6 md:px-10 relative overflow-hidden">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] bg-primary/[0.04] blur-[160px] rounded-full" />
+        </div>
+        <div className="max-w-3xl mx-auto text-center relative z-10">
+          <Badge variant="outline" className="bg-primary/5 text-primary border-primary/15 font-bold text-[10px] uppercase tracking-widest px-3 h-6 mb-6">
+            About Us
+          </Badge>
+          <h1 className="text-4xl md:text-6xl font-bold tracking-tight mb-6 leading-[0.95]">
+            Built to help businesses <span className="text-primary">sell more</span> through conversations
+          </h1>
+          <p className="text-base md:text-lg text-muted-foreground leading-relaxed max-w-2xl mx-auto">
+            ChatOrAI was born from a simple frustration: businesses were losing sales every day because they couldn&apos;t keep up with the volume of messages from customers across WhatsApp, Instagram, and other channels.
+          </p>
+        </div>
+      </section>
 
       {/* Story */}
-      <div style={{ maxWidth: 780, margin: '0 auto', padding: '0 32px 80px', fontSize: 16, color: 'var(--t2)', lineHeight: 1.9 }}>
-        <div style={{ borderLeft: '3px solid #6366f1', paddingLeft: 28, marginBottom: 40 }}>
-          <p style={{ fontSize: 20, fontStyle: 'italic', color: 'var(--t1)', lineHeight: 1.7 }}>
-            "Every morning, store owners woke up to 200+ unanswered messages. Deals were dying in their inboxes. We knew AI could fix this — if it actually understood Arabic commerce."
+      <section className="py-16 px-6 md:px-10">
+        <div className="max-w-3xl mx-auto space-y-8 text-[15px] text-muted-foreground leading-relaxed">
+          <blockquote className="border-l-2 border-primary pl-6 py-2">
+            <p className="text-lg text-foreground italic leading-relaxed">
+              &ldquo;Every morning, store owners woke up to hundreds of unanswered messages. Deals were dying in their inboxes. We knew AI could fix this — if it actually understood how people buy.&rdquo;
+            </p>
+            <p className="text-sm text-muted-foreground mt-3">— Yassin, Founder</p>
+          </blockquote>
+
+          <p>
+            We started by interviewing hundreds of eCommerce founders across the world. The problem was universal: customers message on WhatsApp at 2am asking about prices, stock, and shipping. By morning, the lead is cold. The sale is gone.
           </p>
-          <p style={{ marginTop: 12, fontSize: 14, color: 'var(--t4)' }}>— Yassin, Founder</p>
+          <p>
+            Existing tools weren&apos;t built for conversational commerce at scale. They didn&apos;t understand multilingual conversations, didn&apos;t know how to handle price negotiations, and had no concept of the real buying journey that happens over messaging.
+          </p>
+          <p>
+            So we built ChatOrAI — an AI that understands the intent behind every message, supports 50+ languages natively, and helps sales teams close deals in real-time across WhatsApp, Instagram, Messenger, and Live Chat from one unified workspace.
+          </p>
         </div>
+      </section>
 
-        <p style={{ marginBottom: 20 }}>We started by interviewing 50+ eCommerce founders across Egypt, Saudi Arabia, UAE, and Jordan. The problem was universal: customers message on WhatsApp at 2am asking about prices, stock, and shipping. By morning, the lead is cold. The sale is gone.</p>
-        <p style={{ marginBottom: 20 }}>Existing tools were built for English-speaking markets with different buying behaviors. They didn't understand Arabic dialects, didn't know how to handle price haggling, and had no concept of the MENA eCommerce buying journey.</p>
-        <p style={{ marginBottom: 20 }}>So we built ChatOrAI — an AI that actually speaks Arabic, understands the intent behind every message, and helps sales teams close deals in real-time across WhatsApp, Instagram, Messenger, and Live Chat from one unified workspace.</p>
-
-        {/* Values */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 20, margin: '48px 0' }}>
-          {[
-            { icon: '🌍', title: 'MENA-first', body: 'Everything we build is designed for Arabic eCommerce first — language, culture, buying behavior.' },
-            { icon: '🧠', title: 'AI with context', body: 'Our AI understands conversation history, product catalogs, and brand voice — not just keywords.' },
-            { icon: '⚡', title: 'Speed above all', body: 'Every second of delay costs deals. We obsess over response time at every layer of the stack.' },
-          ].map((v, i) => (
-            <div key={i} style={{ padding: '24px', borderRadius: 16, background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.15)' }}>
-              <div style={{ fontSize: 28, marginBottom: 12 }}>{v.icon}</div>
-              <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>{v.title}</h3>
-              <p style={{ fontSize: 13, color: 'var(--t3)', lineHeight: 1.7 }}>{v.body}</p>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ padding: '32px', borderRadius: 20, background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', textAlign: 'center', marginTop: 48 }}>
-          <h2 style={{ fontSize: 24, fontWeight: 800, marginBottom: 12 }}>Join us on the mission</h2>
-          <p style={{ color: 'var(--t3)', marginBottom: 24 }}>We're a small, focused team. If you're passionate about AI and the Arabic internet economy, we'd love to hear from you.</p>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-            <Link href="/careers" style={{ padding: '11px 24px', borderRadius: 10, background: '#6366f1', color: '#fff', fontWeight: 700, textDecoration: 'none', fontSize: 14 }}>View Open Roles</Link>
-            <Link href="/contact" style={{ padding: '11px 24px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--t2)', fontWeight: 600, textDecoration: 'none', fontSize: 14 }}>Get in Touch</Link>
+      {/* Values */}
+      <section className="py-16 px-6 md:px-10 bg-muted/5 border-y border-border/30">
+        <div className="max-w-5xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {values.map((v, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 10 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.1 }}
+                className="p-6 rounded-2xl bg-card border border-border/40 hover:border-primary/15 transition-colors"
+              >
+                <v.icon className="h-6 w-6 text-primary mb-4" />
+                <h3 className="text-base font-bold mb-2">{v.title}</h3>
+                <p className="text-[13px] text-muted-foreground leading-relaxed">{v.desc}</p>
+              </motion.div>
+            ))}
           </div>
         </div>
-      </div>
+      </section>
 
-      <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 32px', textAlign: 'center', fontSize: 13, color: 'var(--t4)' }}>
-        © {new Date().getFullYear()} ChatOrAI · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
-      </footer>
-    </div>
+      {/* CTA */}
+      <section className="py-20 px-6 md:px-10">
+        <div className="max-w-xl mx-auto text-center space-y-5">
+          <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Join us on the mission</h2>
+          <p className="text-sm text-muted-foreground">
+            We&apos;re a focused team building the future of conversational commerce. If you&apos;re passionate about AI and helping businesses grow, we&apos;d love to hear from you.
+          </p>
+          <div className="flex gap-3 justify-center">
+            <Link href="/careers">
+              <Button className="h-10 px-6 rounded-xl text-sm font-bold bg-primary text-white border-none shadow-md shadow-primary/15">
+                View Open Roles
+              </Button>
+            </Link>
+            <Link href="/contact">
+              <Button variant="outline" className="h-10 px-6 rounded-xl text-sm font-semibold">
+                Get in Touch
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <PublicFooter />
+    </main>
   );
 }

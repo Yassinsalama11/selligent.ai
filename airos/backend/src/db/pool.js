@@ -7,9 +7,10 @@ const IS_PRODUCTION_LIKE =
 
 const pool = new Pool({
   connectionString: DATABASE_URL || undefined,
-  connectionTimeoutMillis: 5000,
-  statement_timeout: 25000, // 25s strict timeout
-  max: 20, // Increase pool size from default 10 to 20 to reduce contention
+  connectionTimeoutMillis: 8000,
+  idleTimeoutMillis: 30000,
+  statement_timeout: 25000,
+  max: 30,
 });
 
 // Admin pool — for cross-tenant operations (auth login, registration).
@@ -17,9 +18,10 @@ const pool = new Pool({
 const ADMIN_DATABASE_URL = DATABASE_URL_ADMIN || (!IS_PRODUCTION_LIKE ? DATABASE_URL : '');
 const adminPool = new Pool({
   connectionString: ADMIN_DATABASE_URL || undefined,
-  connectionTimeoutMillis: 5000,
-  statement_timeout: 25000, // 25s strict timeout
-  max: 10,
+  connectionTimeoutMillis: 8000,
+  idleTimeoutMillis: 30000,
+  statement_timeout: 25000,
+  max: 15,
 });
 
 function databaseUnavailableError(message) {

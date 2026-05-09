@@ -1,11 +1,15 @@
 'use client';
+
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
+import { Bot, TrendingUp, Target, Zap, Loader2 } from 'lucide-react';
+import Logo from '@/components/Logo';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { api, setToken } from '@/lib/api';
 
-/* Demo credentials — pre-fill on click */
 const DEMO = { email: 'preview@demo.chatorai.local', password: 'preview1234' };
 
 export default function LoginPage() {
@@ -14,7 +18,6 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // If already logged in (trial JWT or regular token), go to dashboard
   useEffect(() => {
     const token = localStorage.getItem('airos_token');
     if (token) router.replace('/dashboard');
@@ -25,7 +28,6 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
 
-    // ── Demo bypass — works with no backend ──────────────────────────────
     if (form.email === DEMO.email && form.password === DEMO.password) {
       localStorage.setItem('airos_token', 'demo_token');
       localStorage.setItem('airos_demo', '1');
@@ -36,12 +38,13 @@ export default function LoginPage() {
     try {
       const data = await api.post('/api/auth/login', form);
       setToken(data.token);
+      if (data.user) localStorage.setItem('airos_user', JSON.stringify(data.user));
       router.push('/dashboard');
     } catch (err) {
       setError(
         err.message?.includes('fetch') || err.message?.includes('Network')
           ? 'Cannot reach server. Use the preview account to explore the dashboard.'
-          : err.message || 'Invalid credentials.'
+          : err.message || 'Invalid credentials.',
       );
     } finally {
       setLoading(false);
@@ -53,127 +56,104 @@ export default function LoginPage() {
     setError('');
   }
 
+  const features = [
+    { icon: Bot, text: 'AI detects intent on every message' },
+    { icon: Target, text: 'Leads scored 0-100 automatically' },
+    { icon: Zap, text: 'Reply suggestions in under 1 second' },
+  ];
+
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg)' }}>
+    <div className="min-h-screen flex bg-background">
       {/* Left panel */}
-      <div className="hide-sm" style={{ width: '44%', background: 'linear-gradient(160deg, rgba(99,102,241,0.12) 0%, rgba(139,92,246,0.08) 100%)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '48px 56px', position: 'relative', overflow: 'hidden' }}>
-        <div className="orb" style={{ width: 400, height: 400, top: -100, left: -100, background: 'radial-gradient(circle, rgba(99,102,241,0.2) 0%, transparent 65%)' }} />
-        <div className="orb" style={{ width: 300, height: 300, bottom: -60, right: -80, background: 'radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 65%)' }} />
+      <div className="hidden lg:flex w-[44%] flex-col justify-between p-12 relative overflow-hidden border-r border-border/40 bg-muted/5">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-[-15%] left-[-15%] w-[500px] h-[500px] bg-primary/[0.04] blur-[150px] rounded-full" />
+          <div className="absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] bg-violet-500/[0.03] blur-[130px] rounded-full" />
+        </div>
 
-        <Link href="/" style={{ textDecoration: 'none', position: 'relative', zIndex: 1, display: 'inline-flex' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-            <Image src="/ChatOrAi.png" alt="ChatOrAI" width={180} height={46}
-              style={{ height: 46, width: 'auto', objectFit: 'contain', display: 'block' }}
-              priority />
+        <Logo href="/" size="xl" className="relative z-10" />
+
+        <div className="relative z-10 space-y-8">
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight mb-3">
+              Your AI-powered <br /><span className="gt">revenue team</span>
+            </h2>
+            <p className="text-sm text-muted-foreground leading-relaxed max-w-sm">
+              Unify WhatsApp, Instagram, Messenger, and Live Chat.
+              Let AI handle intent detection, lead scoring, and reply generation — in any language.
+            </p>
           </div>
-        </Link>
 
-        <div style={{ position: 'relative', zIndex: 1 }}>
-          <h2 style={{ fontSize: 32, fontWeight: 900, marginBottom: 16, letterSpacing: '-0.03em' }}>
-            Your AI-powered<br /><span className="gt">revenue team</span>
-          </h2>
-          <p style={{ fontSize: 15, color: 'var(--t3)', lineHeight: 1.7, marginBottom: 40 }}>
-            Unify WhatsApp, Instagram, Messenger, and Live Chat. Let AI handle intent detection, lead scoring, and reply generation.
-          </p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {[
-              { icon: '🧠', text: 'AI detects intent on every message' },
-              { icon: '🎯', text: 'Lead scored 0–100 automatically' },
-              { icon: '⚡', text: 'Reply suggestion ready in <1 second' },
-            ].map(f => (
-              <div key={f.text} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'rgba(255,255,255,0.04)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.07)' }}>
-                <span style={{ fontSize: 22 }}>{f.icon}</span>
-                <span style={{ fontSize: 14, color: 'var(--t2)' }}>{f.text}</span>
+          <div className="space-y-3">
+            {features.map((f) => (
+              <div key={f.text} className="flex items-center gap-3 p-3.5 rounded-xl bg-card/50 border border-border/30 backdrop-blur-sm">
+                <f.icon className="h-5 w-5 text-primary shrink-0" />
+                <span className="text-[13px] font-medium">{f.text}</span>
               </div>
             ))}
           </div>
         </div>
 
-        <div style={{ fontSize: 13, color: 'var(--t4)', position: 'relative', zIndex: 1 }}>
-          Trusted by 200+ Arabic eCommerce businesses
-        </div>
+        <p className="text-xs text-muted-foreground/50 relative z-10">
+          Trusted by 2,500+ businesses in 30+ countries
+        </p>
       </div>
 
-      {/* Right panel — form */}
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 32px' }}>
-        <div style={{ width: '100%', maxWidth: 420 }}>
-          {/* Mobile logo */}
-          <div className="anim-up" style={{ display: 'flex', justifyContent: 'center', marginBottom: 40 }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-              <Image src="/ChatOrAi.png" alt="ChatOrAI" width={200} height={50}
-                style={{ height: 50, width: 'auto', objectFit: 'contain', display: 'block' }}
-                priority />
+      {/* Right panel */}
+      <div className="flex-1 flex items-center justify-center p-8 md:p-12">
+        <div className="w-full max-w-[400px]">
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+            <div className="lg:hidden flex justify-center mb-10">
+              <Logo size="xl" />
             </div>
-          </div>
 
-          <div className="anim-up" style={{ animationDelay: '0.05s' }}>
-            <h1 style={{ fontSize: 30, fontWeight: 900, letterSpacing: '-0.03em', marginBottom: 8, textAlign: 'center' }}>Welcome back</h1>
-            <p style={{ color: 'var(--t3)', fontSize: 14, textAlign: 'center', marginBottom: 36 }}>Sign in to your ChatOrAI dashboard</p>
-          </div>
+            <h1 className="text-2xl font-bold tracking-tight text-center mb-1">Welcome back</h1>
+            <p className="text-sm text-muted-foreground text-center mb-8">Sign in to your ChatOrAI dashboard</p>
 
-          {/* Demo credentials banner */}
-          <div className="anim-up" style={{ animationDelay: '0.1s', marginBottom: 24 }}>
-            <button onClick={fillDemo} style={{
-              width: '100%', padding: '14px 20px', borderRadius: 14, cursor: 'pointer', textAlign: 'left',
-              background: 'linear-gradient(135deg, rgba(99,102,241,0.1) 0%, rgba(139,92,246,0.08) 100%)',
-              border: '1px solid rgba(99,102,241,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              transition: 'border-color 0.2s',
-            }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#a5b4fc', marginBottom: 6 }}>🚀 Try the Preview Workspace</div>
-                <div style={{ fontSize: 12, color: 'var(--t4)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span>Email: <span style={{ color: 'var(--t2)', fontFamily: 'monospace' }}>{DEMO.email}</span></span>
-                  <span>Password: <span style={{ color: 'var(--t2)', fontFamily: 'monospace' }}>{DEMO.password}</span></span>
-                </div>
-              </div>
-              <span style={{ fontSize: 13, color: '#a5b4fc', background: 'rgba(99,102,241,0.15)', padding: '5px 12px', borderRadius: 8, fontWeight: 600, flexShrink: 0, marginLeft: 12 }}>Fill →</span>
+            {/* Preview workspace entry */}
+            <button
+              onClick={fillDemo}
+              className="w-full p-3.5 rounded-xl bg-muted/40 border border-border/60 hover:border-primary/20 hover:bg-muted/60 transition-colors mb-6 group flex items-center justify-between"
+            >
+              <span className="text-[12px] font-medium text-muted-foreground">Explore the preview workspace</span>
+              <span className="text-[11px] font-semibold text-primary group-hover:translate-x-0.5 transition-transform">→</span>
             </button>
-          </div>
 
-          <div className="anim-up" style={{ animationDelay: '0.15s' }}>
             {error && (
-              <div style={{ marginBottom: 20, padding: '12px 16px', borderRadius: 12, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#fca5a5', fontSize: 13 }}>
+              <div className="mb-5 p-3.5 rounded-xl bg-destructive/5 border border-destructive/15 text-[13px] text-destructive">
                 {error}
               </div>
             )}
 
-            <form onSubmit={handleSubmit}>
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--t2)', marginBottom: 8 }}>Email</label>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="text-[12px] font-semibold text-muted-foreground block mb-1.5">Email</label>
                 <input type="email" className="input" placeholder="you@company.com"
-                  value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
+                  value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} required />
               </div>
-
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--t2)' }}>Password</label>
-                  <a href="#" style={{ fontSize: 13, color: '#818cf8', textDecoration: 'none' }}>Forgot?</a>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[12px] font-semibold text-muted-foreground">Password</label>
+                  <Link href="/reset-password" className="text-[12px] text-primary hover:underline font-medium">Forgot?</Link>
                 </div>
-                <input type="password" className="input" placeholder="••••••••"
-                  value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required />
+                <input type="password" className="input" placeholder="Enter your password"
+                  value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} required />
               </div>
-
-              <button type="submit" disabled={loading} className="btn btn-primary" style={{ width: '100%', padding: '13px', fontSize: 15, justifyContent: 'center', borderRadius: 14 }}>
-                {loading
-                  ? <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <svg style={{ animation: 'anim-spin 1s linear infinite', width: 18, height: 18 }} viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="40 60" />
-                      </svg>
-                      Signing in...
-                    </span>
-                  : 'Sign In →'
-                }
-              </button>
+              <Button type="submit" disabled={loading} className="w-full h-11 rounded-xl text-sm font-bold bg-primary text-white border-none shadow-md shadow-primary/15">
+                {loading ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Signing in...
+                  </span>
+                ) : 'Sign In'}
+              </Button>
             </form>
 
-            <p style={{ textAlign: 'center', fontSize: 14, color: 'var(--t4)', marginTop: 24 }}>
+            <p className="text-center text-[13px] text-muted-foreground mt-6">
               Don&apos;t have an account?{' '}
-              <Link href="/signup" style={{ color: '#818cf8', textDecoration: 'none', fontWeight: 600 }}>
-                Start free trial
-              </Link>
+              <Link href="/signup" className="text-primary font-semibold hover:underline">Start free trial</Link>
             </p>
-          </div>
+          </motion.div>
         </div>
       </div>
     </div>

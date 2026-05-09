@@ -1,5 +1,17 @@
+const { randomBytes } = require('crypto');
+
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function ensureDeptId(dept) {
+  if (!isPlainObject(dept)) return dept;
+  return dept.id ? dept : { ...dept, id: randomBytes(8).toString('hex') };
+}
+
+function ensureBrandId(brand) {
+  if (!isPlainObject(brand)) return brand;
+  return brand.id ? brand : { ...brand, id: randomBytes(8).toString('hex') };
 }
 
 const DEFAULT_AI_CONFIG = {
@@ -9,8 +21,48 @@ const DEFAULT_AI_CONFIG = {
   temperature: 0.4,
   maxTokens: 300,
   systemPrompt: 'You are a helpful assistant for an eCommerce business. Reply in the same language as the customer.',
+  businessRules: '',
+  refundComplaintRules: '',
+  escalationRules: '',
+  knowledgeSourcePriority: ['companyProfile', 'knowledgeBase', 'productCatalog', 'policies', 'faq'],
+  modelPreference: '',
   autoReply: false,
   suggestOnly: true,
+  identity: {
+    persona: '',
+    defaultLanguage: 'ar',
+    secondaryLanguage: 'en',
+    tone: 'friendly and professional',
+    formality: 'semi-formal',
+    brandPersonality: '',
+    greetingStyle: '',
+    closingStyle: '',
+  },
+  responseControl: {
+    confidenceThreshold: 50,
+    maxConsecutiveReplies: 5,
+    escalationThreshold: 3,
+    silentModeConditions: '',
+    businessHoursAiBehavior: 'auto',
+    afterHoursAiBehavior: 'suggest',
+  },
+  forbiddenActions: [],
+  handoffRules: [],
+  leadQualification: {},
+  knowledgeSources: {
+    companyProfile: true,
+    knowledgeBase: true,
+    productCatalog: true,
+    faq: true,
+    policies: true,
+  },
+  safety: {
+    piiRestriction: true,
+    gdprMode: false,
+    legalComplianceMode: false,
+    promptInjectionProtection: true,
+  },
+  channelOverrides: {},
 };
 
 const DEFAULT_GLOBAL_SETTINGS = {
@@ -74,9 +126,31 @@ function normalizeTenantSettings(rawSettings = {}) {
     ...DEFAULT_GLOBAL_SETTINGS,
     ...(isPlainObject(settings.global) ? settings.global : {}),
   };
+  const rawAiConfig = isPlainObject(settings.aiConfig) ? settings.aiConfig : {};
   settings.aiConfig = {
     ...DEFAULT_AI_CONFIG,
-    ...(isPlainObject(settings.aiConfig) ? settings.aiConfig : {}),
+    ...rawAiConfig,
+    identity: {
+      ...DEFAULT_AI_CONFIG.identity,
+      ...(isPlainObject(rawAiConfig.identity) ? rawAiConfig.identity : {}),
+    },
+    responseControl: {
+      ...DEFAULT_AI_CONFIG.responseControl,
+      ...(isPlainObject(rawAiConfig.responseControl) ? rawAiConfig.responseControl : {}),
+    },
+    knowledgeSources: {
+      ...DEFAULT_AI_CONFIG.knowledgeSources,
+      ...(isPlainObject(rawAiConfig.knowledgeSources) ? rawAiConfig.knowledgeSources : {}),
+    },
+    safety: {
+      ...DEFAULT_AI_CONFIG.safety,
+      ...(isPlainObject(rawAiConfig.safety) ? rawAiConfig.safety : {}),
+    },
+    forbiddenActions: Array.isArray(rawAiConfig.forbiddenActions) ? rawAiConfig.forbiddenActions : DEFAULT_AI_CONFIG.forbiddenActions,
+    handoffRules: Array.isArray(rawAiConfig.handoffRules) ? rawAiConfig.handoffRules : DEFAULT_AI_CONFIG.handoffRules,
+    knowledgeSourcePriority: Array.isArray(rawAiConfig.knowledgeSourcePriority) ? rawAiConfig.knowledgeSourcePriority : DEFAULT_AI_CONFIG.knowledgeSourcePriority,
+    leadQualification: isPlainObject(rawAiConfig.leadQualification) ? rawAiConfig.leadQualification : DEFAULT_AI_CONFIG.leadQualification,
+    channelOverrides: isPlainObject(rawAiConfig.channelOverrides) ? rawAiConfig.channelOverrides : DEFAULT_AI_CONFIG.channelOverrides,
   };
   settings.profanity = Array.isArray(settings.profanity) ? settings.profanity : [];
   settings.profanityControls = {
@@ -95,16 +169,18 @@ function normalizeTenantSettings(rawSettings = {}) {
   settings.routing = Array.isArray(settings.routing) ? settings.routing : [];
   settings.spammers = Array.isArray(settings.spammers) ? settings.spammers : [];
   settings.operators = Array.isArray(settings.operators) ? settings.operators : [];
-  settings.depts = Array.isArray(settings.depts) ? settings.depts : [];
+  settings.depts = Array.isArray(settings.depts) ? settings.depts.map(ensureDeptId) : [];
   settings.profileFields = Array.isArray(settings.profileFields) ? settings.profileFields : [];
   settings.emailTpls = Array.isArray(settings.emailTpls) ? settings.emailTpls : [];
   settings.tags = Array.isArray(settings.tags) ? settings.tags : [];
-  settings.brands = Array.isArray(settings.brands) ? settings.brands : [];
+  settings.tagMeta = isPlainObject(settings.tagMeta) ? settings.tagMeta : {};
+  settings.brands = Array.isArray(settings.brands) ? settings.brands.map(ensureBrandId) : [];
   settings.channels = isPlainObject(settings.channels) ? settings.channels : {};
   settings.layout = {
     ...DEFAULT_CONVERSATION_LAYOUT,
     ...(isPlainObject(settings.layout) ? settings.layout : {}),
   };
+  settings.cannedResponses = Array.isArray(settings.cannedResponses) ? settings.cannedResponses : [];
   settings.triggers = Array.isArray(settings.triggers) ? settings.triggers : [];
   settings.schedReports = Array.isArray(settings.schedReports) ? settings.schedReports : [];
   settings.recycled = Array.isArray(settings.recycled) ? settings.recycled : [];
@@ -120,15 +196,22 @@ function normalizeTenantSettings(rawSettings = {}) {
     ...DEFAULT_WHATSAPP_SETTINGS,
     ...(isPlainObject(settings.waSettings) ? settings.waSettings : {}),
   };
+  settings.importConfig = isPlainObject(settings.importConfig) ? settings.importConfig : {};
 
   return settings;
 }
 
-function buildCompanyContext(tenant = {}) {
+function buildCompanyContext(tenant = {}, options = {}) {
+  const channel = typeof options === 'string' ? options : options.channel;
   const settings = normalizeTenantSettings(tenant.settings);
   const company = isPlainObject(settings.company) ? settings.company : {};
+  const brandOverrideId = channel && isPlainObject(settings.channels?.[channel])
+    ? String(settings.channels[channel].brandId || '').trim()
+    : '';
   const activeBrand = Array.isArray(settings.brands)
-    ? settings.brands.find((brand) => brand?.active) || settings.brands[0]
+    ? settings.brands.find((brand) => brandOverrideId && String(brand?.id || '') === brandOverrideId)
+      || settings.brands.find((brand) => brand?.active)
+      || settings.brands[0]
     : null;
 
   return {
@@ -140,8 +223,28 @@ function buildCompanyContext(tenant = {}) {
     industry: company.industry || '',
     currency: company.currency || '',
     timezone: company.timezone || '',
-    brandTone: activeBrand?.tone || '',
-    brandLanguage: activeBrand?.lang || settings.global.defaultLang || '',
+    brandTone: activeBrand?.tone || company.brandTone || '',
+    brandLanguage: activeBrand?.lang || settings.global.defaultLang || company.defaultLanguage || '',
+    forbiddenTopics: [company.forbiddenTopics, settings.global.globalForbiddenTopics].filter(Boolean).join('\n') || '',
+    escalationRules: company.escalationRules || '',
+  };
+}
+
+function getChannelGreetingText(tenantSettings = {}, channel, date = new Date()) {
+  const settings = normalizeTenantSettings(tenantSettings);
+  const channelCfg = isPlainObject(settings.channels?.[channel]) ? settings.channels[channel] : {};
+  const businessHoursMode = String(channelCfg.businessHoursMode || 'global');
+  const withinHours = businessHoursMode === 'always' || businessHoursMode === 'off'
+    ? true
+    : isWithinWorkingHours(settings.global, date);
+  const text = withinHours
+    ? String(channelCfg.welcomeMessage || '').trim()
+    : String(channelCfg.awayMessage || '').trim();
+
+  return {
+    businessHoursMode,
+    withinHours,
+    text,
   };
 }
 
@@ -170,9 +273,31 @@ function isBlockedSpammer(customer = {}, spammers = []) {
 
   if (values.length === 0) return false;
 
-  return spammers.some((entry) => {
+  const now = new Date();
+
+  // Partition into whitelist and blocklist
+  const whitelist = [];
+  const blocklist = [];
+  for (const entry of spammers) {
+    if (entry?.whitelisted) whitelist.push(entry);
+    else blocklist.push(entry);
+  }
+
+  // Whitelisted entries override blocks
+  const isWhitelisted = whitelist.some((entry) => {
     const value = typeof entry?.value === 'string' ? entry.value.trim().toLowerCase() : '';
-    return value && values.includes(value);
+    if (!value || !values.includes(value)) return false;
+    if (entry.temporary && entry.expiresAt && new Date(entry.expiresAt) < now) return false;
+    return true;
+  });
+  if (isWhitelisted) return false;
+
+  return blocklist.some((entry) => {
+    const value = typeof entry?.value === 'string' ? entry.value.trim().toLowerCase() : '';
+    if (!value || !values.includes(value)) return false;
+    // Expired temporary bans are treated as lifted
+    if (entry.temporary && entry.expiresAt && new Date(entry.expiresAt) < now) return false;
+    return true;
   });
 }
 
@@ -214,6 +339,7 @@ module.exports = {
   isPlainObject,
   normalizeTenantSettings,
   buildCompanyContext,
+  getChannelGreetingText,
   containsProfanity,
   isBlockedSpammer,
   isWithinWorkingHours,

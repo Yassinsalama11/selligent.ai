@@ -4,17 +4,28 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 
+import { Smartphone, Camera, MessageCircle, Monitor, Cloud, Headphones } from 'lucide-react';
 import { api } from '@/lib/api';
 import { connectSocket } from '@/lib/socket';
 
 const CHANNEL_ICON = {
-  whatsapp: '📱',
-  instagram: '📸',
-  messenger: '💬',
-  livechat: '⚡',
-  intercom: '☁',
-  zendesk: '🎧',
+  whatsapp:  Smartphone,
+  instagram: Camera,
+  messenger: MessageCircle,
+  livechat:  Monitor,
+  intercom:  Cloud,
+  zendesk:   Headphones,
 };
+
+function ChannelLabel({ channel }) {
+  const Icon = CHANNEL_ICON[String(channel || '').toLowerCase()] || MessageCircle;
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:4 }}>
+      <Icon style={{ width:12, height:12, display:'inline', opacity:0.7 }} />
+      {channel}
+    </span>
+  );
+}
 
 function money(value) {
   return `$${Number(value || 0).toLocaleString()}`;
@@ -164,7 +175,7 @@ export default function CustomerTimelinePage() {
               </div>
               <div>
                 <p style={{ fontSize:16, fontWeight:900, color:'var(--t1)' }}>{customer.name || 'Unnamed customer'}</p>
-                <p style={{ fontSize:12, color:'var(--t4)' }}>{CHANNEL_ICON[customer.channel] || '•'} {customer.channel}</p>
+                <p style={{ fontSize:12, color:'var(--t4)' }}><ChannelLabel channel={customer.channel} /></p>
               </div>
             </div>
 
@@ -235,7 +246,7 @@ export default function CustomerTimelinePage() {
                 <div>
                   <p style={{ fontSize:13, fontWeight:900, color:'var(--t1)', textTransform:event.type === 'deal' ? 'capitalize' : 'none' }}>{event.title}</p>
                   <p style={{ fontSize:12.5, color:'var(--t3)', marginTop:4, whiteSpace:'pre-wrap' }}>{event.description || 'No details'}</p>
-                  {event.channel && <p style={{ fontSize:11.5, color:'var(--t4)', marginTop:6 }}>{CHANNEL_ICON[event.channel] || '•'} {event.channel}</p>}
+                  {event.channel && <p style={{ fontSize:11.5, color:'var(--t4)', marginTop:6 }}><ChannelLabel channel={event.channel} /></p>}
                 </div>
                 <span style={{ fontSize:11.5, color:'var(--t4)', textAlign:'right' }}>{time(event.timestamp)}</span>
               </div>

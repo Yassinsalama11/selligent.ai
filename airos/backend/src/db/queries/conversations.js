@@ -1,6 +1,6 @@
 const { queryAdmin } = require('../pool');
 const { decryptMessageContent, buildMessageSearchTokens } = require('./messages');
-const { delCache, invalidatePattern } = require('../cache');
+const { delCache, invalidatePattern, getCache, setCache } = require('../cache');
 const { enqueueJob } = require('../../core/queue');
 
 async function getOrCreateConversation(tenantId, customerId, channel, client) {
@@ -60,6 +60,13 @@ async function listConversations(tenantId, {
   viewerRole,
   viewerId,
 } = {}, client) {
+  // Cache non-search list results for 15 seconds (invalidated on any mutation)
+  const cacheKey = !search ? `${status || 'all'}:${channel || 'all'}:${assigned_to || 'all'}:${priority || 'all'}:${limit}:${offset}:${viewerId || 'none'}` : null;
+  if (cacheKey) {
+    const cached = await getCache(tenantId, 'conversations', cacheKey);
+    if (cached) return cached;
+  }
+
   const conditions = ['c.tenant_id = $1'];
   const params = [tenantId];
   let i = 2;
@@ -127,10 +134,15 @@ async function listConversations(tenantId, {
     ? await client.query(sql, params)
     : await queryAdmin(sql, params);
 
-  return res.rows.map((row) => ({
+  const rows = res.rows.map((row) => ({
     ...row,
     last_message: row.last_message_preview || null,
   }));
+
+  if (cacheKey) {
+    setCache(tenantId, 'conversations', cacheKey, rows, 15).catch(() => {});
+  }
+  return rows;
 }
 
 async function updateConversationStatus(tenantId, conversationId, status, client) {
@@ -145,8 +157,8 @@ async function updateConversationStatus(tenantId, conversationId, status, client
   `, [status, conversationId, tenantId]);
   
   if (res.rows[0]) {
-    await delCache(tenantId, 'dashboard', 'summary');
-    await invalidatePattern(tenantId, 'conversations');
+    delCache(tenantId, 'dashboard', 'summary').catch(() => {});
+    invalidatePattern(tenantId, 'conversations').catch(() => {});
     enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
     enqueueJob('refresh_daily_report', { tenantId }).catch(() => {});
   }
@@ -194,9 +206,8 @@ async function assignConversation(tenantId, conversationId, userId, client) {
     LIMIT 1
   `, [conversationId, tenantId]);
 
-  await delCache(tenantId, 'dashboard', 'summary');
-  await invalidatePattern(tenantId, 'conversations');
-
+  delCache(tenantId, 'dashboard', 'summary').catch(() => {});
+  invalidatePattern(tenantId, 'conversations').catch(() => {});
   enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
 
   const row = enriched.rows[0] || res.rows[0];
@@ -224,8 +235,8 @@ async function updateConversationAiMode(tenantId, conversationId, aiMode, client
   `, [mode, conversationId, tenantId]);
 
   if (res.rows[0]) {
-    await delCache(tenantId, 'dashboard', 'summary');
-    await invalidatePattern(tenantId, 'conversations');
+    delCache(tenantId, 'dashboard', 'summary').catch(() => {});
+    invalidatePattern(tenantId, 'conversations').catch(() => {});
   }
 
   return res.rows[0];

@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import Logo from '@/components/Logo';
 import toast, { Toaster } from 'react-hot-toast';
-import { adminApi, setAdminSession } from '@/lib/adminApi';
+import { adminApi, hasAdminSession, setAdminSession } from '@/lib/adminApi';
 
 export default function AdminLogin() {
   const router = useRouter();
@@ -18,6 +19,11 @@ export default function AdminLogin() {
 
   useEffect(() => {
     let cancelled = false;
+    if (!hasAdminSession()) {
+      return () => {
+        cancelled = true;
+      };
+    }
     adminApi.get('/api/admin/auth/me')
       .then(() => {
         if (!cancelled) router.replace('/admin');
@@ -89,9 +95,7 @@ export default function AdminLogin() {
 
         <div style={{ width:'100%', maxWidth:420, background:'var(--bg2)', border:'1px solid var(--b1)', borderRadius:20, padding:'36px 32px 32px', boxShadow:'0 24px 80px rgba(0,0,0,0.5)', position:'relative', zIndex:1 }}>
           <div style={{ display:'flex', justifyContent:'center', marginBottom:28 }}>
-            <div style={{ display:'inline-flex', alignItems:'center' }}>
-              <Image src="/ChatOrAi.png" alt="ChatOrAI" width={140} height={34} style={{ height:34, width:'auto', objectFit:'contain', display:'block' }} priority />
-            </div>
+            <Logo size="lg" />
           </div>
 
           <div style={{ display:'flex', justifyContent:'center', marginBottom:22 }}>

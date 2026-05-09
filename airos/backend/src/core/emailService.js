@@ -1,96 +1,46 @@
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function renderTemplateString(template, variables = {}) {
-  return String(template || '').replace(/\{\{\s*([^}]+)\s*\}\}/g, (_, rawKey) => {
-    const key = String(rawKey || '').trim();
-    if (Object.prototype.hasOwnProperty.call(variables, key)) {
-      return String(variables[key] ?? '');
-    }
-
-    const numericKey = Number.parseInt(key, 10);
-    if (Number.isInteger(numericKey) && Object.prototype.hasOwnProperty.call(variables, numericKey)) {
-      return String(variables[numericKey] ?? '');
-    }
-
-    return '';
-  });
-}
+const { renderEmailLayout, renderTemplateString } = require('../services/email/templateRenderer');
+const { sendEmail: sendTransactionalEmail } = require('../services/email/emailService');
 
 function buildDefaultTemplateBody(template = {}, variables = {}) {
   const heading = template.name || 'Notification';
   const body = template.body
     || template.content
-    || `Hello {{operator_name}},\n\nThis is an automated message from {{company_name}} for template "${heading}".\n\nRegards,\nAIROS`;
+    || `Hello {{operator_name}},\n\nThis is an automated message from {{company_name}}.\n\nRegards,\nChatorAI`;
 
-  const renderedText = renderTemplateString(body, variables);
-  const renderedSubject = renderTemplateString(
+  const subject = renderTemplateString(
     template.subject || `${heading} · {{company_name}}`,
     variables,
   );
 
-  return {
-    subject: renderedSubject,
-    text: renderedText,
-    html: `
-      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827">
-        <h2 style="margin-bottom:12px">${escapeHtml(renderedSubject)}</h2>
-        ${renderedText
-          .split('\n')
-          .filter(Boolean)
-          .map((line) => `<p style="margin:0 0 10px">${escapeHtml(line)}</p>`)
-          .join('')}
-      </div>
-    `,
-  };
-}
+  const sections = renderTemplateString(body, variables)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
 
-async function sendWithResend({ to, subject, html, text, from }) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const sender = from || process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM || process.env.MAIL_FROM;
-
-  if (!apiKey || !sender) {
-    throw new Error('Email delivery is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL.');
-  }
-
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: sender,
-      to: Array.isArray(to) ? to : [to],
-      subject,
-      html,
-      text,
-    }),
+  return renderEmailLayout({
+    subject,
+    title: subject,
+    intro: sections.shift() || '',
+    sections,
+    supportText: `Need help? Reply to this email or contact ${variables.support_email || process.env.SUPPORT_EMAIL || 'support@chatorai.com'}.`,
+    footerNote: 'ChatorAI transactional notification',
+  }, {
+    locale: variables.locale || 'en',
+    brandName: process.env.ZEPTO_FROM_NAME || 'ChatorAI',
+    supportEmail: variables.support_email || process.env.SUPPORT_EMAIL || 'support@chatorai.com',
   });
-
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data?.message || data?.error || `Email provider returned HTTP ${response.status}`);
-  }
-
-  return {
-    provider: 'resend',
-    id: data.id || null,
-  };
 }
 
-async function sendEmail({ to, subject, html, text, from }) {
-  if (!to) throw new Error('Recipient email is required');
-  if (!subject) throw new Error('Email subject is required');
-  if (!html && !text) throw new Error('Email content is required');
-
-  return sendWithResend({ to, subject, html, text, from });
+async function sendEmail({ to, subject, html, text, tenantId = null, userId = null, metadata = {} }) {
+  return sendTransactionalEmail({
+    to,
+    subject,
+    html,
+    text,
+    tenantId,
+    userId,
+    metadata,
+  });
 }
 
 module.exports = {

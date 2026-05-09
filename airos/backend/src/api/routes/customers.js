@@ -3,8 +3,10 @@ const express = require('express');
 
 const { appendRecycleItem } = require('../../core/recycleBin');
 const { decryptMessageRow } = require('../../db/queries/messages');
+const { requireRole } = require('../middleware/rbac');
 
 const router = express.Router();
+const requireOwnerRole = requireRole('owner', 'admin');
 
 function parseTags(value) {
   if (Array.isArray(value)) return value.map((entry) => String(entry).trim()).filter(Boolean);
@@ -354,7 +356,7 @@ router.patch('/:id', async (req, res, next) => {
   }
 });
 
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requireOwnerRole, async (req, res, next) => {
   try {
     const tenantId = req.user.tenant_id;
     const current = await req.db.query(`

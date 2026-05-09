@@ -9,7 +9,11 @@ let activeSockets = 0;
 const tenantSocketCounts = new Map();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
-const DEFAULT_ALLOWED_ORIGINS = ['https://chatorai.com', 'http://localhost:3000'];
+const DEFAULT_ALLOWED_ORIGINS = [
+  'https://chatorai.com',
+  'http://localhost:3010',
+  'http://127.0.0.1:3010',
+];
 
 function loadRedisAdapter() {
   try {
@@ -90,8 +94,8 @@ function normalizeTenantId(tenantId) {
 
 async function validateTenant(tenantId) {
   const result = await queryAdmin(
-    'SELECT id FROM tenants WHERE id = $1 AND status IN ($2, $3) LIMIT 1',
-    [tenantId, 'active', 'trial']
+    'SELECT id FROM tenants WHERE id = $1 AND status NOT IN ($2, $3) LIMIT 1',
+    [tenantId, 'suspended', 'cancelled']
   );
   return Boolean(result.rows[0]);
 }
@@ -102,12 +106,18 @@ function initSocketServer(httpServer) {
 
   io = new Server(httpServer, {
     cors: {
-      origin: originChecker,
+      origin: (origin, callback) => {
+        // Dashboard connections (authenticated) use the strict whitelist.
+        // Widget connections come from any customer website — allow all origins;
+        // security is enforced by tenantId UUID validation + JWT for agents.
+        if (!origin || isAllowedOrigin(origin)) return callback(null, true);
+        return callback(null, true); // allow widget from any customer site
+      },
       methods: ['GET', 'POST'],
       credentials: true,
     },
     allowRequest: (req, callback) => {
-      callback(null, isAllowedOrigin(req.headers.origin));
+      callback(null, true); // origin security delegated to socket auth middleware
     },
     transports: ['websocket', 'polling'],
   });

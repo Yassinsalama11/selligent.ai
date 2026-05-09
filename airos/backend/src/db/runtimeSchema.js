@@ -1,4 +1,4 @@
-const fs = require('fs');
+const fs = require('fs').promises;
 const path = require('path');
 
 const { queryAdmin } = require('./pool');
@@ -79,7 +79,7 @@ async function ensureRuntimeSchema() {
     if (!process.env.DATABASE_URL && !process.env.DATABASE_URL_ADMIN) return false;
 
     const schemaPath = path.join(__dirname, 'schema.sql');
-    const schema = fs.readFileSync(schemaPath, 'utf8');
+    const schema = await fs.readFile(schemaPath, 'utf8');
     const statements = splitSqlStatements(schema);
 
     for (const statement of statements) {

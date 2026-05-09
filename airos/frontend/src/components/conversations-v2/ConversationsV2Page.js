@@ -85,11 +85,17 @@ export default function ConversationsV2Page() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [showNewMessages, setShowNewMessages] = useState(false);
 
+  const [notifSettings, setNotifSettings] = useState({ soundNotifs: true, desktopNotifs: false });
+  const notifSettingsRef = useRef({ soundNotifs: true, desktopNotifs: false });
+
   const [aiAutoReply, setAiAutoReply] = useState({});
-  const [cannedReplies, setCannedReplies] = useState(DEFAULT_CANNED);
+  const [cannedReplies, setCannedReplies] = useState([]);
+  const [cannedLoaded, setCannedLoaded] = useState(false);
   const [showCannedPicker, setShowCannedPicker] = useState(false);
   const [cannedSearch, setCannedSearch] = useState('');
   const [cannedMgmtModal, setCannedMgmtModal] = useState(false);
+  const [cannedNewForm, setCannedNewForm] = useState(null);
+  const [cannedSaving, setCannedSaving] = useState(false);
   const [assignModal, setAssignModal] = useState(false);
   const [closeModal, setCloseModal] = useState(false);
   const [tagModal, setTagModal] = useState(false);
@@ -129,8 +135,8 @@ export default function ConversationsV2Page() {
 
   const filteredCanned = cannedReplies.filter(reply =>
     !cannedSearch
-    || reply.title.toLowerCase().includes(cannedSearch.toLowerCase())
-    || reply.shortcut.toLowerCase().includes(cannedSearch.toLowerCase())
+    || (reply.title || '').toLowerCase().includes(cannedSearch.toLowerCase())
+    || (reply.shortcut || '').toLowerCase().includes(cannedSearch.toLowerCase())
   );
 
   useEffect(() => {
@@ -182,6 +188,46 @@ export default function ConversationsV2Page() {
     return () => { cancelled = true; };
   }, []);
 
+  const loadCanned = useCallback(async () => {
+    try {
+      const data = await secureApi.get('/api/settings/canned-responses');
+      setCannedReplies(Array.isArray(data) ? data : DEFAULT_CANNED);
+    } catch {
+      setCannedReplies(prev => prev.length ? prev : DEFAULT_CANNED);
+    } finally {
+      setCannedLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCanned();
+  }, [loadCanned]);
+
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') loadCanned(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [loadCanned]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadNotifSettings() {
+      try {
+        const data = await secureApi.get('/api/settings/global');
+        if (!cancelled && data) {
+          const next = { soundNotifs: data.soundNotifs !== false, desktopNotifs: data.desktopNotifs === true };
+          notifSettingsRef.current = next;
+          setNotifSettings(next);
+          if (next.desktopNotifs && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+            Notification.requestPermission().catch(() => {});
+          }
+        }
+      } catch {}
+    }
+    loadNotifSettings();
+    return () => { cancelled = true; };
+  }, []);
+
   const fetchConversations = useCallback(async () => {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(filtersRef.current)) {
@@ -205,7 +251,9 @@ export default function ConversationsV2Page() {
 
   useEffect(() => {
     fetchConversations().catch(() => {});
-    const pollTimer = setInterval(() => fetchConversations().catch(() => {}), 10000);
+    const pollTimer = setInterval(() => {
+      if (document.visibilityState !== 'hidden') fetchConversations().catch(() => {});
+    }, 30000);
     const token = typeof window !== 'undefined' ? localStorage.getItem('airos_token') : null;
     const socket = connectSocket(token);
 
@@ -221,7 +269,15 @@ export default function ConversationsV2Page() {
       } else if (messageForActive) {
         setShowNewMessages(true);
       }
-      if (normalized.direction === 'inbound' && normalized.sent_by === 'customer') playNotif();
+      if (normalized.direction === 'inbound' && normalized.sent_by === 'customer') {
+        const ns = notifSettingsRef.current;
+        if (ns.soundNotifs) playNotif();
+        if (ns.desktopNotifs && typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
+          try {
+            new Notification('New message', { body: normalized.content || 'New customer message', icon: '/favicon.ico' });
+          } catch {}
+        }
+      }
     });
 
     socket.on('agent:handoff_requested', ({ handoff, conversation_id }) => {
@@ -272,20 +328,25 @@ export default function ConversationsV2Page() {
     setShowCannedPicker(false);
     setShowNewMessages(false);
     setLoadingMessages(true);
+
+    const id = encodeURIComponent(conversation.id);
+
+    // Fire both in parallel — but show messages the moment they arrive, don't wait for handoff
+    const handoffPromise = secureApi.get(`/api/conversations/${id}/handoff`)
+      .then(hData => setHandoffs(curr => ({ ...curr, [conversation.id]: hData?.handoff ?? null })))
+      .catch(() => setHandoffs(curr => ({ ...curr, [conversation.id]: null })));
+
     try {
-      const data = await secureApi.get(`/api/conversations/${encodeURIComponent(conversation.id)}/messages`);
+      const data = await secureApi.get(`/api/conversations/${id}/messages`);
       if (Array.isArray(data)) dispatch({ type: 'LOAD_MESSAGES', convId: conversation.id, messages: data });
     } catch {
       toast.error('Could not load messages');
     } finally {
       setLoadingMessages(false);
     }
-    try {
-      const hData = await secureApi.get(`/api/conversations/${encodeURIComponent(conversation.id)}/handoff`);
-      setHandoffs(current => ({ ...current, [conversation.id]: hData.handoff }));
-    } catch {
-      setHandoffs(current => ({ ...current, [conversation.id]: null }));
-    }
+
+    // Handoff resolves in background — doesn't delay message display
+    handoffPromise.catch(() => {});
   }, []);
 
   const sendLiveReply = useCallback(async (text) => {
@@ -453,12 +514,13 @@ export default function ConversationsV2Page() {
                 isAutoOn={isAutoOn}
                 onTakeOver={() => setActiveLiveAiMode(false)}
                 showCannedPicker={showCannedPicker}
-                setShowCannedPicker={setShowCannedPicker}
+                setShowCannedPicker={(v) => { if (v) loadCanned(); setShowCannedPicker(v); }}
                 cannedSearch={cannedSearch}
                 setCannedSearch={setCannedSearch}
                 filteredCanned={filteredCanned}
                 onInsertCanned={(text) => { setLiveReply(text); setShowCannedPicker(false); }}
                 onManageCanned={() => setCannedMgmtModal(true)}
+                currentUser={currentUser}
                 fileInputRef={fileInputRef}
                 imageInputRef={imageInputRef}
                 onFileSelect={handleFileSelect}
@@ -482,20 +544,82 @@ export default function ConversationsV2Page() {
         panelProps={panelProps}
       />
 
-      <Modal open={cannedMgmtModal} onClose={() => setCannedMgmtModal(false)} title="Canned Replies" width={560} variant="inbox">
+      <Modal open={cannedMgmtModal} onClose={() => { setCannedMgmtModal(false); setCannedNewForm(null); }} title="Canned Replies" width={560} variant="inbox">
         <div className="flex flex-col gap-4">
+          {cannedReplies.length === 0 && !cannedNewForm && (
+            <p className="text-center text-[13px] text-[var(--inbox-text-secondary)] py-4">No canned replies yet. Add one below.</p>
+          )}
           {cannedReplies.map(reply => (
-            <div key={reply.id} className="flex items-center justify-between rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-card)] p-4">
-              <div>
-                <p className="text-[14px] font-semibold text-[var(--inbox-text-primary)]">{reply.title}</p>
-                <p className="mt-1 text-[12px] text-[var(--inbox-text-secondary)]">{reply.shortcut}</p>
+            <div key={reply.id} className="rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-card)] p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[14px] font-semibold text-[var(--inbox-text-primary)]">{reply.title}</p>
+                  <p className="mt-0.5 text-[11px] font-mono text-[var(--inbox-text-secondary)]">{reply.shortcut}</p>
+                  {reply.body && <p className="mt-1 text-[12px] text-[var(--inbox-text-secondary)] line-clamp-2">{reply.body}</p>}
+                </div>
+                <button
+                  className="shrink-0 rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)]"
+                  disabled={cannedSaving}
+                  onClick={async () => {
+                    const next = cannedReplies.filter(item => item.id !== reply.id);
+                    setCannedSaving(true);
+                    try {
+                      await secureApi.put('/api/settings/canned-responses', next);
+                      setCannedReplies(next);
+                    } catch { toast.error('Failed to delete'); } finally { setCannedSaving(false); }
+                  }}
+                >Delete</button>
               </div>
-              <button className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-3 py-2 text-[12px] font-semibold text-[var(--inbox-text-secondary)]" onClick={() => setCannedReplies(current => current.filter(item => item.id !== reply.id))}>Delete</button>
             </div>
           ))}
-          <button className="rounded-[10px] bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-4 py-3 text-[14px] font-semibold text-white shadow-[0_10px_24px_rgba(255,90,31,0.22)]" onClick={() => toast('Canned reply creation is not wired yet')}>
-            Add new
-          </button>
+          {cannedNewForm ? (
+            <div className="rounded-xl border border-[var(--inbox-border)] bg-[var(--inbox-card)] p-4 flex flex-col gap-3">
+              <input
+                className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-3 py-2 text-[13px] text-[var(--inbox-text-primary)] outline-none"
+                placeholder="Title (e.g. Greeting)"
+                value={cannedNewForm.title}
+                onChange={e => setCannedNewForm(f => ({ ...f, title: e.target.value }))}
+              />
+              <input
+                className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-3 py-2 text-[13px] font-mono text-[var(--inbox-text-primary)] outline-none"
+                placeholder="Shortcut (e.g. /hello)"
+                value={cannedNewForm.shortcut}
+                onChange={e => setCannedNewForm(f => ({ ...f, shortcut: e.target.value }))}
+              />
+              <textarea
+                rows={3}
+                className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-3 py-2 text-[13px] text-[var(--inbox-text-primary)] outline-none resize-none"
+                placeholder="Response body…"
+                value={cannedNewForm.body}
+                onChange={e => setCannedNewForm(f => ({ ...f, body: e.target.value }))}
+              />
+              <div className="flex gap-2">
+                <button
+                  className="flex-1 rounded-[10px] bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
+                  disabled={cannedSaving || !cannedNewForm.title.trim() || !cannedNewForm.body.trim()}
+                  onClick={async () => {
+                    const entry = { id: `canned_${Date.now()}`, title: cannedNewForm.title.trim(), shortcut: cannedNewForm.shortcut.trim(), body: cannedNewForm.body.trim() };
+                    const next = [...cannedReplies, entry];
+                    setCannedSaving(true);
+                    try {
+                      await secureApi.put('/api/settings/canned-responses', next);
+                      setCannedReplies(next);
+                      setCannedNewForm(null);
+                    } catch { toast.error('Failed to save'); } finally { setCannedSaving(false); }
+                  }}
+                >{cannedSaving ? 'Saving…' : 'Save'}</button>
+                <button
+                  className="rounded-[10px] border border-[var(--inbox-border)] bg-[var(--inbox-surface)] px-4 py-2.5 text-[13px] font-semibold text-[var(--inbox-text-secondary)]"
+                  onClick={() => setCannedNewForm(null)}
+                >Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button
+              className="rounded-[10px] bg-gradient-to-br from-[#FF7A18] to-[#FF3D00] px-4 py-3 text-[14px] font-semibold text-white shadow-[0_10px_24px_rgba(255,90,31,0.22)]"
+              onClick={() => setCannedNewForm({ title: '', shortcut: '', body: '' })}
+            >Add new</button>
+          )}
         </div>
       </Modal>
 

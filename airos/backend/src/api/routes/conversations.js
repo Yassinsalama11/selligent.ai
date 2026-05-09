@@ -12,6 +12,7 @@ const { emitToTenantConversations } = require('../../channels/livechat/socket');
 const { createTicket, listTickets } = require('../../db/queries/tickets');
 const { getOrCreateDeal, closeDeal } = require('../../db/queries/deals');
 const { getCache, setCache, delCache, invalidatePattern } = require('../../db/cache');
+const { executeTriggers } = require('../../core/triggerEngine');
 
 const router = express.Router();
 const requireReadRole = requireRole('owner', 'admin', 'agent');
@@ -276,10 +277,12 @@ router.get('/', requireReadRole, async (req, res, next) => {
 
 router.get('/:id/messages', requireReadRole, async (req, res, next) => {
   try {
-    const allowed = await canAccessConversation(req, req.params.id);
+    // Run access check and message fetch in parallel — access check uses the same DB
+    const [allowed, msgs] = await Promise.all([
+      canAccessConversation(req, req.params.id),
+      getMessages(req.user.tenant_id, req.params.id, req.query, req.db),
+    ]);
     if (!allowed) return res.status(404).json({ error: 'Not found' });
-
-    const msgs = await getMessages(req.user.tenant_id, req.params.id, req.query, req.db);
     res.json(msgs);
   } catch (err) { next(err); }
 });
@@ -292,6 +295,7 @@ router.post('/:id/messages', requireWriteRole, async (req, res, next) => {
     const isAttachment = ['image', 'file'].includes(messageType);
     const isInternalNote = messageType === 'internal_note';
     if (!text && !mediaUrl) return res.status(400).json({ error: 'Message content or media_url is required' });
+    const persistedContent = text || req.body?.file_name || req.body?.fileName || (messageType === 'image' ? 'Image attachment' : messageType === 'internal_note' ? 'Internal note' : 'File attachment');
 
     const conversation = await loadConversationContext(req, req.params.id);
     if (!conversation) return res.status(404).json({ error: 'Not found' });
@@ -299,15 +303,40 @@ router.post('/:id/messages', requireWriteRole, async (req, res, next) => {
     let externalId = null;
     if (!isInternalNote) {
       const credentials = await loadChannelCredentials(req, conversation.channel);
-      externalId = isAttachment
-        ? await sendChannelMedia({ conversation, credentials, type: messageType, mediaUrl, caption: text })
-        : await sendChannelText({ conversation, credentials, text });
+      try {
+        externalId = isAttachment
+          ? await sendChannelMedia({ conversation, credentials, type: messageType, mediaUrl, caption: text })
+          : await sendChannelText({ conversation, credentials, text });
+      } catch (err) {
+        const { saved, updatedConversation } = await persistConversationMessage(req, conversation, {
+          direction: 'outbound',
+          type: messageType,
+          content: persistedContent,
+          media_url: mediaUrl,
+          sent_by: 'agent',
+          metadata: {
+            external_id: null,
+            user_id: req.user.id,
+            internal: false,
+            file_name: req.body?.file_name || req.body?.fileName || null,
+            mime_type: req.body?.mime_type || req.body?.mimeType || null,
+            size: req.body?.size || null,
+            send_status: 'failed',
+            send_error: err.message,
+          },
+        });
+        return res.status(err.status && err.status < 500 ? err.status : 502).json({
+          error: err.message || 'Message send failed',
+          message: saved,
+          conversation: updatedConversation,
+        });
+      }
     }
 
     const { saved, updatedConversation } = await persistConversationMessage(req, conversation, {
       direction: isInternalNote ? 'internal' : 'outbound',
       type: messageType,
-      content: text || req.body?.file_name || req.body?.fileName || (messageType === 'image' ? 'Image attachment' : messageType === 'internal_note' ? 'Internal note' : 'File attachment'),
+      content: persistedContent,
       media_url: mediaUrl,
       sent_by: 'agent',
       metadata: {
@@ -410,6 +439,29 @@ router.post('/:id/tickets', requireWriteRole, async (req, res, next) => {
       customer_name: conversation.customer_name,
       assignee_id: conversation.assigned_to || null,
     }, req.db);
+    try {
+      const credentials = await loadChannelCredentials(req, conversation.channel).catch(() => null);
+      await executeTriggers({
+        tenant: req.tenant,
+        tenantId: req.user.tenant_id,
+        settings: req.tenant?.settings || {},
+        conversation,
+        customer: {
+          id: conversation.customer_id,
+          name: conversation.customer_name,
+          phone: conversation.customer_phone,
+          channel_customer_id: conversation.channel_customer_id,
+          tags: conversation.tags || [],
+        },
+        savedMessage: { content: ticket.description || ticket.title, created_at: ticket.created_at || new Date() },
+        analysis: null,
+        credentials,
+        ticket,
+        historyLength: 0,
+      });
+    } catch (err) {
+      console.warn('[Triggers] ticket_created execution failed:', err.message);
+    }
     res.status(201).json(ticket);
   } catch (err) { next(err); }
 });

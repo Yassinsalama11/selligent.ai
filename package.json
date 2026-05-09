@@ -10,6 +10,7 @@
     "airos/backend"
   ],
   "scripts": {
+    "build": "npm run build --workspace airos/backend",
     "start": "node airos/backend/src/index.js"
   }
 }

@@ -6,9 +6,23 @@ const {
   listPlatformPlans,
   normalizeCountry,
 } = require('../db/queries/platform');
+const { handleStripeEmailEvent } = require('../services/email/emailService');
 
 const router = express.Router();
-const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+
+// Lazy-init: only construct the Stripe client if the key is present.
+// Routes that call getStripe() will return 503 if the key is missing,
+// preventing a hard crash at module load time in dev/staging.
+let _stripe = null;
+function getStripe() {
+  if (!_stripe) {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return null;
+    }
+    _stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+  }
+  return _stripe;
+}
 
 function normalizeSeats(value) {
   const seats = Number.parseInt(value, 10);
@@ -47,58 +61,10 @@ async function getSelectedPlan(planKey) {
 /* ── POST /api/stripe/create-checkout-session ─────────────────────────────── */
 router.post('/create-checkout-session', async (req, res) => {
   try {
-    const { plan, email, seats, country } = req.body || {};
-    const selectedPlan = await getSelectedPlan(plan);
-    if (!selectedPlan || selectedPlan.visible === false) {
-      return res.status(400).json({ error: 'Invalid plan' });
-    }
-
-    const quantity = Math.max(normalizeSeats(seats), selectedPlan.includedSeats);
-    const pricingPayload = await buildPublicPricingPayload(country, quantity);
-    const localizedPlan = pricingPayload.plans.find((entry) => entry.key === selectedPlan.key);
-    if (!localizedPlan) return res.status(400).json({ error: 'Plan is not available for checkout' });
-
-    const unitAmount = Math.round(Number(selectedPlan.priceEur || 0) * 100);
-    if (!unitAmount) return res.status(400).json({ error: 'Plan pricing is not configured' });
-
-    const baseUrl = process.env.FRONTEND_URL || 'https://chatorai.com';
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      mode: 'subscription',
-      line_items: [{
-        price_data: {
-          currency: 'eur',
-          unit_amount: unitAmount,
-          recurring: { interval: 'month' },
-          product_data: {
-            name: `${localizedPlan.name} (${quantity} seats)`,
-            description: `${localizedPlan.description || ''}${localizedPlan.currency && localizedPlan.currency !== 'EUR' ? ' Display pricing may vary by region; checkout settles in EUR.' : ''}`.trim(),
-          },
-        },
-        quantity,
-      }],
-      customer_email: email || undefined,
-      allow_promotion_codes: true,
-      billing_address_collection: 'required',
-      subscription_data: {
-        metadata: {
-          plan: localizedPlan.key,
-          plan_name: localizedPlan.name,
-          seats: String(quantity),
-          ai_included: 'true',
-          country: normalizeCountry(country),
-          billing_currency: 'EUR',
-          display_currency: localizedPlan.currency,
-          display_seat_price: String(localizedPlan.discountedSeatPrice || localizedPlan.seatPrice || 0),
-          seat_price_eur: String(selectedPlan.priceEur || 0),
-          base_price_eur: String(selectedPlan.priceEur || 0),
-        },
-      },
-      success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}&plan=${encodeURIComponent(localizedPlan.key)}`,
-      cancel_url: `${baseUrl}/cancel`,
+    return res.status(410).json({
+      error: 'Direct pre-payment checkout is disabled. Start a trial first, then manage billing from the dashboard.',
+      next: '/signup',
     });
-
-    return res.json({ url: session.url, sessionId: session.id });
   } catch (err) {
     console.error('Stripe error:', err.message);
     return res.status(500).json({ error: err.message });
@@ -110,9 +76,10 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   const sig = req.headers['stripe-signature'];
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
 
+  const stripe = getStripe();
   let event;
   try {
-    event = secret
+    event = secret && stripe
       ? stripe.webhooks.constructEvent(req.body, sig, secret)
       : JSON.parse(req.body);
   } catch (err) {
@@ -126,6 +93,9 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     case 'checkout.session.completed': {
       const session = event.data.object;
       console.log(`✅ New subscription: ${session.customer_email} — ${session.subscription}`);
+      await handleStripeEmailEvent(event).catch((err) => {
+        console.error('Stripe email flow error:', err.message);
+      });
       break;
     }
     case 'customer.subscription.updated': {
@@ -136,11 +106,31 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     case 'customer.subscription.deleted': {
       const sub = event.data.object;
       console.log(`❌ Subscription cancelled: ${sub.id}`);
+      await handleStripeEmailEvent(event).catch((err) => {
+        console.error('Stripe email flow error:', err.message);
+      });
+      break;
+    }
+    case 'invoice.payment_succeeded': {
+      const invoice = event.data.object;
+      console.log(`💳 Payment succeeded: ${invoice.customer_email || invoice.customer}`);
+      await handleStripeEmailEvent(event).catch((err) => {
+        console.error('Stripe email flow error:', err.message);
+      });
       break;
     }
     case 'invoice.payment_failed': {
       const invoice = event.data.object;
       console.log(`⚠️  Payment failed: ${invoice.customer_email}`);
+      await handleStripeEmailEvent(event).catch((err) => {
+        console.error('Stripe email flow error:', err.message);
+      });
+      break;
+    }
+    case 'invoice.upcoming': {
+      await handleStripeEmailEvent(event).catch((err) => {
+        console.error('Stripe email flow error:', err.message);
+      });
       break;
     }
     default:

@@ -232,8 +232,8 @@ async function runScheduleForTenant(tenant, scheduleId, { force = false } = {}) 
   const results = [];
 
   for (const schedule of schedules) {
-    if (schedule.active === false) continue;
     if (scheduleId && schedule.id !== scheduleId) continue;
+    if (schedule.active === false && !(force && scheduleId && schedule.id === scheduleId)) continue;
 
     const periodKey = getSchedulePeriodKey(schedule, new Date(), timeZone);
     const due = force || (
@@ -246,15 +246,29 @@ async function runScheduleForTenant(tenant, scheduleId, { force = false } = {}) 
     try {
       const summary = await buildReportSummary(tenant.id, schedule.freq);
       const html = renderReportHtml(tenant, schedule, summary);
-      const subject = `${tenant.name} · ${schedule.name || 'Scheduled report'} · ${periodKey}`;
+      const subject = `${schedule.name || 'Scheduled Report'} for ${tenant.name || 'your workspace'}`;
       await sendEmail({
         to: schedule.email || tenant.email,
         subject,
         html,
-        text: `${tenant.name} report for ${periodKey}`,
+        text: [
+          subject,
+          `Period: ${periodKey}`,
+          `Conversations: ${summary.totals.totalConversations}`,
+          `Open conversations: ${summary.totals.openConversations}`,
+          `Deals won: ${summary.totals.dealsWon}`,
+          `Revenue won: ${summary.totals.revenueWon}`,
+        ].join('\n'),
+        tenantId: tenant.id,
+        metadata: {
+          scheduleId: schedule.id,
+          periodKey,
+          reportType: 'scheduled_report',
+        },
       });
 
-      schedule.lastRunAt = new Date().toISOString();
+      const lastRunAt = new Date().toISOString();
+      schedule.lastRunAt = lastRunAt;
       schedule.lastRunKey = periodKey;
       schedule.lastStatus = 'sent';
       schedule.lastError = '';
@@ -264,9 +278,11 @@ async function runScheduleForTenant(tenant, scheduleId, { force = false } = {}) 
         status: 'sent',
         email: schedule.email || tenant.email,
         periodKey,
+        lastRunAt,
       });
     } catch (err) {
-      schedule.lastRunAt = new Date().toISOString();
+      const lastRunAt = new Date().toISOString();
+      schedule.lastRunAt = lastRunAt;
       schedule.lastRunKey = force ? schedule.lastRunKey : periodKey;
       schedule.lastStatus = 'failed';
       schedule.lastError = err.message;
@@ -276,6 +292,7 @@ async function runScheduleForTenant(tenant, scheduleId, { force = false } = {}) 
         status: 'failed',
         error: err.message,
         email: schedule.email || tenant.email,
+        lastRunAt,
       });
     }
   }
@@ -294,6 +311,23 @@ async function runScheduledReportsForTenant(tenantId, scheduleId, options = {}) 
   return runScheduleForTenant(tenant, scheduleId, options);
 }
 
+async function runAutoCloseForTenant(tenant) {
+  const settings = normalizeTenantSettings(tenant?.settings);
+  if (!settings.global?.autoClose) return;
+
+  const hours = Number(settings.global?.autoCloseHours ?? 48);
+  if (!Number.isFinite(hours) || hours <= 0) return;
+
+  await queryAdmin(
+    `UPDATE conversations
+     SET status = 'closed', updated_at = NOW()
+     WHERE tenant_id = $1
+       AND status = 'open'
+       AND updated_at < NOW() - ($2 || ' hours')::interval`,
+    [tenant.id, hours],
+  );
+}
+
 async function processAllTenants() {
   const tenants = await queryAdmin(`
     SELECT id, name, email, settings
@@ -306,6 +340,11 @@ async function processAllTenants() {
       await runScheduleForTenant(tenant);
     } catch (err) {
       console.error('[ReportScheduler]', tenant.id, err.message);
+    }
+    try {
+      await runAutoCloseForTenant(tenant);
+    } catch (err) {
+      console.error('[AutoClose]', tenant.id, err.message);
     }
   }
 }
@@ -328,6 +367,7 @@ function startReportScheduler({ intervalMs = 60000 } = {}) {
 
 module.exports = {
   buildReportSummary,
+  renderReportHtml,
   runScheduledReportsForTenant,
   startReportScheduler,
 };

@@ -9,7 +9,7 @@ import {
   MessageSquare, Bot, Zap, Route, TrendingUp, Lock, ChevronRight, Plus,
   Save, Smartphone, Camera, MessageCircle, Monitor, RefreshCcw,
   Eye, Shield, FileUp, LineChart, Calendar, Play, X, Edit2, Key,
-  CheckCircle2, XCircle, AlertCircle, Minus, Clock, Menu, KeyRound,
+  CheckCircle2, XCircle, AlertCircle, Minus, Clock, Menu, KeyRound, BookOpen,
 } from 'lucide-react';
 
 import { api } from '@/lib/api';
@@ -42,6 +42,7 @@ const STRUCTURE = [
     { id: 'brands',       label: 'Brands',                icon: Palette },
     { id: 'global',       label: 'Global Settings',       icon: Globe },
     { id: 'email_tpl',    label: 'Email Templates',        icon: Mail },
+    { id: 'canned',       label: 'Canned Responses',      icon: BookOpen },
     { id: 'profanity',    label: 'Profanity Library',      icon: ShieldAlert },
     { id: 'tags',         label: 'Tags',                  icon: TagsIcon },
   ]},
@@ -53,6 +54,10 @@ const STRUCTURE = [
   ]},
   { group: 'AI', items: [
     { id: 'ai_config',    label: 'AI Configuration',      icon: Bot },
+  ]},
+  { group: 'ENTERPRISE', items: [
+    { id: 'sso',              label: 'Security / SSO',        icon: Shield },
+    { id: 'priority_support', label: 'Priority Support',      icon: MessageCircle },
   ]},
   { group: 'AUTOMATE', items: [
     { id: 'triggers',        label: 'Triggers',           icon: Zap },
@@ -80,6 +85,7 @@ function sectionUrl(id) {
     schedule_report: 'schedule-report',
     email_tpl:       'email-templates',
     recycle_bin:     'recycle-bin',
+    canned:          'canned-responses',
   };
   return map[id] || id.replaceAll('_', '-');
 }
@@ -88,12 +94,12 @@ function sectionUrl(id) {
 const ACTIVE_DATA_SECTIONS = new Set([
   'departments', 'brands', 'triggers', 'visitor_routing', 'lead_scoring',
   'chat_routing', 'company_scoring', 'schedule_report', 'email_tpl',
-  'profanity', 'layout', 'profiles', 'import', 'spammers', 'monitor',
+  'profanity', 'layout', 'profiles', 'import', 'spammers', 'monitor', 'canned',
 ]);
 
 /* ── Reusable UI helpers ────────────────────────────────────────────────── */
 
-function SettingSection({ title, description, children, onSave, saving, loading }) {
+function SettingSection({ title, description, children, onSave, saving, loading, disabled = false }) {
   return (
     <Card className="border shadow-sm bg-card">
       <CardHeader className="border-b bg-muted/5">
@@ -103,7 +109,7 @@ function SettingSection({ title, description, children, onSave, saving, loading 
             {description && <CardDescription>{description}</CardDescription>}
           </div>
           {onSave && (
-            <Button onClick={onSave} disabled={saving || loading} className="h-9 gap-2 px-6 bg-primary font-medium">
+            <Button onClick={onSave} disabled={saving || loading || disabled} className="h-9 gap-2 px-6 bg-primary font-medium">
               <Save className="h-4 w-4" />
               {saving ? 'Saving…' : 'Save Changes'}
             </Button>
@@ -121,23 +127,25 @@ function SettingSection({ title, description, children, onSave, saving, loading 
   );
 }
 
-function Field({ label, children }) {
+function Field({ label, children, className }) {
   return (
-    <div className="space-y-2">
+    <div className={cn('space-y-2', className)}>
       <Label>{label}</Label>
       {children}
     </div>
   );
 }
 
-function Toggle({ value, onChange, label }) {
+function Toggle({ value, onChange, label, disabled = false }) {
   return (
     <button
       type="button"
-      onClick={() => onChange(!value)}
+      disabled={disabled}
+      onClick={() => !disabled && onChange(!value)}
       className={cn(
         'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
         value ? 'bg-primary' : 'bg-muted border',
+        disabled && 'opacity-50 cursor-not-allowed',
       )}
     >
       <span className={cn(
@@ -222,6 +230,46 @@ const IMPORT_COLUMNS = {
   pipeline:      ['contact_name', 'phone', 'email', 'stage', 'estimated_value', 'notes'],
   tickets:       ['customer_name', 'subject', 'description', 'status', 'priority', 'created_at'],
 };
+const IMPORT_ALLOWED_EXTENSIONS = new Set(['csv', 'xlsx', 'xls']);
+const IMPORT_MAX_BYTES = 8 * 1024 * 1024;
+
+function validateImportFileSelection(file) {
+  if (!file) return 'Select a file first';
+  const extension = String(file.name || '').split('.').pop()?.toLowerCase();
+  if (!extension || !IMPORT_ALLOWED_EXTENSIONS.has(extension)) {
+    return 'Import file must be CSV, XLSX, or XLS';
+  }
+  if (file.size <= 0) return 'Import file is empty';
+  if (file.size > IMPORT_MAX_BYTES) return 'Import file must be 8 MB or smaller';
+  return null;
+}
+
+function decodeStoredJwtPayload() {
+  if (typeof window === 'undefined') return {};
+  try {
+    const token = localStorage.getItem('airos_token') || localStorage.getItem('auth_token') || '';
+    const encoded = token.split('.')[1];
+    if (!encoded) return {};
+    return JSON.parse(atob(encoded.replace(/-/g, '+').replace(/_/g, '/')));
+  } catch {
+    return {};
+  }
+}
+
+function getStoredSessionUser() {
+  if (typeof window === 'undefined') return null;
+  try {
+    return JSON.parse(localStorage.getItem('airos_user') || 'null');
+  } catch {
+    return null;
+  }
+}
+
+function getCurrentSessionRole() {
+  const sessionUser = getStoredSessionUser();
+  const tokenPayload = decodeStoredJwtPayload();
+  return String(tokenPayload.role || sessionUser?.role || '').trim().toLowerCase();
+}
 
 /* ── Trigger engine events ─────────────────────────────────────────────── */
 
@@ -281,6 +329,69 @@ const ROUTING_CONDITION_OPS = [
   { value: '<=',       label: '<=' },
 ];
 
+/* ── Live Widget Preview ─────────────────────────────────────────────────── */
+
+function LiveWidgetPreview({ tenantId, color, position, apiBase }) {
+  const src = `/widget-preview?tenantId=${encodeURIComponent(tenantId)}&color=${encodeURIComponent(color)}&position=${encodeURIComponent(position)}&server=${encodeURIComponent(apiBase)}`;
+  return (
+    <div className="rounded-xl border overflow-hidden shadow-sm">
+      <div className="bg-gray-200 px-3 py-1.5 flex items-center gap-2 border-b">
+        <div className="flex gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
+          <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
+          <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
+        </div>
+        <div className="flex-1 bg-white rounded text-[10px] px-2 py-0.5 text-gray-400 text-center truncate">yoursite.com</div>
+      </div>
+      <iframe
+        key={src}
+        src={src}
+        className="w-full border-0"
+        style={{ height: 420 }}
+        title="Live Widget Preview"
+        allow="clipboard-write"
+      />
+    </div>
+  );
+}
+
+/* ── Static Widget Thumbnail (dialog only) ──────────────────────────────── */
+
+function WidgetPreview({ color = '#2563EB', position = 'bottom-right' }) {
+  const isRight = position.includes('right');
+  const side = isRight ? 'right-3' : 'left-3';
+  return (
+    <div className="relative w-full h-[280px] bg-slate-100 rounded-xl overflow-hidden border select-none">
+      <div className="p-4 space-y-2">
+        <div className="h-2 bg-slate-300 rounded w-3/4" />
+        <div className="h-2 bg-slate-300 rounded w-1/2" />
+        <div className="h-2 bg-slate-300 rounded w-2/3" />
+        <div className="h-2 bg-slate-300 rounded w-5/6 mt-3" />
+        <div className="h-2 bg-slate-300 rounded w-1/3" />
+      </div>
+      <div className={`absolute bottom-11 ${side} w-[185px] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col`} style={{ maxHeight: 200 }}>
+        <div className="px-3 py-2" style={{ backgroundColor: color }}>
+          <div className="text-white font-semibold" style={{ fontSize: 11 }}>Chat with us</div>
+          <div className="text-white/80" style={{ fontSize: 9 }}>We usually reply in minutes</div>
+        </div>
+        <div className="flex-1 p-2 space-y-1.5 bg-gray-50 overflow-hidden">
+          <div className="bg-white rounded-xl rounded-bl-sm px-2 py-1.5 shadow-sm max-w-[90%]" style={{ fontSize: 9 }}>Hi! How can I help? 👋</div>
+          <div className="rounded-xl rounded-br-sm px-2 py-1.5 text-white max-w-[80%] ml-auto" style={{ backgroundColor: color, fontSize: 9 }}>I have a question</div>
+        </div>
+        <div className="px-2 py-1.5 border-t bg-white flex gap-1 items-center">
+          <div className="flex-1 border rounded-full px-2 py-0.5 text-gray-400" style={{ fontSize: 9 }}>Type a message...</div>
+          <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: color }}>
+            <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z" /></svg>
+          </div>
+        </div>
+      </div>
+      <div className={`absolute bottom-3 ${side} w-9 h-9 rounded-full shadow-lg flex items-center justify-center`} style={{ backgroundColor: color }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M20 2H4a2 2 0 00-2 2v18l4-4h14a2 2 0 002-2V4a2 2 0 00-2-2z" /></svg>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main Component ─────────────────────────────────────────────────────── */
 
 export default function SettingsPage() {
@@ -305,7 +416,9 @@ export default function SettingsPage() {
 
   /* Live Chat widget setup dialog */
   const [lcDialog, setLcDialog] = useState(false);
-  const [lcForm, setLcForm] = useState({ domain: '', color: '#ff5a1f' });
+  const [lcForm, setLcForm] = useState({ domain: '', color: '#ff5a1f', position: 'bottom-right' });
+  const [lcSaving, setLcSaving] = useState(false);
+  const [metaConnecting, setMetaConnecting] = useState(false);
 
   /* New tag input */
   const [tagInput, setTagInput] = useState('');
@@ -336,6 +449,11 @@ export default function SettingsPage() {
   /* Mobile nav sheet */
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
+  /* My Profile — per-user preferences (isolated from tenant settings) */
+  const [userProfile, setUserProfile] = useState({});
+  const [viewerRole, setViewerRole] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+
   /* Password change (My Profile) */
   const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' });
   const [pwSaving, setPwSaving] = useState(false);
@@ -352,7 +470,12 @@ export default function SettingsPage() {
   const [tagMeta, setTagMeta] = useState({}); // local mirror of settings.tagMeta
   const [tagColor, setTagColor] = useState('#6366f1');
   const [tagCategory, setTagCategory] = useState('');
-  const [tagDesc, setTagDesc] = useState('');
+
+  /* Tenant ID + API base (for live widget preview) */
+  const [previewTenantId, setPreviewTenantId] = useState('');
+  const previewApiBase = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? `http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:3011`
+    : 'https://api.chatorai.com';
 
   /* Channel config + health */
   const [chConfig, setChConfig] = useState({});
@@ -372,41 +495,83 @@ export default function SettingsPage() {
   const [aiSimResult, setAiSimResult] = useState(null);
   const [aiSimulating, setAiSimulating] = useState(false);
 
+  /* Enterprise: SSO + Priority Support */
+  const [ssoConfig, setSsoConfig] = useState(null);
+  const [ssoLoading, setSsoLoading] = useState(false);
+  const [ssoSaving, setSsoSaving] = useState(false);
+  const [ssoTestResult, setSsoTestResult] = useState(null);
+  const [prioritySupport, setPrioritySupport] = useState(null);
+  const [supportTickets, setSupportTickets] = useState([]);
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [supportSaving, setSupportSaving] = useState(false);
+  const [supportDraft, setSupportDraft] = useState({ subject: '', category: 'technical', priority: 'priority', description: '' });
+
   /* Departments list (loaded with core, used for routing dropdowns) */
   const [depts, setDepts] = useState([]);
+
+  /* Decode tenant ID from JWT once on mount (needed for live widget preview) */
+  React.useEffect(() => {
+    const payload = decodeStoredJwtPayload();
+    setPreviewTenantId(payload.tenant_id || payload.tenantId || '');
+  }, []);
+
+  React.useEffect(() => {
+    setViewerRole(getCurrentSessionRole());
+  }, []);
+
+  /* Read Meta OAuth redirect params (channel_connected / channel_error) and surface as toast */
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get('channel_connected');
+    const err = params.get('channel_error');
+    const ch = params.get('channel');
+    if (connected || err) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    if (connected) {
+      const label = connected.charAt(0).toUpperCase() + connected.slice(1);
+      toast.success(`${label} connected successfully`);
+      setActiveId(`ch_${connected}`);
+    } else if (err) {
+      toast.error(`${ch ? ch.charAt(0).toUpperCase() + ch.slice(1) + ' connection failed' : 'Connection failed'}: ${err}`);
+    }
+  }, []);
 
   /* ── Load ─────────────────────────────────────────────────────────────── */
 
   const loadCore = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, t, ch, usg, rec, dp] = await Promise.all([
-        api.get('/api/settings'),
-        api.get('/api/auth/team'),
-        api.get('/api/channels'),
+      // User preferences load independently — works for ALL roles (agents included)
+      const prefsPromise = api.get('/api/auth/me/preferences').catch(() => ({}));
+
+      // Tenant settings only accessible to owner/admin — agents get null here
+      const [s, t, ch, usg, rec, dp, prefs] = await Promise.all([
+        api.get('/api/settings').catch(() => null),
+        api.get('/api/auth/team').catch(() => []),
+        api.get('/api/channels').catch(() => []),
         api.get('/api/settings/usage').catch(() => null),
         api.get('/api/settings/recycle-bin').catch(() => []),
         api.get('/api/settings/departments').catch(() => []),
+        prefsPromise,
       ]);
 
-      // Pre-populate profile from session user when JSONB profile is empty
-      let merged = s || {};
-      try {
-        const sessionUser = JSON.parse(localStorage.getItem('airos_user') || 'null');
-        if (sessionUser && (!merged.profile?.name || !merged.profile?.email)) {
-          merged = {
-            ...merged,
-            profile: {
-              name: sessionUser.name || '',
-              email: sessionUser.email || '',
-              ...(merged.profile || {}),
-            },
-          };
-        }
-      } catch { /* ignore localStorage parse errors */ }
+      // Seed userProfile: DB preferences take priority; fall back to session user for name/email
+      let seedProfile = prefs || {};
+      const sessionUser = getStoredSessionUser();
+      if (sessionUser) {
+        seedProfile = {
+          name: sessionUser.name || '',
+          email: sessionUser.email || '',
+          ...seedProfile,
+        };
+      }
+      setViewerRole(getCurrentSessionRole());
+      setUserProfile(seedProfile);
 
-      setSettings(merged);
-      setTagMeta(merged.tagMeta && typeof merged.tagMeta === 'object' && !Array.isArray(merged.tagMeta) ? merged.tagMeta : {});
+      setSettings(s || {});
+      setTagMeta(s?.tagMeta && typeof s.tagMeta === 'object' && !Array.isArray(s.tagMeta) ? s.tagMeta : {});
       setTeam(t || []);
       setChannels(ch || []);
       setUsage(usg);
@@ -445,9 +610,18 @@ export default function SettingsPage() {
     let conditionOp = '=';
     let conditionValue = '';
     for (const [key, val] of Object.entries(conditions)) {
-      if (Array.isArray(val) && val.length > 0) {
+      const rawValue = val && typeof val === 'object' && !Array.isArray(val) ? (val.value ?? val.values) : val;
+      if (val && typeof val === 'object' && !Array.isArray(val) && val.op) {
+        conditionOp = val.op;
+      }
+      if (Array.isArray(rawValue) && rawValue.length > 0) {
         conditionField = key === 'keywords' ? 'keyword' : key;
-        conditionValue = val[0];
+        conditionValue = rawValue[0];
+        break;
+      }
+      if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+        conditionField = key === 'keywords' ? 'keyword' : key;
+        conditionValue = rawValue;
         break;
       }
     }
@@ -460,13 +634,106 @@ export default function SettingsPage() {
     return { ...rule, conditionField, conditionOp, conditionValue, assignTo };
   }
 
+  function validateVisitorRoutingDraft(data, { validateConfig = true, validateRules = true } = {}) {
+    if (validateConfig) {
+      const threshold = Number(data?.config?.threshold ?? 30);
+      if (!Number.isInteger(threshold) || threshold < 5 || threshold > 3600) {
+        return 'Routing threshold must be an integer between 5 and 3600 seconds';
+      }
+    }
+
+    if (validateRules) {
+      const rules = Array.isArray(data?.rules) ? data.rules : [];
+      const blankRule = rules.findIndex(r => !String(r.name || '').trim());
+      if (blankRule !== -1) return `Routing rule ${blankRule + 1} has no name`;
+      const blankCondition = rules.findIndex(r => !String(r.conditionValue ?? '').trim());
+      if (blankCondition !== -1) return `Routing rule ${blankCondition + 1} has no condition value`;
+      const blankTarget = rules.findIndex(r => !String(r.assignTo || '').trim());
+      if (blankTarget !== -1) return `Routing rule ${blankTarget + 1} has no route target`;
+      const invalidScore = rules.findIndex(r => r.conditionField === 'score' && !Number.isFinite(Number(r.conditionValue)));
+      if (invalidScore !== -1) return `Routing rule ${invalidScore + 1} score value must be numeric`;
+      const invalidNumericOp = rules.findIndex(r => ['>=', '<=', '>', '<'].includes(r.conditionOp) && r.conditionField !== 'score');
+      if (invalidNumericOp !== -1) return `Routing rule ${invalidNumericOp + 1} numeric operators only work with score`;
+    }
+
+    return null;
+  }
+
+  function validateChatRoutingDraft(data) {
+    const rules = Array.isArray(data) ? data : [];
+    const blankRule = rules.findIndex(r => !String(r.name || '').trim());
+    if (blankRule !== -1) return `Chat routing rule ${blankRule + 1} has no name`;
+    const blankCondition = rules.findIndex(r => !String(r.conditionValue ?? '').trim());
+    if (blankCondition !== -1) return `Chat routing rule ${blankCondition + 1} has no condition value`;
+    const blankTarget = rules.findIndex(r => !String(r.assignTo || '').trim());
+    if (blankTarget !== -1) return `Chat routing rule ${blankTarget + 1} has no assignment target`;
+    const invalidScore = rules.findIndex(r => r.conditionField === 'score' && !Number.isFinite(Number(r.conditionValue)));
+    if (invalidScore !== -1) return `Chat routing rule ${invalidScore + 1} score value must be numeric`;
+    const invalidNumericOp = rules.findIndex(r => ['>=', '<=', '>', '<'].includes(r.conditionOp) && r.conditionField !== 'score');
+    if (invalidNumericOp !== -1) return `Chat routing rule ${invalidNumericOp + 1} numeric operators only work with score`;
+    return null;
+  }
+
+  function validateLeadScoringDraft(data) {
+    const rules = Array.isArray(data) ? data : [];
+    const invalidSignal = rules.findIndex(rule => !LEAD_SIGNALS.some(signal => signal.signal === rule.signal));
+    if (invalidSignal !== -1) return `Lead scoring rule ${invalidSignal + 1} has an invalid signal`;
+    const invalidWeight = rules.findIndex(rule => {
+      const weight = Number(rule.weight);
+      return !Number.isInteger(weight) || weight < -100 || weight > 100;
+    });
+    if (invalidWeight !== -1) return `Lead scoring rule ${invalidWeight + 1} weight must be an integer between -100 and 100`;
+    return null;
+  }
+
+  function validateCompanyScoringDraft(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return 'Company scoring settings are invalid';
+    const minRevenue = Number(data.minRevenue);
+    const minOrders = Number(data.minOrders);
+    const vipThreshold = Number(data.vipThreshold);
+    if (!Number.isFinite(minRevenue) || minRevenue < 0 || minRevenue > 1000000000) {
+      return 'Min revenue must be between 0 and 1000000000';
+    }
+    if (!Number.isInteger(minOrders) || minOrders < 0 || minOrders > 100000) {
+      return 'Min orders must be an integer between 0 and 100000';
+    }
+    if (!Number.isFinite(vipThreshold) || vipThreshold < 0 || vipThreshold > 1000000000) {
+      return 'VIP threshold must be between 0 and 1000000000';
+    }
+    if (vipThreshold < minRevenue) return 'VIP threshold must be greater than or equal to min revenue';
+    return null;
+  }
+
+  function validateScheduleReportsDraft(data) {
+    const reports = Array.isArray(data) ? data : [];
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+    const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+    const names = reports.map(report => String(report.name || '').trim());
+    const blankName = names.findIndex(name => !name);
+    if (blankName !== -1) return `Scheduled report ${blankName + 1} has no name`;
+    const duplicateName = names.map(name => name.toLowerCase()).findIndex((name, index, all) => all.indexOf(name) !== index);
+    if (duplicateName !== -1) return `Duplicate scheduled report name: "${names[duplicateName]}"`;
+    const invalidFreq = reports.findIndex(report => !['daily', 'weekly', 'monthly'].includes(String(report.freq || '').toLowerCase()));
+    if (invalidFreq !== -1) return `Scheduled report ${invalidFreq + 1} has an invalid frequency`;
+    const invalidTime = reports.findIndex(report => !timePattern.test(String(report.time || '')));
+    if (invalidTime !== -1) return `Scheduled report ${invalidTime + 1} time must be HH:MM`;
+    const invalidEmail = reports.findIndex(report => {
+      const email = String(report.email || '').trim();
+      return email && !emailPattern.test(email);
+    });
+    if (invalidEmail !== -1) return `Scheduled report ${invalidEmail + 1} email is invalid`;
+    return null;
+  }
+
   useEffect(() => { loadCore(); }, [loadCore]);
   useEffect(() => { loadActiveSection(activeId); }, [activeId]); // eslint-disable-line
 
   /* Auto-refresh Conversation Monitor every 30 s while section is active */
   useEffect(() => {
     if (activeId !== 'monitor') return;
-    const id = setInterval(() => loadActiveSection('monitor'), 30_000);
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'hidden') loadActiveSection('monitor');
+    }, 30_000);
     return () => clearInterval(id);
   }, [activeId]); // eslint-disable-line
 
@@ -481,6 +748,11 @@ export default function SettingsPage() {
   /* Load AI config when switching to ai_config section */
   useEffect(() => {
     if (activeId === 'ai_config') { setAiSection('identity'); loadAiConfig(); }
+  }, [activeId]); // eslint-disable-line
+
+  useEffect(() => {
+    if (activeId === 'sso') loadSsoConfig();
+    if (activeId === 'priority_support') loadPrioritySupport();
   }, [activeId]); // eslint-disable-line
 
   /* ── Settings helpers ─────────────────────────────────────────────────── */
@@ -499,24 +771,44 @@ export default function SettingsPage() {
     });
   }
 
+  async function handleSaveProfile() {
+    if (!userProfile.name?.trim() || !userProfile.email?.trim()) {
+      toast.error('Name and email are required');
+      return;
+    }
+    setProfileSaving(true);
+    try {
+      // 1. Sync name + email into the users table (real identity)
+      let emailConflict = false;
+      try {
+        const updatedUser = await api.patch('/api/auth/me', {
+          name: userProfile.name.trim(),
+          email: userProfile.email.trim(),
+        });
+        if (updatedUser?.user) {
+          const prev = JSON.parse(localStorage.getItem('airos_user') || '{}');
+          localStorage.setItem('airos_user', JSON.stringify({ ...prev, ...updatedUser.user }));
+        }
+      } catch (err) {
+        emailConflict = true;
+        toast.error(err.message || 'Email update failed — other fields still saved');
+      }
+
+      // 2. Persist all profile fields to per-user preferences (works for all roles)
+      const saved = await api.patch('/api/auth/me/preferences', userProfile);
+      setUserProfile(saved || userProfile);
+
+      if (!emailConflict) toast.success('Profile saved');
+    } catch (err) {
+      toast.error(err.message || 'Save failed');
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
   async function handleSaveSettings() {
     setSaving(true);
     try {
-      // When the profile section is active, also update the real users table
-      if (activeId === 'profile' && settings.profile?.name && settings.profile?.email) {
-        try {
-          const updatedUser = await api.patch('/api/auth/me', {
-            name: settings.profile.name,
-            email: settings.profile.email,
-          });
-          // Sync the session user in localStorage so sidebar reflects the change
-          if (updatedUser?.user) {
-            const prev = JSON.parse(localStorage.getItem('airos_user') || '{}');
-            localStorage.setItem('airos_user', JSON.stringify({ ...prev, ...updatedUser.user }));
-          }
-        } catch { /* non-fatal — profile JSONB still saves */ }
-      }
-
       const saved = await api.put('/api/settings', settings);
       setSettings(saved || {});
       toast.success('Saved');
@@ -530,10 +822,81 @@ export default function SettingsPage() {
   async function handleSaveActiveData(payload) {
     if (!ACTIVE_DATA_SECTIONS.has(activeId)) return;
     const data = payload ?? activeData;
+
+    if (activeId === 'departments' && Array.isArray(data)) {
+      const names = data.map(d => (typeof d.name === 'string' ? d.name.trim() : ''));
+      const blank = names.findIndex(n => !n);
+      if (blank !== -1) { toast.error(`Department ${blank + 1} has no name`); return; }
+      const lower = names.map(n => n.toLowerCase());
+      const dup = lower.findIndex((n, i) => lower.indexOf(n) !== i);
+      if (dup !== -1) { toast.error(`Duplicate department name: "${data[dup].name}"`); return; }
+    }
+
+    if (activeId === 'brands' && Array.isArray(data)) {
+      const names = data.map(b => (typeof b.name === 'string' ? b.name.trim() : ''));
+      const blank = names.findIndex(n => !n);
+      if (blank !== -1) { toast.error(`Brand ${blank + 1} has no name`); return; }
+      const lowerNames = names.map(n => n.toLowerCase());
+      const dupName = lowerNames.findIndex((n, i) => lowerNames.indexOf(n) !== i);
+      if (dupName !== -1) { toast.error(`Duplicate brand name: "${data[dupName].name}"`); return; }
+      const slugs = data.map(b => (typeof b.slug === 'string' ? b.slug.trim() : '')).filter(Boolean);
+      const dupSlug = slugs.findIndex((s, i) => slugs.indexOf(s) !== i);
+      if (dupSlug !== -1) { toast.error(`Duplicate brand slug: "${slugs[dupSlug]}"`); return; }
+    }
+
+    if (activeId === 'email_tpl' && Array.isArray(data)) {
+      const blank = data.findIndex(t => !t.name || !String(t.name).trim());
+      if (blank !== -1) { toast.error(`Template ${blank + 1} has no name`); return; }
+    }
+
+    if (activeId === 'triggers' && Array.isArray(data)) {
+      const blankName = data.findIndex(t => !t.name || !String(t.name).trim());
+      if (blankName !== -1) { toast.error(`Trigger ${blankName + 1} has no name`); return; }
+      const blankCondition = data.findIndex(t => !String(t.conditionValue ?? '').trim());
+      if (blankCondition !== -1) { toast.error(`Trigger ${blankCondition + 1} has no condition value`); return; }
+      const missingActionValue = data.findIndex(t => ['add_tag', 'remove_tag', 'assign_to', 'send_message', 'update_score'].includes(t.actionType) && !String(t.actionValue ?? '').trim());
+      if (missingActionValue !== -1) { toast.error(`Trigger ${missingActionValue + 1} action value is required`); return; }
+      const invalidScore = data.findIndex(t => t.actionType === 'update_score' && !/^[+-]?\d{1,3}$/.test(String(t.actionValue ?? '').trim()));
+      if (invalidScore !== -1) { toast.error(`Trigger ${invalidScore + 1} score adjustment must be a signed integer`); return; }
+    }
+
+    if (activeId === 'visitor_routing') {
+      const error = validateVisitorRoutingDraft(data);
+      if (error) { toast.error(error); return; }
+    }
+
+    if (activeId === 'chat_routing') {
+      const error = validateChatRoutingDraft(data);
+      if (error) { toast.error(error); return; }
+    }
+
+    if (activeId === 'lead_scoring') {
+      const error = validateLeadScoringDraft(data);
+      if (error) { toast.error(error); return; }
+    }
+
+    if (activeId === 'company_scoring') {
+      const error = validateCompanyScoringDraft(data);
+      if (error) { toast.error(error); return; }
+    }
+
+    if (activeId === 'schedule_report') {
+      const error = validateScheduleReportsDraft(data);
+      if (error) { toast.error(error); return; }
+    }
+
+    if (activeId === 'canned' && Array.isArray(data)) {
+      const blank = data.findIndex(c => !c.title || !String(c.title).trim());
+      if (blank !== -1) { toast.error(`Canned response ${blank + 1} has no title`); return; }
+      const blank2 = data.findIndex(c => !c.body || !String(c.body).trim());
+      if (blank2 !== -1) { toast.error(`Canned response ${blank2 + 1} has no body`); return; }
+    }
+
     setSaving(true);
     try {
       const saved = await api.put(`/api/settings/${sectionUrl(activeId)}`, data);
       setActiveData(saved ?? data);
+      if (activeId === 'departments') setDepts(Array.isArray(saved) ? saved : (Array.isArray(data) ? data : []));
       toast.success('Saved');
     } catch (err) {
       toast.error(err.message || 'Save failed');
@@ -545,7 +908,16 @@ export default function SettingsPage() {
   /* ── Monitor supervisor actions ─────────────────────────────────────────── */
 
   async function handleMonitorAssignMe(convId) {
-    const me = JSON.parse(localStorage.getItem('airos_user') || 'null');
+    if (viewerRole !== 'owner' && viewerRole !== 'admin') {
+      toast.error('Only owners and admins can assign from Conversation Monitor');
+      return;
+    }
+    const tokenPayload = decodeStoredJwtPayload();
+    const storedUser = getStoredSessionUser() || {};
+    const me = {
+      id: storedUser.id || tokenPayload.id,
+      name: storedUser.name || 'Me',
+    };
     if (!me?.id) { toast.error('No user session found'); return; }
     const key = `${convId}_assign`;
     setMonitorActionLoading(p => ({ ...p, [key]: true }));
@@ -567,6 +939,10 @@ export default function SettingsPage() {
   }
 
   async function handleMonitorPauseAI(convId) {
+    if (viewerRole !== 'owner' && viewerRole !== 'admin') {
+      toast.error('Only owners and admins can pause AI from Conversation Monitor');
+      return;
+    }
     const key = `${convId}_pause`;
     setMonitorActionLoading(p => ({ ...p, [key]: true }));
     try {
@@ -586,19 +962,19 @@ export default function SettingsPage() {
   }
 
   async function handleMonitorEscalate(convId) {
+    if (viewerRole !== 'owner' && viewerRole !== 'admin') {
+      toast.error('Only owners and admins can escalate from Conversation Monitor');
+      return;
+    }
     const key = `${convId}_escalate`;
     setMonitorActionLoading(p => ({ ...p, [key]: true }));
     try {
-      // Pause AI + mark status escalated
-      await Promise.all([
-        api.patch(`/api/conversations/${convId}/ai-mode`, { ai_mode: 'manual' }),
-        api.patch(`/api/conversations/${convId}/status`, { status: 'open', priority: 'urgent' }).catch(() => {}),
-      ]);
+      const result = await api.post(`/api/settings/monitor/${convId}/escalate`, {});
       toast.success('Escalated — AI paused, priority set to urgent');
       setActiveData(prev => ({
         ...prev,
         conversations: (prev?.conversations || []).map(c =>
-          c.id === convId ? { ...c, ai_mode: 'manual', priority: 'urgent', is_urgent: true } : c
+          c.id === convId ? { ...c, ...result, ai_mode: 'manual', priority: 'urgent', is_urgent: true } : c
         ),
       }));
     } catch (err) {
@@ -611,7 +987,7 @@ export default function SettingsPage() {
   /* ── Import CSV preview ─────────────────────────────────────────────────── */
 
   function previewCsvFile(file) {
-    if (!file || !file.name.endsWith('.csv')) { setImportPreview(null); return; }
+    if (!file || !String(file.name || '').toLowerCase().endsWith('.csv')) { setImportPreview(null); return; }
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -650,8 +1026,7 @@ export default function SettingsPage() {
         ...(opForm.department ? { department: opForm.department } : {}),
       });
       setTeam(prev => [...prev, res.user]);
-      if (res.tempPassword) toast.success(`Invited. Temp password: ${res.tempPassword}`);
-      else toast.success('Operator invited');
+      toast.success('Invitation email sent');
       setOpDialog(null);
     } catch (err) {
       toast.error(err.message || 'Invite failed');
@@ -713,10 +1088,11 @@ export default function SettingsPage() {
   }
 
   async function handleConnectLivechat() {
+    setLcSaving(true);
     try {
       const res = await api.post('/api/channels', {
         channel: 'livechat',
-        credentials: { domain: lcForm.domain, color: lcForm.color },
+        credentials: { domain: lcForm.domain, color: lcForm.color, position: lcForm.position },
       });
       setChannels(prev => {
         const next = prev.filter(c => c.channel !== 'livechat');
@@ -726,6 +1102,8 @@ export default function SettingsPage() {
       setLcDialog(false);
     } catch (err) {
       toast.error(err.message || 'Failed');
+    } finally {
+      setLcSaving(false);
     }
   }
 
@@ -754,9 +1132,24 @@ export default function SettingsPage() {
   /* ── Schedule report: run now ─────────────────────────────────────────── */
 
   async function handleRunReport(reportId) {
+    if (viewerRole !== 'owner' && viewerRole !== 'admin') {
+      toast.error('Only owners and admins can send scheduled reports');
+      return;
+    }
     try {
       const res = await api.post(`/api/settings/schedule-report/${reportId}/run`, {});
-      const status = res?.[0]?.status;
+      const result = res?.[0];
+      const status = result?.status;
+      if (result?.id) {
+        setActiveData(prev => Array.isArray(prev)
+          ? prev.map(report => report.id === result.id ? {
+            ...report,
+            lastStatus: result.status,
+            lastError: result.error || '',
+            lastRunAt: result.lastRunAt || new Date().toISOString(),
+          } : report)
+          : prev);
+      }
       if (status === 'sent') toast.success('Report sent');
       else if (status === 'failed') toast.error(`Send failed: ${res?.[0]?.error}`);
       else toast.success('Triggered');
@@ -768,7 +1161,16 @@ export default function SettingsPage() {
   /* ── Import: file upload ─────────────────────────────────────────────── */
 
   async function handleImportUpload() {
-    if (!importFile) { toast.error('Select a file first'); return; }
+    if (viewerRole !== 'owner' && viewerRole !== 'admin') {
+      toast.error('Only owners and admins can run imports');
+      return;
+    }
+    if (!IMPORT_COLUMNS[importType]) {
+      toast.error('Select a valid import type');
+      return;
+    }
+    const fileError = validateImportFileSelection(importFile);
+    if (fileError) { toast.error(fileError); return; }
     setImportUploading(true);
     setImportResult(null);
     try {
@@ -901,6 +1303,10 @@ export default function SettingsPage() {
 
   /* ── AI Configuration helpers ────────────────────────────────────────── */
 
+  function canManageAiSettings() {
+    return viewerRole === 'owner' || viewerRole === 'admin';
+  }
+
   async function loadAiConfig() {
     setAiLoading(true);
     setAiConfig(null);
@@ -921,6 +1327,7 @@ export default function SettingsPage() {
   }
 
   function updateAiConfig(path, value) {
+    if (viewerRole && !canManageAiSettings()) return;
     setAiConfig(prev => {
       if (!prev) return prev;
       const next = { ...prev };
@@ -936,6 +1343,10 @@ export default function SettingsPage() {
   }
 
   async function handleSaveAiConfig(patch) {
+    if (!canManageAiSettings()) {
+      toast.error('Only owners and admins can change AI configuration');
+      return;
+    }
     const payload = patch ?? aiConfig;
     setAiSaving(true);
     try {
@@ -950,6 +1361,10 @@ export default function SettingsPage() {
   }
 
   async function handlePinPrompt(promptId, version) {
+    if (!canManageAiSettings()) {
+      toast.error('Only owners and admins can pin prompt versions');
+      return;
+    }
     try {
       const updated = await api.post(`/api/settings/ai/prompts/${encodeURIComponent(promptId)}/pin`, { version });
       setAiPrompts(prev => prev.map(p => p.id === promptId ? (updated || p) : p));
@@ -961,6 +1376,10 @@ export default function SettingsPage() {
 
   async function handleAiSimulate() {
     if (!aiSimInput.trim()) return;
+    if (!canManageAiSettings()) {
+      toast.error('Only owners and admins can run AI simulations');
+      return;
+    }
     setAiSimulating(true);
     setAiSimResult(null);
     try {
@@ -970,6 +1389,120 @@ export default function SettingsPage() {
       toast.error(err.message || 'Simulation failed');
     } finally {
       setAiSimulating(false);
+    }
+  }
+
+  /* ── Enterprise helpers ──────────────────────────────────────────────── */
+
+  async function loadSsoConfig() {
+    setSsoLoading(true);
+    setSsoTestResult(null);
+    try {
+      const config = await api.get('/api/settings/sso');
+      setSsoConfig(config || {});
+    } catch (err) {
+      toast.error(err.message || 'Failed to load SSO settings');
+    } finally {
+      setSsoLoading(false);
+    }
+  }
+
+  function updateSsoConfig(patch) {
+    if (!canManageAiSettings()) return;
+    setSsoConfig(prev => ({ ...(prev || {}), ...patch }));
+  }
+
+  async function handleSaveSsoConfig() {
+    if (!canManageAiSettings()) {
+      toast.error('Only owners and admins can change SSO settings');
+      return;
+    }
+    setSsoSaving(true);
+    try {
+      const saved = await api.put('/api/settings/sso', ssoConfig || {});
+      setSsoConfig(saved || ssoConfig);
+      toast.success('SSO settings saved');
+    } catch (err) {
+      toast.error(err.message || 'Failed to save SSO settings');
+    } finally {
+      setSsoSaving(false);
+    }
+  }
+
+  async function handleTestSsoConfig() {
+    setSsoSaving(true);
+    try {
+      const result = await api.post('/api/settings/sso/test', {});
+      setSsoTestResult(result);
+      if (result?.status === 'ready') toast.success('SSO connection is ready');
+      else toast.error(result?.message || 'SSO is not ready');
+    } catch (err) {
+      toast.error(err.message || 'SSO test failed');
+    } finally {
+      setSsoSaving(false);
+    }
+  }
+
+  async function handleDisableSsoConfig() {
+    if (!canManageAiSettings()) return;
+    setSsoSaving(true);
+    try {
+      const saved = await api.put('/api/settings/sso', { ...(ssoConfig || {}), enabled: false, requireSso: false });
+      setSsoConfig(saved || { ...(ssoConfig || {}), enabled: false, requireSso: false });
+      toast.success('SSO disabled');
+    } catch (err) {
+      toast.error(err.message || 'Failed to disable SSO');
+    } finally {
+      setSsoSaving(false);
+    }
+  }
+
+  async function loadPrioritySupport() {
+    setSupportLoading(true);
+    try {
+      const [summary, list] = await Promise.all([
+        api.get('/api/support/priority').catch(() => null),
+        api.get('/api/support/tickets').catch(() => ({ tickets: [] })),
+      ]);
+      setPrioritySupport(summary || null);
+      setSupportTickets(Array.isArray(list?.tickets) ? list.tickets : (summary?.recentTickets || []));
+    } catch (err) {
+      toast.error(err.message || 'Failed to load priority support');
+    } finally {
+      setSupportLoading(false);
+    }
+  }
+
+  async function handleCreatePriorityTicket() {
+    if (!supportDraft.subject.trim() || !supportDraft.description.trim()) {
+      toast.error('Subject and description are required');
+      return;
+    }
+    setSupportSaving(true);
+    try {
+      const result = await api.post('/api/support/tickets', supportDraft);
+      const ticket = result?.ticket;
+      if (ticket) setSupportTickets(prev => [ticket, ...prev]);
+      setSupportDraft({ subject: '', category: 'technical', priority: 'priority', description: '' });
+      toast.success('Priority support ticket created');
+      loadPrioritySupport();
+    } catch (err) {
+      toast.error(err.message || 'Could not create priority ticket');
+    } finally {
+      setSupportSaving(false);
+    }
+  }
+
+  async function handleEscalatePriorityTicket(ticketId) {
+    setSupportSaving(true);
+    try {
+      const result = await api.post(`/api/support/tickets/${encodeURIComponent(ticketId)}/escalate`, { reason: 'Customer requested escalation from settings' });
+      if (result?.ticket) setSupportTickets(prev => prev.map(ticket => ticket.id === ticketId ? result.ticket : ticket));
+      toast.success('Ticket escalated');
+    } catch (err) {
+      toast.error(err.message || 'Escalation failed');
+    } finally {
+      setSupportSaving(false);
     }
   }
 
@@ -1090,28 +1623,40 @@ export default function SettingsPage() {
             {/* ── 1. MY PROFILE ─────────────────────────────────────────── */}
             {activeId === 'profile' && (() => {
               let sessionRole = '';
-              try { sessionRole = JSON.parse(localStorage.getItem('airos_user') || '{}')?.role || ''; } catch { /* ignore */ }
+              try {
+                const tok = localStorage.getItem('airos_token') || '';
+                if (tok) sessionRole = JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))?.role || '';
+              } catch { /* ignore */ }
+              const upd = (key, val) => setUserProfile(p => ({ ...p, [key]: val }));
+              const updNested = (path, val) => setUserProfile(p => {
+                const next = { ...p };
+                const parts = path.split('.');
+                let cur = next;
+                for (let i = 0; i < parts.length - 1; i++) { cur[parts[i]] = { ...cur[parts[i]] }; cur = cur[parts[i]]; }
+                cur[parts[parts.length - 1]] = val;
+                return next;
+              });
               return (
               <div className="space-y-6">
-                <SettingSection title="My Profile" description="Your operator identity and display preferences." onSave={handleSaveSettings} saving={saving}>
+                <SettingSection title="My Profile" description="Your operator identity and display preferences." onSave={handleSaveProfile} saving={profileSaving}>
                   <div className="grid grid-cols-2 gap-6">
                     <Field label="Full Name">
-                      <Input value={settings.profile?.name || ''} onChange={e => updateNested('profile.name', e.target.value)} />
+                      <Input value={userProfile.name || ''} onChange={e => upd('name', e.target.value)} />
                     </Field>
                     <Field label="Work Email">
-                      <Input type="email" value={settings.profile?.email || ''} onChange={e => updateNested('profile.email', e.target.value)} />
+                      <Input type="email" value={userProfile.email || ''} onChange={e => upd('email', e.target.value)} />
                     </Field>
                     <Field label="Phone Number">
-                      <Input value={settings.profile?.phone || ''} onChange={e => updateNested('profile.phone', e.target.value)} placeholder="+1 555 000 0000" />
+                      <Input value={userProfile.phone || ''} onChange={e => upd('phone', e.target.value)} placeholder="+1 555 000 0000" />
                     </Field>
                     <Field label="Job Title">
-                      <Input value={settings.profile?.jobTitle || ''} onChange={e => updateNested('profile.jobTitle', e.target.value)} placeholder="e.g. Support Lead" />
+                      <Input value={userProfile.jobTitle || ''} onChange={e => upd('jobTitle', e.target.value)} placeholder="e.g. Support Lead" />
                     </Field>
                     <Field label="Timezone">
-                      <Input value={settings.profile?.timezone || ''} onChange={e => updateNested('profile.timezone', e.target.value)} placeholder="e.g. Asia/Dubai" />
+                      <Input value={userProfile.timezone || ''} onChange={e => upd('timezone', e.target.value)} placeholder="e.g. Asia/Dubai" />
                     </Field>
                     <Field label="Display Language">
-                      <Select value={settings.profile?.lang || 'en'} onValueChange={v => updateNested('profile.lang', v)}>
+                      <Select value={userProfile.lang || 'en'} onValueChange={v => upd('lang', v)}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="en">English</SelectItem>
@@ -1121,7 +1666,7 @@ export default function SettingsPage() {
                       </Select>
                     </Field>
                     <Field label="Date Format">
-                      <Select value={settings.profile?.dateFormat || 'DD/MM/YYYY'} onValueChange={v => updateNested('profile.dateFormat', v)}>
+                      <Select value={userProfile.dateFormat || 'DD/MM/YYYY'} onValueChange={v => upd('dateFormat', v)}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
@@ -1131,7 +1676,7 @@ export default function SettingsPage() {
                       </Select>
                     </Field>
                     <Field label="Time Format">
-                      <Select value={settings.profile?.timeFormat || '24h'} onValueChange={v => updateNested('profile.timeFormat', v)}>
+                      <Select value={userProfile.timeFormat || '24h'} onValueChange={v => upd('timeFormat', v)}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="12h">12-hour (AM/PM)</SelectItem>
@@ -1151,8 +1696,8 @@ export default function SettingsPage() {
                     <div className="col-span-2">
                       <Field label="Email Signature">
                         <Textarea
-                          value={settings.profile?.signature || ''}
-                          onChange={e => updateNested('profile.signature', e.target.value)}
+                          value={userProfile.signature || ''}
+                          onChange={e => upd('signature', e.target.value)}
                           placeholder="Appended to outbound emails…"
                           rows={3}
                         />
@@ -1169,24 +1714,24 @@ export default function SettingsPage() {
                         <CardTitle className="flex items-center gap-2"><Mail className="h-4 w-4 text-muted-foreground" /> Notifications</CardTitle>
                         <CardDescription>Choose which events trigger email or browser alerts.</CardDescription>
                       </div>
-                      <Button onClick={handleSaveSettings} disabled={saving} className="h-9 gap-2 px-6 bg-primary font-medium">
-                        <Save className="h-4 w-4" />{saving ? 'Saving…' : 'Save Changes'}
+                      <Button onClick={handleSaveProfile} disabled={profileSaving} className="h-9 gap-2 px-6 bg-primary font-medium">
+                        <Save className="h-4 w-4" />{profileSaving ? 'Saving…' : 'Save Changes'}
                       </Button>
                     </div>
                   </CardHeader>
                   <CardContent className="p-8 space-y-0">
                     {[
-                      { key: 'profile.notif.emailNewMessage',   label: 'Email — New message assigned to me' },
-                      { key: 'profile.notif.emailDailyDigest',  label: 'Email — Daily digest summary' },
-                      { key: 'profile.notif.emailAssigned',     label: 'Email — Conversation assigned to me' },
-                      { key: 'profile.notif.browserNewMessage', label: 'Browser — New message' },
-                      { key: 'profile.notif.browserAssigned',   label: 'Browser — Conversation assigned' },
+                      { key: 'notif.emailNewMessage',   label: 'Email — New message assigned to me' },
+                      { key: 'notif.emailDailyDigest',  label: 'Email — Daily digest summary' },
+                      { key: 'notif.emailAssigned',     label: 'Email — Conversation assigned to me' },
+                      { key: 'notif.browserNewMessage', label: 'Browser — New message' },
+                      { key: 'notif.browserAssigned',   label: 'Browser — Conversation assigned' },
                     ].map(({ key, label }) => (
                       <div key={key} className="flex items-center justify-between py-3 border-b last:border-0">
                         <span className="text-sm">{label}</span>
                         <Toggle
-                          value={!!(key.split('.').reduce((o, k) => o?.[k], settings))}
-                          onChange={v => updateNested(key, v)}
+                          value={!!(key.split('.').reduce((o, k) => o?.[k], userProfile))}
+                          onChange={v => updNested(key, v)}
                         />
                       </div>
                     ))}
@@ -1201,22 +1746,22 @@ export default function SettingsPage() {
                         <CardTitle className="flex items-center gap-2"><Settings className="h-4 w-4 text-muted-foreground" /> Work Preferences</CardTitle>
                         <CardDescription>Personalise your inbox and chat experience.</CardDescription>
                       </div>
-                      <Button onClick={handleSaveSettings} disabled={saving} className="h-9 gap-2 px-6 bg-primary font-medium">
-                        <Save className="h-4 w-4" />{saving ? 'Saving…' : 'Save Changes'}
+                      <Button onClick={handleSaveProfile} disabled={profileSaving} className="h-9 gap-2 px-6 bg-primary font-medium">
+                        <Save className="h-4 w-4" />{profileSaving ? 'Saving…' : 'Save Changes'}
                       </Button>
                     </div>
                   </CardHeader>
                   <CardContent className="p-8 space-y-0">
                     {[
-                      { key: 'profile.prefs.soundNotifications', label: 'Sound on new message' },
-                      { key: 'profile.prefs.autoReadOnOpen',     label: 'Mark conversation as read on open' },
-                      { key: 'profile.prefs.compactView',        label: 'Compact conversation list' },
+                      { key: 'prefs.soundNotifications', label: 'Sound on new message' },
+                      { key: 'prefs.autoReadOnOpen',     label: 'Mark conversation as read on open' },
+                      { key: 'prefs.compactView',        label: 'Compact conversation list' },
                     ].map(({ key, label }) => (
                       <div key={key} className="flex items-center justify-between py-3 border-b last:border-0">
                         <span className="text-sm">{label}</span>
                         <Toggle
-                          value={!!(key.split('.').reduce((o, k) => o?.[k], settings))}
-                          onChange={v => updateNested(key, v)}
+                          value={!!(key.split('.').reduce((o, k) => o?.[k], userProfile))}
+                          onChange={v => updNested(key, v)}
                         />
                       </div>
                     ))}
@@ -1325,7 +1870,24 @@ export default function SettingsPage() {
                       <Input value={settings.company?.timezone || ''} onChange={e => updateNested('company.timezone', e.target.value)} placeholder="e.g. Asia/Dubai" />
                     </Field>
                     <Field label="Currency">
-                      <Input value={settings.company?.currency || ''} onChange={e => updateNested('company.currency', e.target.value)} placeholder="e.g. SAR, AED, USD" />
+                      <Select value={settings.company?.currency || 'USD'} onValueChange={v => updateNested('company.currency', v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="USD">USD — US Dollar</SelectItem>
+                          <SelectItem value="EUR">EUR — Euro</SelectItem>
+                          <SelectItem value="GBP">GBP — British Pound</SelectItem>
+                          <SelectItem value="SAR">SAR — Saudi Riyal</SelectItem>
+                          <SelectItem value="AED">AED — UAE Dirham</SelectItem>
+                          <SelectItem value="EGP">EGP — Egyptian Pound</SelectItem>
+                          <SelectItem value="MAD">MAD — Moroccan Dirham</SelectItem>
+                          <SelectItem value="KWD">KWD — Kuwaiti Dinar</SelectItem>
+                          <SelectItem value="QAR">QAR — Qatari Riyal</SelectItem>
+                          <SelectItem value="BHD">BHD — Bahraini Dinar</SelectItem>
+                          <SelectItem value="OMR">OMR — Omani Rial</SelectItem>
+                          <SelectItem value="JOD">JOD — Jordanian Dinar</SelectItem>
+                          <SelectItem value="TRY">TRY — Turkish Lira</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </Field>
                     <div className="col-span-2">
                       <Field label="Company Description">
@@ -1460,12 +2022,14 @@ export default function SettingsPage() {
                         <span>Status</span>
                         <span />
                       </div>
-                      {team.map(m => {
+                      {team.map((m, mi) => {
                         const isVerified = !!m.email_verified_at;
-                        const deptName = m.department || '—';
+                        const deptName = m.department
+                          ? (depts.find(d => d.id === m.department)?.name || m.department)
+                          : '—';
                         const joined = m.created_at ? new Date(m.created_at).toLocaleDateString() : '—';
                         return (
-                          <div key={m.id} className="px-6 py-3 grid grid-cols-[2fr_2fr_1fr_1fr_1fr_auto] gap-4 items-center group hover:bg-muted/5 transition-colors">
+                          <div key={`${m.id || m.email || 'member'}:${mi}`} className="px-6 py-3 grid grid-cols-[2fr_2fr_1fr_1fr_1fr_auto] gap-4 items-center group hover:bg-muted/5 transition-colors">
                             <div className="flex items-center gap-3 min-w-0">
                               <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center font-semibold text-primary text-sm shrink-0">
                                 {m.name?.[0]?.toUpperCase() || '?'}
@@ -1506,12 +2070,21 @@ export default function SettingsPage() {
             {activeId === 'departments' && (
               <div className="space-y-6">
                 <SectionHeader title="Departments" description="Specialized support units for routing and reporting.">
-                  <Button size="sm" onClick={() => setActiveData(prev => [...(prev || []), { name: 'New Department', description: '', manager: '', slaTarget: 60, priority: 'normal', active: true }])} className="h-9 gap-2">
+                  <Button size="sm" onClick={() => setActiveData(prev => [...(prev || []), { id: crypto.randomUUID(), name: 'New Department', description: '', manager: '', slaTarget: 60, priority: 'normal', active: true }])} className="h-9 gap-2">
                     <Plus className="h-3.5 w-3.5" /> Add Department
                   </Button>
                 </SectionHeader>
-                {(!activeData || activeData.length === 0) ? (
-                  <Card className="border"><EmptyState icon={Layers} text="No departments defined." /></Card>
+                {activeData === null || sectionLoading ? (
+                  <Card className="border"><EmptyState icon={Layers} text="Loading…" /></Card>
+                ) : !Array.isArray(activeData) || activeData.length === 0 ? (
+                  <div className="space-y-4">
+                    <Card className="border"><EmptyState icon={Layers} text="No departments defined." /></Card>
+                    <div className="flex justify-end">
+                      <Button onClick={() => handleSaveActiveData([])} disabled={saving} className="h-9 font-medium bg-primary px-8">
+                        {saving ? 'Saving…' : 'Save Departments'}
+                      </Button>
+                    </div>
+                  </div>
                 ) : (
                   <div className="space-y-4">
                     {activeData.map((d, i) => {
@@ -1521,7 +2094,7 @@ export default function SettingsPage() {
                         setActiveData(next);
                       };
                       return (
-                        <Card key={i} className="border shadow-sm bg-card">
+                        <Card key={`${d.id || d.name || 'department'}:${i}`} className="border shadow-sm bg-card">
                           <CardContent className="p-6 space-y-4">
                             <div className="flex items-center gap-3">
                               <div className="w-9 h-9 rounded-lg bg-primary/5 flex items-center justify-center font-bold text-primary text-sm shrink-0">
@@ -1559,8 +2132,8 @@ export default function SettingsPage() {
                                   <SelectTrigger className="h-9"><SelectValue placeholder="None" /></SelectTrigger>
                                   <SelectContent>
                                     <SelectItem value="__none__">None</SelectItem>
-                                    {team.map(m => (
-                                      <SelectItem key={m.id} value={m.id}>{m.name} ({m.role})</SelectItem>
+                                    {team.map((m, mi) => (
+                                      <SelectItem key={`${m.id || m.email || 'member'}:${mi}`} value={m.id}>{m.name} ({m.role})</SelectItem>
                                     ))}
                                   </SelectContent>
                                 </Select>
@@ -1638,7 +2211,7 @@ export default function SettingsPage() {
                   <CardContent className="p-8 space-y-6">
                     <UsageBar label="Conversations" used={usage.conversations?.used || 0} limit={usage.conversations?.limit || 1} />
                     <UsageBar label="Messages" used={usage.messages?.used || 0} limit={usage.messages?.limit || 1} />
-                    <UsageBar label="AI Replies" used={usage.aiReplies?.used || 0} limit={usage.aiReplies?.limit || 1} />
+                    <UsageBar label="AI Suggestions" used={usage.aiReplies?.used || 0} limit={usage.aiReplies?.limit || 1} />
                     <UsageBar label="Contacts" used={usage.contacts?.used || 0} limit={usage.contacts?.limit || 1} />
                   </CardContent>
                 </Card>
@@ -1660,8 +2233,8 @@ export default function SettingsPage() {
                     <EmptyState icon={Trash2} text="Recycle bin is empty." />
                   ) : (
                     <div className="divide-y">
-                      {recycle.map(r => (
-                        <div key={r.id} className="p-4 px-6 flex items-center gap-4 group">
+                      {recycle.map((r, ri) => (
+                        <div key={`${r.id || r.type || 'recycle'}:${ri}`} className="p-4 px-6 flex items-center gap-4 group">
                           <div className="flex-1 min-w-0">
                             <p className="font-medium text-sm truncate">{r.name}</p>
                             <p className="text-xs text-muted-foreground">
@@ -1755,7 +2328,9 @@ export default function SettingsPage() {
                     <Plus className="h-3.5 w-3.5" /> Add Brand
                   </Button>
                 </SectionHeader>
-                {(!activeData || activeData.length === 0) ? (
+                {activeData === null || sectionLoading ? (
+                  <Card className="border"><EmptyState icon={Palette} text="Loading…" /></Card>
+                ) : !Array.isArray(activeData) || activeData.length === 0 ? (
                   <Card className="border">
                     <EmptyState icon={Palette} text="No brands. AI uses tenant default identity." />
                   </Card>
@@ -1764,7 +2339,7 @@ export default function SettingsPage() {
                     const next = [...activeData]; next[i] = { ...next[i], ...patch }; setActiveData(next);
                   }
                   return (
-                    <Card key={i} className="border shadow-sm bg-card">
+                    <Card key={`${brand.id || brand.slug || brand.name || 'brand'}:${i}`} className="border shadow-sm bg-card">
                       {/* Card header with color swatch + name + status + delete */}
                       <CardHeader className="border-b bg-muted/5 pb-4">
                         <div className="flex items-center justify-between">
@@ -2153,10 +2728,12 @@ export default function SettingsPage() {
                   </CardContent>
                 </Card>
 
-                {(!activeData || activeData.length === 0) ? (
+                {activeData === null || sectionLoading ? (
+                  <Card className="border"><EmptyState icon={Mail} text="Loading…" /></Card>
+                ) : !Array.isArray(activeData) || activeData.length === 0 ? (
                   <Card className="border"><EmptyState icon={Mail} text="No email templates configured." /></Card>
                 ) : activeData.map((tpl, i) => (
-                  <Card key={i} className="border shadow-sm bg-card">
+                  <Card key={`${tpl.id || tpl.name || 'template'}:${i}`} className="border shadow-sm bg-card">
                     <CardContent className="p-6 space-y-4">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -2241,7 +2818,7 @@ export default function SettingsPage() {
                     </CardContent>
                   </Card>
                 ))}
-                {activeData?.length > 0 && (
+                {Array.isArray(activeData) && (
                   <div className="flex justify-end">
                     <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
                       {saving ? 'Saving…' : 'Save Templates'}
@@ -2251,7 +2828,62 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* ── 11. PROFANITY LIBRARY ─────────────────────────────────── */}
+            {/* ── 11. CANNED RESPONSES ─────────────────────────────────── */}
+            {activeId === 'canned' && (
+              <div className="space-y-6">
+                <SectionHeader title="Canned Responses" description="Quick-reply templates agents can insert during conversations.">
+                  <Button size="sm" onClick={() => setActiveData(prev => [
+                    ...(Array.isArray(prev) ? prev : []),
+                    { id: `canned_${Date.now()}`, title: '', shortcut: '', body: '' },
+                  ])} className="h-9 gap-2">
+                    <Plus className="h-3.5 w-3.5" /> Add Response
+                  </Button>
+                </SectionHeader>
+
+                {activeData === null || sectionLoading ? (
+                  <Card className="border"><EmptyState icon={BookOpen} text="Loading…" /></Card>
+                ) : !Array.isArray(activeData) || activeData.length === 0 ? (
+                  <Card className="border"><EmptyState icon={BookOpen} text="No canned responses yet. Click 'Add Response' to create one." /></Card>
+                ) : activeData.map((item, i) => (
+                  <Card key={`${item.id || item.title || 'canned'}:${i}`} className="border shadow-sm bg-card">
+                    <CardContent className="p-6 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <p className="font-medium text-sm">{item.title || 'Untitled Response'}</p>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Field label="Title">
+                          <Input value={item.title || ''} placeholder="e.g. Greeting" onChange={e => {
+                            const next = [...activeData]; next[i] = { ...next[i], title: e.target.value }; setActiveData(next);
+                          }} />
+                        </Field>
+                        <Field label="Shortcut (e.g. /hello)">
+                          <Input value={item.shortcut || ''} placeholder="/shortcut" onChange={e => {
+                            const next = [...activeData]; next[i] = { ...next[i], shortcut: e.target.value }; setActiveData(next);
+                          }} />
+                        </Field>
+                      </div>
+                      <Field label="Response Body">
+                        <Textarea rows={3} value={item.body || ''} placeholder="Type the canned response text here…" onChange={e => {
+                          const next = [...activeData]; next[i] = { ...next[i], body: e.target.value }; setActiveData(next);
+                        }} />
+                      </Field>
+                    </CardContent>
+                  </Card>
+                ))}
+                {Array.isArray(activeData) && (
+                  <div className="flex justify-end">
+                    <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                      {saving ? 'Saving…' : 'Save Responses'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── 12. PROFANITY LIBRARY ─────────────────────────────────── */}
             {activeId === 'profanity' && (
               <div className="space-y-6">
                 <SettingSection title="Profanity Library" description="Words and phrases that trigger moderation actions in incoming messages." onSave={() => handleSaveActiveData()} saving={saving} loading={sectionLoading}>
@@ -2386,7 +3018,7 @@ export default function SettingsPage() {
                 </SettingSection>
 
                 {/* Controls card */}
-                {activeData && (
+                {!sectionLoading && activeData && (
                   <Card className="border shadow-sm bg-card">
                     <CardHeader className="border-b bg-muted/5">
                       <div className="flex items-center justify-between gap-4">
@@ -2402,7 +3034,7 @@ export default function SettingsPage() {
                     <CardContent className="p-8 space-y-0">
                       {[
                         { key: 'flagForReview',       label: 'Flag for review',              desc: 'Route conversations containing blocked words to manual review' },
-                        { key: 'autoBlockAfterThree', label: 'Auto-block after 3 violations', desc: 'Add customer to spammers list after 3 profanity detections' },
+                        { key: 'autoBlockAfterThree', label: 'Auto-block after 3 violations', desc: 'Block messages from this customer after 3 profanity detections' },
                       ].map(({ key, label, desc }) => (
                         <div key={key} className="flex items-center justify-between py-3 border-b last:border-0">
                           <div>
@@ -2435,10 +3067,9 @@ export default function SettingsPage() {
                             onKeyDown={e => {
                               if (e.key === 'Enter' && tagInput.trim()) {
                                 const t = tagInput.trim().toLowerCase().replace(/\s+/g, '-');
-                                if (!(settings.tags || []).includes(t)) {
-                                  updateNested('tags', [...(settings.tags || []), t]);
-                                  setTagMeta(prev => ({ ...prev, [t]: { color: tagColor, category: tagCategory, description: tagDesc } }));
-                                }
+                                if ((settings.tags || []).includes(t)) { toast.error('Tag already exists'); setTagInput(''); return; }
+                                updateNested('tags', [...(settings.tags || []), t]);
+                                setTagMeta(prev => ({ ...prev, [t]: { color: tagColor, category: tagCategory, description: '' } }));
                                 setTagInput('');
                               }
                             }}
@@ -2468,9 +3099,10 @@ export default function SettingsPage() {
                         <Button
                           onClick={() => {
                             const t = tagInput.trim().toLowerCase().replace(/\s+/g, '-');
-                            if (!t || (settings.tags || []).includes(t)) { setTagInput(''); return; }
+                            if (!t) return;
+                            if ((settings.tags || []).includes(t)) { toast.error('Tag already exists'); setTagInput(''); return; }
                             updateNested('tags', [...(settings.tags || []), t]);
-                            setTagMeta(prev => ({ ...prev, [t]: { color: tagColor, category: tagCategory, description: tagDesc } }));
+                            setTagMeta(prev => ({ ...prev, [t]: { color: tagColor, category: tagCategory, description: '' } }));
                             setTagInput('');
                           }}
                           className="h-9"
@@ -2494,7 +3126,7 @@ export default function SettingsPage() {
                         {(settings.tags || []).map((tag, ti) => {
                           const meta = tagMeta[tag] || {};
                           return (
-                            <div key={ti} className="grid grid-cols-[auto_1fr_100px_36px] gap-3 items-center px-3 py-2 rounded-lg hover:bg-muted/30 group">
+                            <div key={tag} className="grid grid-cols-[auto_1fr_100px_36px] gap-3 items-center px-3 py-2 rounded-lg hover:bg-muted/30 group">
                               <input
                                 type="color"
                                 value={meta.color || '#6366f1'}
@@ -2561,6 +3193,7 @@ export default function SettingsPage() {
               const chBrands = Array.isArray(settings.brands) ? settings.brands : [];
               const chDepts = Array.isArray(depts) ? depts : [];
               const chOps = Array.isArray(team) ? team : [];
+              const canManageChannel = viewerRole === 'owner' || viewerRole === 'admin';
 
               // normalizeChannelConnection: single source of truth for connection status.
               // Uses channel_connections.status — never derives from credential decryption.
@@ -2627,23 +3260,75 @@ export default function SettingsPage() {
                               Connected {new Date(rec.created_at).toLocaleDateString()}
                             </p>
                           )}
-                          {channelKey === 'livechat' && chDetails.widgetId && (
-                            <div className="mt-2 p-3 bg-muted/50 rounded-lg space-y-1">
-                              <p className="text-xs font-medium">Embed snippet</p>
-                              <pre className="text-xs text-muted-foreground whitespace-pre-wrap break-all">{`<script src="https://cdn.chatorai.com/widget.js" data-widget="${chDetails.widgetId}"></script>`}</pre>
-                            </div>
-                          )}
+                          {channelKey === 'livechat' && rec && (() => {
+                            let tenantId = '';
+                            try {
+                              const token = localStorage.getItem('airos_token') || localStorage.getItem('auth_token') || '';
+                              if (token) {
+                                const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+                                tenantId = payload.tenant_id || payload.tenantId || '';
+                              }
+                            } catch { /* ignore */ }
+                            const apiBase = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+                              ? `http://${window.location.hostname}:3011`
+                              : 'https://api.chatorai.com';
+                            const widgetColor = rec.details?.color || '#ff5a1f';
+                            const widgetPosition = rec.details?.position || 'bottom-right';
+                            const snippet = `\u003cscript src="${apiBase}/widget/widget.js"\n  data-tenant="${tenantId}"\n  data-color="${widgetColor}"\n  data-position="${widgetPosition}">\n\u003c/script>`;
+                            return (
+                              <div className="mt-3 space-y-4">
+                                <div className="rounded-xl border bg-muted/40 p-4 space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-xs font-semibold">Embed snippet</p>
+                                    <button
+                                      type="button"
+                                      className="text-[11px] text-primary hover:underline font-medium"
+                                      onClick={() => { navigator.clipboard.writeText(snippet); toast.success('Copied!'); }}
+                                    >
+                                      Copy
+                                    </button>
+                                  </div>
+                                  <pre className="text-[11px] text-muted-foreground whitespace-pre-wrap break-all leading-relaxed">{snippet}</pre>
+                                  <p className="text-[11px] text-muted-foreground">Paste inside the <code className="font-mono">&lt;/body&gt;</code> tag of your website.</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-semibold mb-2">Live Preview</p>
+                                  <p className="text-[11px] text-muted-foreground mb-3">This is your actual widget — click the chat button to test it. Messages will appear in Conversations.</p>
+                                  <LiveWidgetPreview
+                                    tenantId={previewTenantId}
+                                    color={widgetColor}
+                                    position={widgetPosition}
+                                    apiBase={previewApiBase}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       ) : (
                         <p className="text-sm text-muted-foreground">Not connected. Set up this channel to start receiving messages.</p>
                       )}
                       <div className="flex gap-2 pt-1">
                         {channelKey === 'livechat' ? (
-                          <Button onClick={() => setLcDialog(true)} variant={rec ? 'outline' : 'default'} className="h-9">
+                          <Button
+                            onClick={() => {
+                              if (rec?.details) {
+                                setLcForm({
+                                  domain: rec.details.domain || '',
+                                  color: rec.details.color || '#ff5a1f',
+                                  position: rec.details.position || 'bottom-right',
+                                });
+                              }
+                              setLcDialog(true);
+                            }}
+                            variant={rec ? 'outline' : 'default'}
+                            className="h-9"
+                            disabled={!canManageChannel}
+                          >
                             {rec ? 'Reconfigure Widget' : 'Set Up Widget'}
                           </Button>
                         ) : (
-                          <Button onClick={() => handleConnectMeta(channelKey)} variant={rec ? 'outline' : 'default'} className="h-9">
+                          <Button onClick={() => handleConnectMeta(channelKey)} variant={rec ? 'outline' : 'default'} className="h-9" disabled={!canManageChannel}>
                             {rec ? 'Reconnect via Meta' : 'Connect via Meta'}
                           </Button>
                         )}
@@ -2652,11 +3337,15 @@ export default function SettingsPage() {
                             variant="ghost"
                             className="h-9 text-destructive hover:text-destructive"
                             onClick={() => handleDisconnectChannel(rec.id)}
+                            disabled={!canManageChannel}
                           >
                             Disconnect
                           </Button>
                         )}
                       </div>
+                      {!canManageChannel && (
+                        <p className="text-xs text-muted-foreground">Owner or admin access is required to change this channel.</p>
+                      )}
                     </CardContent>
                   </Card>
 
@@ -2775,7 +3464,7 @@ export default function SettingsPage() {
                                     <SelectContent>
                                       <SelectItem value="__none__">No brand override</SelectItem>
                                       {chBrands.map((b, i) => (
-                                        <SelectItem key={b.id || i} value={String(b.id || b.name || i)}>{b.name}</SelectItem>
+                                        <SelectItem key={`${b.id || b.name || 'brand'}:${i}`} value={String(b.id || b.name || i)}>{b.name}</SelectItem>
                                       ))}
                                     </SelectContent>
                                   </Select>
@@ -2788,7 +3477,7 @@ export default function SettingsPage() {
                                     <SelectContent>
                                       <SelectItem value="__none__">No department</SelectItem>
                                       {chDepts.map((d, i) => (
-                                        <SelectItem key={d.id || i} value={String(d.id || d.name || i)}>{d.name}</SelectItem>
+                                        <SelectItem key={`${d.id || d.name || 'department'}:${i}`} value={String(d.id || d.name || i)}>{d.name}</SelectItem>
                                       ))}
                                     </SelectContent>
                                   </Select>
@@ -2800,8 +3489,8 @@ export default function SettingsPage() {
                                     <SelectTrigger><SelectValue placeholder="No default operator" /></SelectTrigger>
                                     <SelectContent>
                                       <SelectItem value="__none__">No default operator</SelectItem>
-                                      {chOps.map(op => (
-                                        <SelectItem key={op.id} value={String(op.id)}>{op.name} ({op.role})</SelectItem>
+                                      {chOps.map((op, oi) => (
+                                        <SelectItem key={`${op.id || op.email || 'operator'}:${oi}`} value={String(op.id)}>{op.name} ({op.role})</SelectItem>
                                       ))}
                                     </SelectContent>
                                   </Select>
@@ -2813,7 +3502,7 @@ export default function SettingsPage() {
                             </div>
                           </CardContent>
                           <CardFooter className="border-t px-6 py-4 bg-muted/5 flex justify-end">
-                            <Button onClick={() => handleSaveChConfig(channelKey)} disabled={chConfigSaving} className="h-9 gap-2 px-6 bg-primary font-medium">
+                            <Button onClick={() => handleSaveChConfig(channelKey)} disabled={chConfigSaving || !canManageChannel} className="h-9 gap-2 px-6 bg-primary font-medium">
                               <Save className="h-4 w-4" />
                               {chConfigSaving ? 'Saving…' : 'Save Channel Settings'}
                             </Button>
@@ -2883,6 +3572,7 @@ export default function SettingsPage() {
               const safety = ac.safety || {};
               const forbiddenActions = Array.isArray(ac.forbiddenActions) ? ac.forbiddenActions : [];
               const handoffRules = Array.isArray(ac.handoffRules) ? ac.handoffRules : [];
+              const canManageAi = canManageAiSettings();
 
               return (
                 <div className="space-y-6">
@@ -2894,7 +3584,7 @@ export default function SettingsPage() {
                           <CardTitle>AI Configuration</CardTitle>
                           <CardDescription>Enterprise AI control center. Every setting affects live AI behavior. Provider API keys are platform-managed.</CardDescription>
                         </div>
-                        <Button onClick={() => handleSaveAiConfig(aiConfig)} disabled={aiSaving || aiLoading} className="h-9 gap-2 px-6 bg-primary font-medium">
+                        <Button onClick={() => handleSaveAiConfig(aiConfig)} disabled={aiSaving || aiLoading || !canManageAi} className="h-9 gap-2 px-6 bg-primary font-medium">
                           <Save className="h-4 w-4" />
                           {aiSaving ? 'Saving…' : 'Save Changes'}
                         </Button>
@@ -2917,6 +3607,11 @@ export default function SettingsPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="p-8">
+                      {!canManageAi && (
+                        <div className="mb-6 rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+                          Read-only access. Only owners and admins can save AI configuration, pin prompts, edit policy rules, or run simulations.
+                        </div>
+                      )}
                       {aiLoading ? (
                         <div className="flex justify-center py-12">
                           <RefreshCcw className="h-5 w-5 animate-spin text-muted-foreground/30" />
@@ -2993,6 +3688,17 @@ export default function SettingsPage() {
                                 <Textarea rows={5} value={ac.systemPrompt || ''} onChange={e => updateAiConfig('systemPrompt', e.target.value)} placeholder="Instructions for the AI assistant…" />
                                 <p className="text-xs text-muted-foreground mt-1">This is the foundation prompt injected into every AI call. Persona, tone and language fields above are appended automatically.</p>
                               </Field>
+                              <Field label="Business Rules">
+                                <Textarea rows={4} value={ac.businessRules || ''} onChange={e => updateAiConfig('businessRules', e.target.value)} placeholder="Operational rules the AI must follow, e.g. payment, delivery, discount, and compliance constraints." />
+                              </Field>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                <Field label="Escalation Rules">
+                                  <Textarea rows={4} value={ac.escalationRules || ''} onChange={e => updateAiConfig('escalationRules', e.target.value)} placeholder="When the AI must stop and hand off to a human." />
+                                </Field>
+                                <Field label="Refund / Complaint Handling Rules">
+                                  <Textarea rows={4} value={ac.refundComplaintRules || ''} onChange={e => updateAiConfig('refundComplaintRules', e.target.value)} placeholder="Approved wording and handoff policy for refunds, returns, chargebacks, and complaints." />
+                                </Field>
+                              </div>
                             </div>
                           )}
 
@@ -3008,14 +3714,14 @@ export default function SettingsPage() {
                                     <p className="text-sm font-medium">Global Auto-Reply</p>
                                     <p className="text-xs text-muted-foreground">When OFF, AI never sends automatically regardless of conversation mode</p>
                                   </div>
-                                  <Toggle value={!!ac.autoReply} onChange={v => updateAiConfig('autoReply', v)} />
+                                  <Toggle value={!!ac.autoReply} disabled={!canManageAi} onChange={v => updateAiConfig('autoReply', v)} />
                                 </div>
                                 <div className="flex items-center justify-between py-3 border-b">
                                   <div>
                                     <p className="text-sm font-medium">Suggest Only (Global)</p>
                                     <p className="text-xs text-muted-foreground">AI generates suggestions for agents to review — never sends directly</p>
                                   </div>
-                                  <Toggle value={!!ac.suggestOnly} onChange={v => updateAiConfig('suggestOnly', v)} />
+                                  <Toggle value={!!ac.suggestOnly} disabled={!canManageAi} onChange={v => updateAiConfig('suggestOnly', v)} />
                                 </div>
                               </div>
                               <div className="grid grid-cols-2 gap-6">
@@ -3072,8 +3778,8 @@ export default function SettingsPage() {
                               </div>
                               {aiPrompts.length === 0 ? (
                                 <EmptyState icon={Bot} text="No prompt definitions found." />
-                              ) : aiPrompts.map(p => (
-                                <Card key={p.id} className="border">
+                              ) : aiPrompts.map((p, pi) => (
+                                <Card key={`${p.id || p.name || 'prompt'}:${pi}`} className="border">
                                   <CardContent className="p-5 space-y-4">
                                     <div className="flex items-start justify-between gap-3">
                                       <div>
@@ -3091,7 +3797,7 @@ export default function SettingsPage() {
                                           <div key={v.version} className={cn('flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs', p.pinnedVersion === v.version ? 'border-primary/30 bg-primary/5 text-primary' : 'bg-muted/20')}>
                                             <span>v{v.version}</span>
                                             {p.pinnedVersion !== v.version && (
-                                              <button type="button" onClick={() => handlePinPrompt(p.id, v.version)} className="underline text-muted-foreground hover:text-foreground ml-1">pin</button>
+                                              <button type="button" disabled={!canManageAi} onClick={() => handlePinPrompt(p.id, v.version)} className="underline text-muted-foreground hover:text-foreground ml-1 disabled:opacity-50 disabled:cursor-not-allowed">pin</button>
                                             )}
                                             {p.pinnedVersion === v.version && <CheckCircle2 className="h-3 w-3" />}
                                           </div>
@@ -3117,14 +3823,14 @@ export default function SettingsPage() {
                             <div className="space-y-4">
                               <div className="flex items-center justify-between">
                                 <p className="text-sm text-muted-foreground">Define topics and actions the AI must never engage with. These rules are checked before every auto-reply.</p>
-                                <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => updateAiConfig('forbiddenActions', [...forbiddenActions, { id: `fa_${Date.now()}`, pattern: '', severity: 'high', enforcement: 'block', escalate: true }])}>
+                                <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={!canManageAi} onClick={() => updateAiConfig('forbiddenActions', [...forbiddenActions, { id: `fa_${Date.now()}`, pattern: '', severity: 'high', enforcement: 'block', escalate: true }])}>
                                   <Plus className="h-3.5 w-3.5" /> Add Rule
                                 </Button>
                               </div>
                               {forbiddenActions.length === 0 ? (
                                 <Card className="border"><EmptyState icon={Shield} text="No forbidden action rules." /></Card>
                               ) : forbiddenActions.map((fa, i) => (
-                                <Card key={fa.id || i} className="border">
+                                <Card key={`${fa.id || fa.pattern || 'forbidden'}:${i}`} className="border">
                                   <CardContent className="p-4 space-y-3">
                                     <div className="flex items-start gap-3">
                                       <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -3155,10 +3861,10 @@ export default function SettingsPage() {
                                       </div>
                                       <div className="flex items-center gap-3 pt-6">
                                         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                          <Toggle value={!!fa.escalate} onChange={v => { const next = [...forbiddenActions]; next[i] = { ...next[i], escalate: v }; updateAiConfig('forbiddenActions', next); }} />
+                                          <Toggle value={!!fa.escalate} disabled={!canManageAi} onChange={v => { const next = [...forbiddenActions]; next[i] = { ...next[i], escalate: v }; updateAiConfig('forbiddenActions', next); }} />
                                           Escalate
                                         </div>
-                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => updateAiConfig('forbiddenActions', forbiddenActions.filter((_, j) => j !== i))}>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" disabled={!canManageAi} onClick={() => updateAiConfig('forbiddenActions', forbiddenActions.filter((_, j) => j !== i))}>
                                           <X className="h-3.5 w-3.5" />
                                         </Button>
                                       </div>
@@ -3174,14 +3880,14 @@ export default function SettingsPage() {
                             <div className="space-y-4">
                               <div className="flex items-center justify-between">
                                 <p className="text-sm text-muted-foreground">Define when AI must escalate to a human agent. Rules are evaluated after each message.</p>
-                                <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => updateAiConfig('handoffRules', [...handoffRules, { id: `hr_${Date.now()}`, condition: 'score_below', threshold: 30, channel: '__all__', action: 'notify_agent', message: '' }])}>
+                                <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={!canManageAi} onClick={() => updateAiConfig('handoffRules', [...handoffRules, { id: `hr_${Date.now()}`, condition: 'score_below', threshold: 30, channel: '__all__', action: 'notify_agent', message: '' }])}>
                                   <Plus className="h-3.5 w-3.5" /> Add Rule
                                 </Button>
                               </div>
                               {handoffRules.length === 0 ? (
                                 <Card className="border"><EmptyState icon={Users} text="No handoff rules configured." /></Card>
                               ) : handoffRules.map((hr, i) => (
-                                <Card key={hr.id || i} className="border">
+                                <Card key={`${hr.id || hr.name || 'handoff'}:${i}`} className="border">
                                   <CardContent className="p-4">
                                     <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
                                       <Field label="Condition">
@@ -3214,7 +3920,7 @@ export default function SettingsPage() {
                                         <Field label="Handoff Message" className="flex-1">
                                           <Input value={hr.message || ''} onChange={e => { const next = [...handoffRules]; next[i] = { ...next[i], message: e.target.value }; updateAiConfig('handoffRules', next); }} placeholder="Optional message to send on handoff" />
                                         </Field>
-                                        <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive mb-0.5" onClick={() => updateAiConfig('handoffRules', handoffRules.filter((_, j) => j !== i))}>
+                                        <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive mb-0.5" disabled={!canManageAi} onClick={() => updateAiConfig('handoffRules', handoffRules.filter((_, j) => j !== i))}>
                                           <X className="h-3.5 w-3.5" />
                                         </Button>
                                       </div>
@@ -3241,9 +3947,17 @@ export default function SettingsPage() {
                                     <p className="text-sm font-medium">{label}</p>
                                     <p className="text-xs text-muted-foreground">{desc}</p>
                                   </div>
-                                  <Toggle value={knowledgeSources[key] !== false} onChange={v => updateAiConfig(`knowledgeSources.${key}`, v)} />
+                                  <Toggle value={knowledgeSources[key] !== false} disabled={!canManageAi} onChange={v => updateAiConfig(`knowledgeSources.${key}`, v)} />
                                 </div>
                               ))}
+                              <Field label="Knowledge Source Priority">
+                                <Input
+                                  value={(Array.isArray(ac.knowledgeSourcePriority) ? ac.knowledgeSourcePriority : []).join(', ')}
+                                  onChange={e => updateAiConfig('knowledgeSourcePriority', e.target.value.split(',').map(v => v.trim()).filter(Boolean))}
+                                  placeholder="companyProfile, knowledgeBase, productCatalog, policies, faq"
+                                />
+                                <p className="text-xs text-muted-foreground mt-1">Order is enforced in the AI prompt. Allowed keys: companyProfile, knowledgeBase, productCatalog, policies, faq.</p>
+                              </Field>
                             </div>
                           )}
 
@@ -3316,7 +4030,7 @@ export default function SettingsPage() {
                                     <p className="text-sm font-medium">{label}</p>
                                     <p className="text-xs text-muted-foreground">{desc}</p>
                                   </div>
-                                  <Toggle value={safety[key] !== false} onChange={v => updateAiConfig(`safety.${key}`, v)} />
+                                  <Toggle value={safety[key] !== false} disabled={!canManageAi} onChange={v => updateAiConfig(`safety.${key}`, v)} />
                                 </div>
                               ))}
                             </div>
@@ -3330,6 +4044,10 @@ export default function SettingsPage() {
                                 <p className="text-xs text-muted-foreground">The AI provider (Anthropic / OpenAI), model version, and API keys are managed by the platform for stability and security. You control generation parameters below.</p>
                               </div>
                               <div className="grid grid-cols-2 gap-6">
+                                <Field label="Model Preference">
+                                  <Input value={ac.modelPreference || ''} onChange={e => updateAiConfig('modelPreference', e.target.value)} placeholder="Optional platform-enabled model id" />
+                                  <p className="text-xs text-muted-foreground mt-1">Used only if the model is enabled by the platform AI control plane.</p>
+                                </Field>
                                 <Field label="Creativity (Temperature)">
                                   <Select value={String(ac.temperature ?? '0.4')} onValueChange={v => updateAiConfig('temperature', parseFloat(v))}>
                                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -3379,7 +4097,7 @@ export default function SettingsPage() {
                                   </Select>
                                 </Field>
                               </div>
-                              <Button onClick={handleAiSimulate} disabled={aiSimulating || !aiSimInput.trim()} className="h-9 gap-2">
+                              <Button onClick={handleAiSimulate} disabled={aiSimulating || !aiSimInput.trim() || !canManageAi} className="h-9 gap-2">
                                 <Play className="h-4 w-4" />
                                 {aiSimulating ? 'Simulating…' : 'Run Simulation'}
                               </Button>
@@ -3414,21 +4132,180 @@ export default function SettingsPage() {
               );
             })()}
 
-            {/* ── 18. TRIGGERS ──────────────────────────────────────────── */}
-            {activeId === 'triggers' && (
+            {/* ── 18. SSO ───────────────────────────────────────────────── */}
+            {activeId === 'sso' && (() => {
+              const cfg = ssoConfig || {};
+              const domains = Array.isArray(cfg.allowedDomains) ? cfg.allowedDomains.join(', ') : '';
+              const mappings = cfg.mappings || {};
+              const canManageSso = canManageAiSettings();
+              return (
+                <div className="space-y-6">
+                  <SectionHeader title="Security / SSO" description="Tenant-scoped enterprise SSO. OAuth client secrets are read only by the backend and are never exposed here.">
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" disabled={ssoSaving || ssoLoading || !canManageSso} onClick={handleTestSsoConfig}>Test Connection</Button>
+                      <Button variant="outline" size="sm" disabled={ssoSaving || ssoLoading || !canManageSso || !cfg.enabled} onClick={handleDisableSsoConfig}>Disable SSO</Button>
+                      <Button size="sm" disabled={ssoSaving || ssoLoading || !canManageSso} onClick={handleSaveSsoConfig}>
+                        {ssoSaving ? 'Saving…' : 'Save SSO'}
+                      </Button>
+                    </div>
+                  </SectionHeader>
+                  {!canManageSso && <Card className="border"><CardContent className="p-4 text-sm text-muted-foreground">Read-only access. Only owners and admins can change SSO settings.</CardContent></Card>}
+                  {ssoLoading ? (
+                    <Card className="border"><CardContent className="p-8 flex justify-center"><RefreshCcw className="h-5 w-5 animate-spin text-muted-foreground/30" /></CardContent></Card>
+                  ) : (
+                    <Card className="border shadow-sm bg-card">
+                      <CardContent className="p-6 space-y-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                          <div className="flex items-center justify-between rounded-xl border p-4">
+                            <div>
+                              <p className="text-sm font-medium">Enable SSO</p>
+                              <p className="text-xs text-muted-foreground">Allows OAuth login for approved domains.</p>
+                            </div>
+                            <Toggle value={!!cfg.enabled} disabled={!canManageSso} onChange={v => updateSsoConfig({ enabled: v })} />
+                          </div>
+                          <div className="flex items-center justify-between rounded-xl border p-4">
+                            <div>
+                              <p className="text-sm font-medium">Require SSO Login</p>
+                              <p className="text-xs text-muted-foreground">Blocks password login for matching users except emergency owner fallback.</p>
+                            </div>
+                            <Toggle value={!!cfg.requireSso} disabled={!canManageSso} onChange={v => updateSsoConfig({ requireSso: v })} />
+                          </div>
+                          <Field label="Provider Type">
+                            <Select disabled={!canManageSso} value={cfg.provider || 'google'} onValueChange={v => updateSsoConfig({ provider: v })}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="google">Google Workspace OAuth</SelectItem>
+                                <SelectItem value="microsoft">Microsoft Entra ID OAuth</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                          <Field label="Allowed Email Domains">
+                            <Input disabled={!canManageSso} value={domains} onChange={e => updateSsoConfig({ allowedDomains: e.target.value.split(',').map(v => v.trim()).filter(Boolean) })} placeholder="company.com, subsidiary.com" />
+                          </Field>
+                          <div className="flex items-center justify-between rounded-xl border p-4">
+                            <div>
+                              <p className="text-sm font-medium">Auto-Provision Users</p>
+                              <p className="text-xs text-muted-foreground">Creates users after domain-verified SSO login.</p>
+                            </div>
+                            <Toggle value={!!cfg.autoProvision} disabled={!canManageSso} onChange={v => updateSsoConfig({ autoProvision: v })} />
+                          </div>
+                          <Field label="Default Role for SSO Users">
+                            <Select disabled={!canManageSso} value={cfg.defaultRole || 'agent'} onValueChange={v => updateSsoConfig({ defaultRole: v })}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="agent">Agent</SelectItem>
+                                <SelectItem value="admin">Admin</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                          {['email', 'name', 'department', 'role'].map(key => (
+                            <Field key={key} label={`Mapping: ${key}`}>
+                              <Input disabled={!canManageSso} value={mappings[key] || key} onChange={e => updateSsoConfig({ mappings: { ...mappings, [key]: e.target.value } })} />
+                            </Field>
+                          ))}
+                        </div>
+                        <div className="rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+                          <p><strong>SSO status:</strong> {cfg.status || (cfg.enabled ? 'enabled' : 'disabled')}</p>
+                          <p>SAML: {cfg.saml?.message || 'Enterprise SAML available on request. No SAML endpoint is enabled in this deployment.'}</p>
+                          {ssoTestResult && <p className={ssoTestResult.status === 'ready' ? 'text-emerald-600' : 'text-amber-600'}>Last test: {ssoTestResult.message}</p>}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── 19. PRIORITY SUPPORT ──────────────────────────────────── */}
+            {activeId === 'priority_support' && (() => {
+              const entitlement = prioritySupport?.entitlement || {};
+              const allowed = !!entitlement.allowed;
+              return (
+                <div className="space-y-6">
+                  <SectionHeader title="Priority Support" description="Plan-enforced priority ticket creation, SLA tracking, escalation, and ticket history." />
+                  {supportLoading ? (
+                    <Card className="border"><CardContent className="p-8 flex justify-center"><RefreshCcw className="h-5 w-5 animate-spin text-muted-foreground/30" /></CardContent></Card>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                        <Card className="border"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Support Tier</p><p className="font-semibold">{entitlement.supportTier || 'standard'}</p></CardContent></Card>
+                        <Card className="border"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Response SLA</p><p className="font-semibold">{entitlement.responseSlaHours || 48}h</p></CardContent></Card>
+                        <Card className="border"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Channels</p><p className="font-semibold">{(entitlement.supportChannels || ['email']).join(', ')}</p></CardContent></Card>
+                        <Card className="border"><CardContent className="p-4"><p className="text-xs text-muted-foreground">Plan Entitlement</p><p className={cn('font-semibold', allowed ? 'text-emerald-600' : 'text-amber-600')}>{allowed ? 'Enabled' : 'Upgrade required'}</p></CardContent></Card>
+                      </div>
+                      <Card className="border shadow-sm bg-card">
+                        <CardHeader>
+                          <CardTitle>Create Priority Ticket</CardTitle>
+                          <CardDescription>{allowed ? 'Tickets are stored with tenant, creator, SLA due date, and audit trail.' : (entitlement.reason || 'Priority Support is not enabled for this plan.')}</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <Field label="Subject"><Input disabled={!allowed || supportSaving} value={supportDraft.subject} onChange={e => setSupportDraft(d => ({ ...d, subject: e.target.value }))} /></Field>
+                            <Field label="Category">
+                              <Select disabled={!allowed || supportSaving} value={supportDraft.category} onValueChange={v => setSupportDraft(d => ({ ...d, category: v }))}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>{['technical', 'billing', 'integration', 'ai', 'security', 'general'].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
+                              </Select>
+                            </Field>
+                            <Field label="Priority">
+                              <Select disabled={!allowed || supportSaving} value={supportDraft.priority} onValueChange={v => setSupportDraft(d => ({ ...d, priority: v }))}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>{['priority', 'urgent', 'critical'].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
+                              </Select>
+                            </Field>
+                          </div>
+                          <Field label="Description"><Textarea rows={4} disabled={!allowed || supportSaving} value={supportDraft.description} onChange={e => setSupportDraft(d => ({ ...d, description: e.target.value }))} /></Field>
+                          <Button disabled={!allowed || supportSaving} onClick={handleCreatePriorityTicket}>{supportSaving ? 'Creating…' : 'Create Priority Ticket'}</Button>
+                        </CardContent>
+                      </Card>
+                      <Card className="border">
+                        <CardHeader><CardTitle>Ticket History</CardTitle></CardHeader>
+                        <CardContent className="space-y-3">
+                          {supportTickets.length === 0 ? <EmptyState icon={MessageCircle} text="No support tickets yet." /> : supportTickets.map(ticket => (
+                            <div key={ticket.id} className="rounded-xl border p-4 flex items-start justify-between gap-4">
+                              <div>
+                                <p className="font-medium text-sm">{ticket.subject}</p>
+                                <p className="text-xs text-muted-foreground">{ticket.category} · {ticket.priority} · {ticket.status} · SLA {ticket.slaDueAt ? new Date(ticket.slaDueAt).toLocaleString() : 'not set'}</p>
+                                {ticket.escalationState === 'escalated' && <Badge variant="destructive" className="mt-2">Escalated</Badge>}
+                              </div>
+                              <Button size="sm" variant="outline" disabled={!allowed || supportSaving || ticket.escalationState === 'escalated'} onClick={() => handleEscalatePriorityTicket(ticket.id)}>Escalate</Button>
+                            </div>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── 20. TRIGGERS ──────────────────────────────────────────── */}
+            {activeId === 'triggers' && (() => {
+              const canManageTriggers = viewerRole === 'owner' || viewerRole === 'admin';
+              return (
               <div className="space-y-6">
                 <SectionHeader title="Triggers" description="Automation rules that fire when events occur. WHEN event + condition is met → THEN run action.">
-                  <Button size="sm" onClick={() => setActiveData(prev => [
+                  <Button size="sm" disabled={!canManageTriggers || sectionLoading} onClick={() => setActiveData(prev => [
                     ...(prev || []),
                     { id: `trg_${Date.now()}`, name: 'New Trigger', event: 'message_received', conditionField: 'score', conditionOp: '>=', conditionValue: '70', actionType: 'add_tag', actionValue: '', active: true },
                   ])} className="h-9 gap-2">
                     <Plus className="h-3.5 w-3.5" /> Add Trigger
                   </Button>
                 </SectionHeader>
-                {(!activeData || activeData.length === 0) ? (
+                {!canManageTriggers && (
+                  <div className="rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+                    Read-only access. Only owners and admins can create, edit, delete, or save automation triggers.
+                  </div>
+                )}
+                {sectionLoading ? (
+                  <Card className="border"><CardContent className="p-8 flex justify-center"><RefreshCcw className="h-5 w-5 animate-spin text-muted-foreground/30" /></CardContent></Card>
+                ) : (!activeData || !Array.isArray(activeData) || activeData.length === 0) ? (
                   <Card className="border"><EmptyState icon={Zap} text="No triggers configured." /></Card>
                 ) : activeData.map((t, i) => {
                   function updateTrigger(patch) {
+                    if (!canManageTriggers) return;
                     const next = [...activeData]; next[i] = { ...next[i], ...patch }; setActiveData(next);
                   }
                   return (
@@ -3438,12 +4315,13 @@ export default function SettingsPage() {
                         <div className="flex items-center justify-between gap-3">
                           <Input
                             className="h-8 font-semibold border-0 px-0 text-sm bg-transparent shadow-none focus-visible:ring-0 w-auto min-w-0 flex-1"
+                            disabled={!canManageTriggers}
                             value={t.name}
                             onChange={e => updateTrigger({ name: e.target.value })}
                           />
                           <div className="flex items-center gap-2 shrink-0">
-                            <Toggle value={!!t.active} onChange={v => updateTrigger({ active: v })} />
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
+                            <Toggle value={!!t.active} disabled={!canManageTriggers} onChange={v => updateTrigger({ active: v })} />
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" disabled={!canManageTriggers} onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
@@ -3454,7 +4332,7 @@ export default function SettingsPage() {
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">When</p>
                           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
                             <Field label="Event">
-                              <Select value={t.event || 'message_received'} onValueChange={v => updateTrigger({ event: v })}>
+                              <Select disabled={!canManageTriggers} value={t.event || 'message_received'} onValueChange={v => updateTrigger({ event: v })}>
                                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                   {TRIGGER_EVENTS.map(ev => (
@@ -3464,7 +4342,7 @@ export default function SettingsPage() {
                               </Select>
                             </Field>
                             <Field label="Condition Field">
-                              <Select value={t.conditionField || 'score'} onValueChange={v => updateTrigger({ conditionField: v })}>
+                              <Select disabled={!canManageTriggers} value={t.conditionField || 'score'} onValueChange={v => updateTrigger({ conditionField: v })}>
                                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                   {TRIGGER_CONDITION_FIELDS.map(f => (
@@ -3474,7 +4352,7 @@ export default function SettingsPage() {
                               </Select>
                             </Field>
                             <Field label="Operator">
-                              <Select value={t.conditionOp || '>='} onValueChange={v => updateTrigger({ conditionOp: v })}>
+                              <Select disabled={!canManageTriggers} value={t.conditionOp || '>='} onValueChange={v => updateTrigger({ conditionOp: v })}>
                                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                   {TRIGGER_CONDITION_OPS.map(o => (
@@ -3486,6 +4364,7 @@ export default function SettingsPage() {
                             <Field label="Value">
                               <Input
                                 className="h-9"
+                                disabled={!canManageTriggers}
                                 value={t.conditionValue ?? ''}
                                 onChange={e => updateTrigger({ conditionValue: e.target.value })}
                                 placeholder="e.g. 70 or whatsapp"
@@ -3499,7 +4378,7 @@ export default function SettingsPage() {
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Then</p>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                             <Field label="Action">
-                              <Select value={t.actionType || 'add_tag'} onValueChange={v => updateTrigger({ actionType: v })}>
+                              <Select disabled={!canManageTriggers} value={t.actionType || 'add_tag'} onValueChange={v => updateTrigger({ actionType: v })}>
                                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                   {TRIGGER_ACTION_TYPES.map(a => (
@@ -3510,14 +4389,14 @@ export default function SettingsPage() {
                             </Field>
                             {t.actionType === 'assign_to' ? (
                               <Field label="Assign To">
-                                <Select value={t.actionValue || ''} onValueChange={v => updateTrigger({ actionValue: v })}>
+                                <Select disabled={!canManageTriggers} value={t.actionValue || ''} onValueChange={v => updateTrigger({ actionValue: v })}>
                                   <SelectTrigger className="h-9"><SelectValue placeholder="Select agent or dept…" /></SelectTrigger>
                                   <SelectContent>
-                                    {depts.map(d => (
-                                      <SelectItem key={`dept:${d.name}`} value={`dept:${d.name}`}>Dept: {d.name}</SelectItem>
+                                    {depts.map((d, di) => (
+                                      <SelectItem key={`dept:${d.id || d.name || 'department'}:${di}`} value={`dept:${d.name}`}>Dept: {d.name}</SelectItem>
                                     ))}
-                                    {team.map(m => (
-                                      <SelectItem key={`agent:${m.id}`} value={`agent:${m.id}`}>{m.name} ({m.role})</SelectItem>
+                                    {team.map((m, mi) => (
+                                      <SelectItem key={`agent:${m.id || m.email || 'member'}:${mi}`} value={`agent:${m.id}`}>{m.name} ({m.role})</SelectItem>
                                     ))}
                                   </SelectContent>
                                 </Select>
@@ -3530,6 +4409,7 @@ export default function SettingsPage() {
                               <Field label={t.actionType === 'update_score' ? 'Points (use + or -)' : t.actionType === 'send_message' ? 'Message Text' : 'Value'}>
                                 <Input
                                   className="h-9"
+                                  disabled={!canManageTriggers}
                                   value={t.actionValue ?? ''}
                                   onChange={e => updateTrigger({ actionValue: e.target.value })}
                                   placeholder={
@@ -3550,33 +4430,74 @@ export default function SettingsPage() {
                 })}
                 {activeData?.length > 0 && (
                   <div className="flex justify-end">
-                    <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                    <Button onClick={() => handleSaveActiveData()} disabled={saving || !canManageTriggers} className="h-9 px-8 bg-primary font-medium">
                       {saving ? 'Saving…' : 'Save Triggers'}
                     </Button>
                   </div>
                 )}
               </div>
-            )}
+              );
+            })()}
 
             {/* ── 19. VISITOR ROUTING ───────────────────────────────────── */}
-            {activeId === 'visitor_routing' && (
+            {activeId === 'visitor_routing' && (() => {
+              const canManageVisitorRouting = viewerRole === 'owner' || viewerRole === 'admin';
+              async function saveVisitorConfig() {
+                if (!canManageVisitorRouting) {
+                  toast.error('Only owners and admins can change visitor routing');
+                  return;
+                }
+                const error = validateVisitorRoutingDraft(activeData, { validateRules: false });
+                if (error) { toast.error(error); return; }
+                setSaving(true);
+                try {
+                  const saved = await api.put('/api/settings/visitor-routing', { config: activeData?.config ?? {} });
+                  const normalizedRules = saved?.rules ? saved.rules.map(engineRuleToUiFormat) : activeData?.rules;
+                  setActiveData(d => ({
+                    ...d,
+                    ...(saved?.config ? { config: saved.config } : {}),
+                    ...(normalizedRules ? { rules: normalizedRules } : {}),
+                  }));
+                  toast.success('Saved');
+                } catch (err) { toast.error(err.message || 'Save failed'); }
+                finally { setSaving(false); }
+              }
+              async function saveVisitorRules() {
+                if (!canManageVisitorRouting) {
+                  toast.error('Only owners and admins can change visitor routing');
+                  return;
+                }
+                const error = validateVisitorRoutingDraft(activeData);
+                if (error) { toast.error(error); return; }
+                setSaving(true);
+                try {
+                  const saved = await api.put('/api/settings/visitor-routing', {
+                    config: activeData?.config ?? {},
+                    rules: activeData?.rules ?? [],
+                  });
+                  setActiveData({
+                    config: saved?.config ?? activeData?.config ?? {},
+                    rules: (saved?.rules ?? []).map(engineRuleToUiFormat),
+                  });
+                  toast.success('Routing rules saved');
+                } catch (err) { toast.error(err.message || 'Save failed'); }
+                finally { setSaving(false); }
+              }
+              return (
               <div className="space-y-6">
                 <SectionHeader title="Visitor Routing" description="How incoming sessions are distributed across agents." />
+                {!canManageVisitorRouting && (
+                  <div className="rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+                    Read-only access. Only owners and admins can create, edit, delete, or save visitor routing rules.
+                  </div>
+                )}
 
                 {/* Config card */}
-                <SettingSection title="Routing Configuration" loading={sectionLoading} onSave={async () => {
-                  setSaving(true);
-                  try {
-                    const saved = await api.put('/api/settings/visitor-routing', { config: activeData?.config ?? {} });
-                    setActiveData(d => ({ ...d, ...(saved?.config ? { config: saved.config } : {}) }));
-                    toast.success('Saved');
-                  } catch (err) { toast.error(err.message || 'Save failed'); }
-                  finally { setSaving(false); }
-                }} saving={saving}>
+                <SettingSection title="Routing Configuration" loading={sectionLoading} onSave={saveVisitorConfig} saving={saving} disabled={!canManageVisitorRouting}>
                   {activeData && (
                     <div className="grid grid-cols-3 gap-6">
                       <Field label="Routing Mode">
-                        <Select value={activeData.config?.mode || 'round_robin'} onValueChange={v => setActiveData(d => ({ ...d, config: { ...d.config, mode: v } }))}>
+                        <Select disabled={!canManageVisitorRouting} value={activeData.config?.mode || 'round_robin'} onValueChange={v => setActiveData(d => ({ ...d, config: { ...d.config, mode: v } }))}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="round_robin">Round Robin</SelectItem>
@@ -3586,7 +4507,7 @@ export default function SettingsPage() {
                         </Select>
                       </Field>
                       <Field label="Fallback">
-                        <Select value={activeData.config?.fallback || 'AI Bot'} onValueChange={v => setActiveData(d => ({ ...d, config: { ...d.config, fallback: v } }))}>
+                        <Select disabled={!canManageVisitorRouting} value={activeData.config?.fallback || 'AI Bot'} onValueChange={v => setActiveData(d => ({ ...d, config: { ...d.config, fallback: v } }))}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="AI Bot">AI Bot</SelectItem>
@@ -3596,7 +4517,7 @@ export default function SettingsPage() {
                         </Select>
                       </Field>
                       <Field label="Threshold (seconds)">
-                        <Input type="number" min={5} value={activeData.config?.threshold ?? 30} onChange={e => setActiveData(d => ({ ...d, config: { ...d.config, threshold: parseInt(e.target.value) } }))} />
+                        <Input disabled={!canManageVisitorRouting} type="number" min={5} value={activeData.config?.threshold ?? 30} onChange={e => setActiveData(d => ({ ...d, config: { ...d.config, threshold: parseInt(e.target.value) } }))} />
                       </Field>
                     </div>
                   )}
@@ -3609,7 +4530,7 @@ export default function SettingsPage() {
                       <p className="text-sm font-semibold">Routing Rules</p>
                       <p className="text-xs text-muted-foreground mt-0.5">Rules are evaluated in priority order. First match wins.</p>
                     </div>
-                    <Button size="sm" className="h-9 gap-2" onClick={() => setActiveData(d => ({
+                    <Button size="sm" className="h-9 gap-2" disabled={!canManageVisitorRouting || sectionLoading} onClick={() => setActiveData(d => ({
                       ...d,
                       rules: [...(d?.rules || []), { id: `vr_${Date.now()}`, name: 'New Rule', conditionField: 'channel', conditionOp: '=', conditionValue: '', assignTo: '', priority: (d?.rules?.length || 0) + 1, enabled: true }],
                     }))}>
@@ -3617,10 +4538,13 @@ export default function SettingsPage() {
                     </Button>
                   </div>
 
-                  {(!activeData?.rules || activeData.rules.length === 0) ? (
+                  {sectionLoading ? (
+                    <Card className="border"><CardContent className="p-8 flex justify-center"><RefreshCcw className="h-5 w-5 animate-spin text-muted-foreground/30" /></CardContent></Card>
+                  ) : (!activeData?.rules || activeData.rules.length === 0) ? (
                     <Card className="border"><EmptyState icon={Route} text="No routing rules. All traffic handled by fallback." /></Card>
                   ) : activeData.rules.map((r, i) => {
                     function updateRule(patch) {
+                      if (!canManageVisitorRouting) return;
                       setActiveData(d => {
                         const next = [...(d.rules || [])];
                         next[i] = { ...next[i], ...patch };
@@ -3628,17 +4552,18 @@ export default function SettingsPage() {
                       });
                     }
                     return (
-                      <Card key={r.id || i} className="border shadow-sm bg-card">
+                      <Card key={`${r.id || r.name || 'visitor-rule'}:${i}`} className="border shadow-sm bg-card">
                         <CardContent className="p-5 space-y-4">
                           <div className="flex items-center gap-3">
                             <span className="w-6 h-6 rounded-md bg-muted text-[11px] font-bold flex items-center justify-center shrink-0 text-muted-foreground">{i + 1}</span>
                             <Input
                               className="h-8 font-semibold border-0 px-0 text-sm bg-transparent shadow-none focus-visible:ring-0 flex-1"
+                              disabled={!canManageVisitorRouting}
                               value={r.name}
                               onChange={e => updateRule({ name: e.target.value })}
                             />
-                            <Toggle value={!!r.enabled} onChange={v => updateRule({ enabled: v })} />
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setActiveData(d => ({ ...d, rules: d.rules.filter((_, j) => j !== i) }))}>
+                            <Toggle value={!!r.enabled} disabled={!canManageVisitorRouting} onChange={v => updateRule({ enabled: v })} />
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" disabled={!canManageVisitorRouting} onClick={() => setActiveData(d => ({ ...d, rules: d.rules.filter((_, j) => j !== i) }))}>
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
@@ -3648,7 +4573,7 @@ export default function SettingsPage() {
                             <div className="rounded-xl border bg-muted/5 p-3 space-y-3">
                               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">If</p>
                               <div className="grid grid-cols-3 gap-2">
-                                <Select value={r.conditionField || 'channel'} onValueChange={v => updateRule({ conditionField: v })}>
+                                <Select disabled={!canManageVisitorRouting} value={r.conditionField || 'channel'} onValueChange={v => updateRule({ conditionField: v, conditionOp: v === 'score' ? (r.conditionOp || '>=') : '=' })}>
                                   <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                                   <SelectContent>
                                     {ROUTING_CONDITION_FIELDS.map(f => (
@@ -3656,7 +4581,7 @@ export default function SettingsPage() {
                                     ))}
                                   </SelectContent>
                                 </Select>
-                                <Select value={r.conditionOp || '='} onValueChange={v => updateRule({ conditionOp: v })}>
+                                <Select disabled={!canManageVisitorRouting} value={r.conditionOp || '='} onValueChange={v => updateRule({ conditionOp: v })}>
                                   <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                                   <SelectContent>
                                     {ROUTING_CONDITION_OPS.map(o => (
@@ -3664,23 +4589,23 @@ export default function SettingsPage() {
                                     ))}
                                   </SelectContent>
                                 </Select>
-                                <Input className="h-8 text-xs" value={r.conditionValue || ''} onChange={e => updateRule({ conditionValue: e.target.value })} placeholder="value" />
+                                <Input disabled={!canManageVisitorRouting} className="h-8 text-xs" value={r.conditionValue || ''} onChange={e => updateRule({ conditionValue: e.target.value })} placeholder="value" />
                               </div>
                             </div>
 
                             {/* THEN assign */}
                             <div className="rounded-xl border bg-muted/5 p-3 space-y-3">
                               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Route To</p>
-                              <Select value={r.assignTo || ''} onValueChange={v => updateRule({ assignTo: v })}>
+                              <Select disabled={!canManageVisitorRouting} value={r.assignTo || ''} onValueChange={v => updateRule({ assignTo: v })}>
                                 <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select agent or department…" /></SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="ai_bot">AI Bot</SelectItem>
                                   <SelectItem value="queue">Queue</SelectItem>
-                                  {depts.map(d => (
-                                    <SelectItem key={`dept:${d.name}`} value={`dept:${d.name}`}>Dept: {d.name}</SelectItem>
+                                  {depts.map((d, di) => (
+                                    <SelectItem key={`dept:${d.id || d.name || 'department'}:${di}`} value={`dept:${d.name}`}>Dept: {d.name}</SelectItem>
                                   ))}
-                                  {team.map(m => (
-                                    <SelectItem key={`agent:${m.id}`} value={`agent:${m.id}`}>{m.name} ({m.role})</SelectItem>
+                                  {team.map((m, mi) => (
+                                    <SelectItem key={`agent:${m.id || m.email || 'member'}:${mi}`} value={`agent:${m.id}`}>{m.name} ({m.role})</SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
@@ -3693,43 +4618,41 @@ export default function SettingsPage() {
 
                   {activeData?.rules?.length > 0 && (
                     <div className="flex justify-end">
-                      <Button onClick={async () => {
-                        setSaving(true);
-                        try {
-                          const saved = await api.put('/api/settings/visitor-routing', {
-                            config: activeData?.config ?? {},
-                            rules: activeData?.rules ?? [],
-                          });
-                          // Normalize DB rules back to UI flat format
-                          if (saved?.rules) saved.rules = saved.rules.map(engineRuleToUiFormat);
-                          setActiveData(saved);
-                          toast.success('Routing rules saved');
-                        } catch (err) { toast.error(err.message || 'Save failed'); }
-                        finally { setSaving(false); }
-                      }} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                      <Button onClick={saveVisitorRules} disabled={saving || !canManageVisitorRouting} className="h-9 px-8 bg-primary font-medium">
                         {saving ? 'Saving…' : 'Save Rules'}
                       </Button>
                     </div>
                   )}
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             {/* ── 20. CHAT ROUTING ──────────────────────────────────────── */}
-            {activeId === 'chat_routing' && (
+            {activeId === 'chat_routing' && (() => {
+              const canManageChatRouting = viewerRole === 'owner' || viewerRole === 'admin';
+              return (
               <div className="space-y-6">
                 <SectionHeader title="Chat Routing" description="Rules for assigning incoming conversations to departments or agents. First matching rule wins.">
-                  <Button size="sm" onClick={() => setActiveData(prev => [
+                  <Button size="sm" disabled={!canManageChatRouting || sectionLoading} onClick={() => setActiveData(prev => [
                     ...(prev || []),
                     { id: `cr_${Date.now()}`, name: 'New Rule', conditionField: 'channel', conditionOp: '=', conditionValue: '', assignTo: '', active: true },
                   ])} className="h-9 gap-2">
                     <Plus className="h-3.5 w-3.5" /> Add Rule
                   </Button>
                 </SectionHeader>
-                {(!activeData || activeData.length === 0) ? (
+                {!canManageChatRouting && (
+                  <div className="rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+                    Read-only access. Only owners and admins can create, edit, delete, or save chat routing rules.
+                  </div>
+                )}
+                {sectionLoading ? (
+                  <Card className="border"><CardContent className="p-8 flex justify-center"><RefreshCcw className="h-5 w-5 animate-spin text-muted-foreground/30" /></CardContent></Card>
+                ) : (!activeData || !Array.isArray(activeData) || activeData.length === 0) ? (
                   <Card className="border"><EmptyState icon={Route} text="No chat routing rules defined. All conversations go to unassigned." /></Card>
                 ) : activeData.map((r, i) => {
                   function updateRule(patch) {
+                    if (!canManageChatRouting) return;
                     const next = [...activeData]; next[i] = { ...next[i], ...patch }; setActiveData(next);
                   }
                   return (
@@ -3740,11 +4663,12 @@ export default function SettingsPage() {
                           <span className="w-6 h-6 rounded-md bg-muted text-[11px] font-bold flex items-center justify-center shrink-0 text-muted-foreground">{i + 1}</span>
                           <Input
                             className="h-8 font-semibold border-0 px-0 text-sm bg-transparent shadow-none focus-visible:ring-0 flex-1"
+                            disabled={!canManageChatRouting}
                             value={r.name}
                             onChange={e => updateRule({ name: e.target.value })}
                           />
-                          <Toggle value={!!r.active} onChange={v => updateRule({ active: v })} />
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
+                          <Toggle value={!!r.active} disabled={!canManageChatRouting} onChange={v => updateRule({ active: v })} />
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" disabled={!canManageChatRouting} onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
@@ -3754,7 +4678,7 @@ export default function SettingsPage() {
                           <div className="rounded-xl border bg-muted/5 p-3 space-y-3">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">If</p>
                             <div className="grid grid-cols-3 gap-2">
-                              <Select value={r.conditionField || 'channel'} onValueChange={v => updateRule({ conditionField: v })}>
+                              <Select disabled={!canManageChatRouting} value={r.conditionField || 'channel'} onValueChange={v => updateRule({ conditionField: v, conditionOp: v === 'score' ? (r.conditionOp || '>=') : '=' })}>
                                 <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                   {ROUTING_CONDITION_FIELDS.map(f => (
@@ -3762,7 +4686,7 @@ export default function SettingsPage() {
                                   ))}
                                 </SelectContent>
                               </Select>
-                              <Select value={r.conditionOp || '='} onValueChange={v => updateRule({ conditionOp: v })}>
+                              <Select disabled={!canManageChatRouting} value={r.conditionOp || '='} onValueChange={v => updateRule({ conditionOp: v })}>
                                 <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                   {ROUTING_CONDITION_OPS.map(o => (
@@ -3770,23 +4694,23 @@ export default function SettingsPage() {
                                   ))}
                                 </SelectContent>
                               </Select>
-                              <Input className="h-8 text-xs" value={r.conditionValue || ''} onChange={e => updateRule({ conditionValue: e.target.value })} placeholder="value" />
+                              <Input disabled={!canManageChatRouting} className="h-8 text-xs" value={r.conditionValue || ''} onChange={e => updateRule({ conditionValue: e.target.value })} placeholder="value" />
                             </div>
                           </div>
 
                           {/* THEN assign */}
                           <div className="rounded-xl border bg-muted/5 p-3 space-y-3">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Assign To</p>
-                            <Select value={r.assignTo || ''} onValueChange={v => updateRule({ assignTo: v })}>
+                            <Select disabled={!canManageChatRouting} value={r.assignTo || ''} onValueChange={v => updateRule({ assignTo: v })}>
                               <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select agent or department…" /></SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="ai_bot">AI Bot</SelectItem>
                                 <SelectItem value="queue">Queue (Unassigned)</SelectItem>
-                                {depts.map(d => (
-                                  <SelectItem key={`dept:${d.name}`} value={`dept:${d.name}`}>Dept: {d.name}</SelectItem>
+                                  {depts.map((d, di) => (
+                                  <SelectItem key={`dept:${d.id || d.name || 'department'}:${di}`} value={`dept:${d.name}`}>Dept: {d.name}</SelectItem>
                                 ))}
-                                {team.map(m => (
-                                  <SelectItem key={`agent:${m.id}`} value={`agent:${m.id}`}>{m.name} ({m.role})</SelectItem>
+                                {team.map((m, mi) => (
+                                  <SelectItem key={`agent:${m.id || m.email || 'member'}:${mi}`} value={`agent:${m.id}`}>{m.name} ({m.role})</SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
@@ -3798,22 +4722,30 @@ export default function SettingsPage() {
                 })}
                 {activeData?.length > 0 && (
                   <div className="flex justify-end">
-                    <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                    <Button onClick={() => handleSaveActiveData()} disabled={saving || !canManageChatRouting} className="h-9 px-8 bg-primary font-medium">
                       {saving ? 'Saving…' : 'Save Chat Routing'}
                     </Button>
                   </div>
                 )}
               </div>
-            )}
+              );
+            })()}
 
             {/* ── 21. LEAD SCORING ──────────────────────────────────────── */}
-            {activeId === 'lead_scoring' && (
+            {activeId === 'lead_scoring' && (() => {
+              const canManageLeadScoring = viewerRole === 'owner' || viewerRole === 'admin';
+              return (
               <div className="space-y-6">
                 <SectionHeader title="Lead Scoring" description="Signal rules that adjust the AI lead score (0–100). Active rules with matching signals increase or decrease the final score." />
+                {!canManageLeadScoring && (
+                  <div className="rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+                    Read-only access. Only owners and admins can create, edit, delete, or save lead scoring rules.
+                  </div>
+                )}
                 <Card className="border shadow-sm bg-card overflow-hidden">
                   <CardHeader className="border-b bg-muted/5 py-3 px-6 flex-row items-center justify-between">
                     <p className="text-sm font-medium">Signal Rules</p>
-                    <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => {
+                    <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={!canManageLeadScoring || sectionLoading} onClick={() => {
                       setActiveData(prev => [
                         ...(Array.isArray(prev) ? prev : []),
                         { id: `lr_${Date.now()}`, signal: LEAD_SIGNALS[0].signal, weight: 10, active: true },
@@ -3823,16 +4755,20 @@ export default function SettingsPage() {
                     </Button>
                   </CardHeader>
                   <div className="divide-y">
-                    {(!activeData || activeData.length === 0) ? (
+                    {sectionLoading ? (
+                      <div className="p-8 flex justify-center">
+                        <RefreshCcw className="h-5 w-5 animate-spin text-muted-foreground/30" />
+                      </div>
+                    ) : (!activeData || !Array.isArray(activeData) || activeData.length === 0) ? (
                       <div className="p-6 text-center text-sm text-muted-foreground italic">
                         No custom rules. System uses purchase history and VIP tag defaults.
                       </div>
                     ) : activeData.map((rule, i) => (
                       <div key={i} className="p-4 px-6 flex items-center gap-4">
-                        <Toggle value={!!rule.active} onChange={v => {
+                        <Toggle value={!!rule.active} disabled={!canManageLeadScoring} onChange={v => {
                           const next = [...activeData]; next[i] = { ...next[i], active: v }; setActiveData(next);
                         }} />
-                        <Select value={rule.signal || LEAD_SIGNALS[0].signal} onValueChange={v => {
+                        <Select disabled={!canManageLeadScoring} value={rule.signal || LEAD_SIGNALS[0].signal} onValueChange={v => {
                           const next = [...activeData]; next[i] = { ...next[i], signal: v }; setActiveData(next);
                         }}>
                           <SelectTrigger className="h-9 flex-1 max-w-xs"><SelectValue /></SelectTrigger>
@@ -3846,14 +4782,17 @@ export default function SettingsPage() {
                           <span className="text-xs text-muted-foreground">Weight</span>
                           <Input
                             type="number"
+                            min={-100}
+                            max={100}
                             className="w-20 h-9 text-center"
+                            disabled={!canManageLeadScoring}
                             value={rule.weight ?? 10}
                             onChange={e => {
                               const next = [...activeData]; next[i] = { ...next[i], weight: parseInt(e.target.value) }; setActiveData(next);
                             }}
                           />
                         </div>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0" onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0" disabled={!canManageLeadScoring} onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -3862,17 +4801,26 @@ export default function SettingsPage() {
                 </Card>
                 {Array.isArray(activeData) && (
                   <div className="flex justify-end">
-                    <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                    <Button onClick={() => handleSaveActiveData()} disabled={saving || !canManageLeadScoring} className="h-9 px-8 bg-primary font-medium">
                       {saving ? 'Saving…' : 'Save Lead Rules'}
                     </Button>
                   </div>
                 )}
               </div>
-            )}
+              );
+            })()}
 
             {/* ── 22. COMPANY SCORING ───────────────────────────────────── */}
-            {activeId === 'company_scoring' && (
-              <SettingSection title="Company Scoring" description="Thresholds for boosting scores based on customer purchase history. Affects AI lead scoring." onSave={() => handleSaveActiveData()} saving={saving} loading={sectionLoading}>
+            {activeId === 'company_scoring' && (() => {
+              const canManageCompanyScoring = viewerRole === 'owner' || viewerRole === 'admin';
+              return (
+              <div className="space-y-6">
+              {!canManageCompanyScoring && (
+                <div className="rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+                  Read-only access. Only owners and admins can change company scoring thresholds.
+                </div>
+              )}
+              <SettingSection title="Company Scoring" description="Thresholds for boosting scores based on customer purchase history. Affects AI lead scoring." onSave={() => handleSaveActiveData()} saving={saving} loading={sectionLoading} disabled={!canManageCompanyScoring}>
                 {activeData && (
                   <div className="space-y-6">
                     <div className="flex items-center justify-between py-2 border-b">
@@ -3880,17 +4828,17 @@ export default function SettingsPage() {
                         <p className="text-sm font-medium">Enable Company Scoring</p>
                         <p className="text-xs text-muted-foreground">Apply revenue and order thresholds to boost lead scores</p>
                       </div>
-                      <Toggle value={!!activeData.enabled} onChange={v => setActiveData(d => ({ ...d, enabled: v }))} />
+                      <Toggle value={!!activeData.enabled} disabled={!canManageCompanyScoring} onChange={v => setActiveData(d => ({ ...d, enabled: v }))} />
                     </div>
                     <div className="grid grid-cols-3 gap-6">
                       <Field label="Min Revenue for Boost">
-                        <Input type="number" min={0} value={activeData.minRevenue ?? 1000} onChange={e => setActiveData(d => ({ ...d, minRevenue: parseFloat(e.target.value) }))} />
+                        <Input disabled={!canManageCompanyScoring} type="number" min={0} max={1000000000} value={activeData.minRevenue ?? 1000} onChange={e => setActiveData(d => ({ ...d, minRevenue: parseFloat(e.target.value) }))} />
                       </Field>
                       <Field label="Min Orders for Boost">
-                        <Input type="number" min={0} value={activeData.minOrders ?? 3} onChange={e => setActiveData(d => ({ ...d, minOrders: parseInt(e.target.value) }))} />
+                        <Input disabled={!canManageCompanyScoring} type="number" min={0} max={100000} value={activeData.minOrders ?? 3} onChange={e => setActiveData(d => ({ ...d, minOrders: parseInt(e.target.value) }))} />
                       </Field>
                       <Field label="VIP Threshold (revenue)">
-                        <Input type="number" min={0} value={activeData.vipThreshold ?? 5000} onChange={e => setActiveData(d => ({ ...d, vipThreshold: parseFloat(e.target.value) }))} />
+                        <Input disabled={!canManageCompanyScoring} type="number" min={0} max={1000000000} value={activeData.vipThreshold ?? 5000} onChange={e => setActiveData(d => ({ ...d, vipThreshold: parseFloat(e.target.value) }))} />
                       </Field>
                     </div>
                     <Card className="bg-indigo-500/5 border-indigo-200/30 shadow-none">
@@ -3901,20 +4849,31 @@ export default function SettingsPage() {
                   </div>
                 )}
               </SettingSection>
-            )}
+              </div>
+              );
+            })()}
 
             {/* ── 23. SCHEDULE REPORT ───────────────────────────────────── */}
-            {activeId === 'schedule_report' && (
+            {activeId === 'schedule_report' && (() => {
+              const canManageScheduleReports = viewerRole === 'owner' || viewerRole === 'admin';
+              return (
               <div className="space-y-6">
                 <SectionHeader title="Schedule Report" description="Automated performance reports sent by email.">
-                  <Button size="sm" onClick={() => setActiveData(prev => [
+                  <Button size="sm" disabled={!canManageScheduleReports || sectionLoading} onClick={() => setActiveData(prev => [
                     ...(prev || []),
                     { id: `sr_${Date.now()}`, name: 'New Report', freq: 'daily', time: '08:00', email: '', active: true },
                   ])} className="h-9 gap-2">
                     <Plus className="h-3.5 w-3.5" /> Add Schedule
                   </Button>
                 </SectionHeader>
-                {(!activeData || activeData.length === 0) ? (
+                {!canManageScheduleReports && (
+                  <div className="rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+                    Read-only access. Only owners and admins can create, edit, delete, save, or send scheduled reports.
+                  </div>
+                )}
+                {sectionLoading ? (
+                  <Card className="border"><CardContent className="p-8 flex justify-center"><RefreshCcw className="h-5 w-5 animate-spin text-muted-foreground/30" /></CardContent></Card>
+                ) : (!activeData || !Array.isArray(activeData) || activeData.length === 0) ? (
                   <Card className="border"><EmptyState icon={Calendar} text="No scheduled reports configured." /></Card>
                 ) : activeData.map((r, i) => (
                   <Card key={i} className="border shadow-sm bg-card">
@@ -3927,25 +4886,25 @@ export default function SettingsPage() {
                               Last: {r.lastStatus}
                             </Badge>
                           )}
-                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Send now" onClick={() => handleRunReport(r.id)}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Send now" disabled={!canManageScheduleReports} onClick={() => handleRunReport(r.id)}>
                             <Play className="h-3.5 w-3.5" />
                           </Button>
-                          <Toggle value={!!r.active} onChange={v => {
+                          <Toggle value={!!r.active} disabled={!canManageScheduleReports} onChange={v => {
                             const next = [...activeData]; next[i] = { ...next[i], active: v }; setActiveData(next);
                           }} />
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" disabled={!canManageScheduleReports} onClick={() => setActiveData(activeData.filter((_, j) => j !== i))}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </div>
                       <div className="grid grid-cols-3 gap-4">
                         <Field label="Report Name">
-                          <Input value={r.name} onChange={e => {
+                          <Input disabled={!canManageScheduleReports} value={r.name} onChange={e => {
                             const next = [...activeData]; next[i] = { ...next[i], name: e.target.value }; setActiveData(next);
                           }} />
                         </Field>
                         <Field label="Frequency">
-                          <Select value={r.freq || 'daily'} onValueChange={v => {
+                          <Select disabled={!canManageScheduleReports} value={r.freq || 'daily'} onValueChange={v => {
                             const next = [...activeData]; next[i] = { ...next[i], freq: v }; setActiveData(next);
                           }}>
                             <SelectTrigger><SelectValue /></SelectTrigger>
@@ -3957,13 +4916,13 @@ export default function SettingsPage() {
                           </Select>
                         </Field>
                         <Field label="Send Time">
-                          <Input type="time" value={r.time || '08:00'} onChange={e => {
+                          <Input disabled={!canManageScheduleReports} type="time" value={r.time || '08:00'} onChange={e => {
                             const next = [...activeData]; next[i] = { ...next[i], time: e.target.value }; setActiveData(next);
                           }} />
                         </Field>
                         <div className="col-span-3">
                           <Field label="Recipient Email">
-                            <Input type="email" value={r.email || ''} onChange={e => {
+                            <Input disabled={!canManageScheduleReports} type="email" value={r.email || ''} onChange={e => {
                               const next = [...activeData]; next[i] = { ...next[i], email: e.target.value }; setActiveData(next);
                             }} placeholder="Leave blank to use company email" />
                           </Field>
@@ -3974,16 +4933,18 @@ export default function SettingsPage() {
                 ))}
                 {activeData?.length > 0 && (
                   <div className="flex justify-end">
-                    <Button onClick={() => handleSaveActiveData()} disabled={saving} className="h-9 px-8 bg-primary font-medium">
+                    <Button onClick={() => handleSaveActiveData()} disabled={saving || !canManageScheduleReports} className="h-9 px-8 bg-primary font-medium">
                       {saving ? 'Saving…' : 'Save Schedules'}
                     </Button>
                   </div>
                 )}
               </div>
-            )}
+              );
+            })()}
 
             {/* ── 24. CONVERSATION MONITOR ──────────────────────────────── */}
             {activeId === 'monitor' && (() => {
+              const canManageMonitor = viewerRole === 'owner' || viewerRole === 'admin';
               const conversations = activeData?.conversations || [];
               const now = Date.now();
 
@@ -4020,7 +4981,16 @@ export default function SettingsPage() {
                       </Button>
                     </div>
                   </SectionHeader>
+                  {!canManageMonitor && (
+                    <div className="rounded-xl border bg-muted/5 p-4 text-sm text-muted-foreground">
+                      Read-only access. Only owners and admins can assign, pause AI, or escalate conversations from this monitor.
+                    </div>
+                  )}
 
+                  {sectionLoading ? (
+                    <Card className="border"><CardContent className="p-8 flex justify-center"><RefreshCcw className="h-5 w-5 animate-spin text-muted-foreground/30" /></CardContent></Card>
+                  ) : (
+                  <>
                   {/* Summary bar */}
                   <div className="grid grid-cols-5 gap-3">
                     {[
@@ -4053,14 +5023,14 @@ export default function SettingsPage() {
                       <EmptyState icon={Eye} text="No open conversations at this time." />
                     ) : (
                       <div className="divide-y">
-                        {conversations.map(c => {
+                        {conversations.map((c, ci) => {
                           const wb = waitBadge(c.waiting_minutes);
                           const chCls = CHANNEL_COLORS[c.channel] || 'bg-muted/30 text-muted-foreground border-border';
                           const isAssigning  = monitorActionLoading[`${c.id}_assign`];
                           const isPausing    = monitorActionLoading[`${c.id}_pause`];
                           const isEscalating = monitorActionLoading[`${c.id}_escalate`];
                           return (
-                            <div key={c.id} className={cn(
+                            <div key={`${c.id || 'conversation'}:${ci}`} className={cn(
                               'grid grid-cols-[1fr_120px_90px_70px_70px_70px_160px] gap-2 items-center px-5 py-3 hover:bg-muted/5 transition-colors',
                               c.is_urgent && 'bg-amber-500/5',
                               c.is_delayed && !c.is_urgent && 'bg-destructive/5',
@@ -4115,7 +5085,7 @@ export default function SettingsPage() {
                                   size="sm"
                                   variant="outline"
                                   className="h-7 px-2 text-[11px]"
-                                  disabled={isAssigning}
+                                  disabled={isAssigning || !canManageMonitor}
                                   onClick={() => handleMonitorAssignMe(c.id)}
                                 >
                                   {isAssigning ? <RefreshCcw className="h-3 w-3 animate-spin" /> : 'Assign me'}
@@ -4125,7 +5095,7 @@ export default function SettingsPage() {
                                     size="sm"
                                     variant="outline"
                                     className="h-7 px-2 text-[11px]"
-                                    disabled={isPausing}
+                                    disabled={isPausing || !canManageMonitor}
                                     onClick={() => handleMonitorPauseAI(c.id)}
                                   >
                                     {isPausing ? <RefreshCcw className="h-3 w-3 animate-spin" /> : 'Pause AI'}
@@ -4136,7 +5106,7 @@ export default function SettingsPage() {
                                     size="sm"
                                     variant="outline"
                                     className="h-7 px-2 text-[11px] border-destructive/40 text-destructive hover:bg-destructive/5"
-                                    disabled={isEscalating}
+                                    disabled={isEscalating || !canManageMonitor}
                                     onClick={() => handleMonitorEscalate(c.id)}
                                   >
                                     {isEscalating ? <RefreshCcw className="h-3 w-3 animate-spin" /> : 'Escalate'}
@@ -4158,8 +5128,8 @@ export default function SettingsPage() {
                       </CardHeader>
                       <CardContent className="p-5">
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                          {operators.map(op => (
-                            <div key={op.id} className="flex items-center justify-between rounded-lg border bg-muted/10 px-3.5 py-2.5">
+                          {operators.map((op, oi) => (
+                            <div key={`${op.id || op.name || 'operator'}:${oi}`} className="flex items-center justify-between rounded-lg border bg-muted/10 px-3.5 py-2.5">
                               <p className="text-sm font-medium truncate">{op.name}</p>
                               <Badge className={cn(
                                 'ml-2 shrink-0 text-[11px]',
@@ -4177,14 +5147,26 @@ export default function SettingsPage() {
                       </CardContent>
                     </Card>
                   )}
+                  </>
+                  )}
                 </div>
               );
             })()}
 
             {/* ── 25. IMPORT ────────────────────────────────────────────── */}
-            {activeId === 'import' && (
+            {activeId === 'import' && (() => {
+              const canManageImport = viewerRole === 'owner' || viewerRole === 'admin';
+              return (
               <div className="space-y-6">
                 <SectionHeader title="Import" description="Bulk import from CSV or Excel files. First row must be headers." />
+
+                {!canManageImport && (
+                  <Card className="border-amber-200 bg-amber-50/80 shadow-sm dark:border-amber-900/60 dark:bg-amber-950/20">
+                    <CardContent className="p-4 text-sm text-amber-800 dark:text-amber-200">
+                      Import is read-only for your role. Only owners and admins can upload files or start imports.
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Import Type Selection */}
                 <Card className="border shadow-sm bg-card">
@@ -4201,12 +5183,17 @@ export default function SettingsPage() {
                         <button
                           key={t.id}
                           type="button"
-                          onClick={() => setImportType(t.id)}
+                          disabled={!canManageImport}
+                          onClick={() => {
+                            if (!canManageImport) return;
+                            setImportType(t.id);
+                          }}
                           className={cn(
                             'p-4 rounded-xl border text-left transition-all',
                             importType === t.id
                               ? 'border-primary bg-primary/5'
                               : 'border-border hover:border-primary/30 bg-background',
+                            !canManageImport && 'cursor-not-allowed opacity-60 hover:border-border',
                           )}
                         >
                           <p className={cn('text-sm font-medium', importType === t.id ? 'text-primary' : '')}>{t.label}</p>
@@ -4245,6 +5232,7 @@ export default function SettingsPage() {
                         importFile
                           ? 'border-primary/40 bg-primary/5'
                           : 'border-muted hover:border-primary/30 hover:bg-muted/30',
+                        !canManageImport && 'cursor-not-allowed opacity-60 hover:border-muted hover:bg-transparent',
                       )}
                     >
                       <input
@@ -4252,11 +5240,24 @@ export default function SettingsPage() {
                         type="file"
                         accept=".csv,.xlsx,.xls"
                         className="hidden"
+                        disabled={!canManageImport}
                         onChange={e => {
-  const f = e.target.files?.[0] || null;
-  setImportFile(f);
-  previewCsvFile(f);
-}}
+                          const f = e.target.files?.[0] || null;
+                          if (!canManageImport) {
+                            e.target.value = '';
+                            return;
+                          }
+                          const fileError = validateImportFileSelection(f);
+                          if (fileError) {
+                            toast.error(fileError);
+                            setImportFile(null);
+                            setImportPreview(null);
+                            e.target.value = '';
+                            return;
+                          }
+                          setImportFile(f);
+                          previewCsvFile(f);
+                        }}
                       />
                       {importFile ? (
                         <div className="text-center space-y-2">
@@ -4329,7 +5330,7 @@ export default function SettingsPage() {
                         )}
                         <Button
                           onClick={handleImportUpload}
-                          disabled={!importFile || importUploading || importProcessing}
+                          disabled={!canManageImport || !importFile || importUploading || importProcessing}
                           className="h-9 gap-2 bg-primary px-6 font-medium"
                         >
                           <FileUp className="h-4 w-4" />
@@ -4379,7 +5380,8 @@ export default function SettingsPage() {
                   </CardContent>
                 </Card>
               </div>
-            )}
+              );
+            })()}
 
             {/* ── 26. PROFILES ──────────────────────────────────────────── */}
             {/* ── 26. PROFILES ──────────────────────────────────────────── */}
@@ -4393,7 +5395,7 @@ export default function SettingsPage() {
                     <Plus className="h-3.5 w-3.5" /> Add Field
                   </Button>
                 </SectionHeader>
-                {(!activeData || activeData.length === 0) ? (
+                {(!activeData || !Array.isArray(activeData) || activeData.length === 0) ? (
                   <Card className="border"><EmptyState icon={Shield} text="No custom profile fields defined." /></Card>
                 ) : activeData.map((f, i) => {
                   function updateField(patch) {
@@ -4492,6 +5494,9 @@ export default function SettingsPage() {
 
             {/* ── 27. SPAMMERS ──────────────────────────────────────────── */}
             {activeId === 'spammers' && (() => {
+              if (sectionLoading || activeData === null) {
+                return <Card className="border"><EmptyState icon={ShieldAlert} text="Loading…" /></Card>;
+              }
               const blocked    = (activeData || []).filter(s => !s.whitelisted);
               const whitelisted = (activeData || []).filter(s => s.whitelisted);
               const SEV_BADGE = {
@@ -4689,8 +5694,8 @@ export default function SettingsPage() {
                 <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Unassigned</SelectItem>
-                  {depts.map(d => (
-                    <SelectItem key={d.name} value={d.name}>{d.name}</SelectItem>
+                  {depts.map((d, di) => (
+                    <SelectItem key={`${d.id || d.name || 'department'}:${di}`} value={d.id || d.name}>{d.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -4710,25 +5715,47 @@ export default function SettingsPage() {
 
       {/* ── Live Chat Widget Setup Dialog ────────────────────────────────── */}
       <Dialog open={lcDialog} onOpenChange={setLcDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Configure Live Chat Widget</DialogTitle>
-            <DialogDescription>Set the domain and brand color for your widget.</DialogDescription>
+            <DialogDescription>Customize your widget — the preview updates live.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <Field label="Allowed Domain">
-              <Input value={lcForm.domain} onChange={e => setLcForm(f => ({ ...f, domain: e.target.value }))} placeholder="yoursite.com" />
-            </Field>
-            <Field label="Widget Color">
-              <div className="flex gap-2 items-center">
-                <div className="w-9 h-9 rounded-lg border shadow-sm shrink-0" style={{ backgroundColor: lcForm.color }} />
-                <Input value={lcForm.color} onChange={e => setLcForm(f => ({ ...f, color: e.target.value }))} />
-              </div>
-            </Field>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 py-2">
+            {/* Form */}
+            <div className="space-y-4">
+              <Field label="Allowed Domain">
+                <Input value={lcForm.domain} onChange={e => setLcForm(f => ({ ...f, domain: e.target.value }))} placeholder="yoursite.com" />
+              </Field>
+              <Field label="Widget Color">
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="color"
+                    value={lcForm.color}
+                    onChange={e => setLcForm(f => ({ ...f, color: e.target.value }))}
+                    className="w-9 h-9 rounded-lg border shadow-sm cursor-pointer p-0.5 bg-transparent"
+                  />
+                  <Input value={lcForm.color} onChange={e => setLcForm(f => ({ ...f, color: e.target.value }))} className="font-mono" />
+                </div>
+              </Field>
+              <Field label="Position">
+                <Select value={lcForm.position} onValueChange={v => setLcForm(f => ({ ...f, position: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bottom-right">Bottom Right</SelectItem>
+                    <SelectItem value="bottom-left">Bottom Left</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+            {/* Live preview */}
+            <div>
+              <p className="text-[11px] font-medium text-muted-foreground mb-2 uppercase tracking-wide">Preview</p>
+              <WidgetPreview color={lcForm.color} position={lcForm.position} />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setLcDialog(false)}>Cancel</Button>
-            <Button onClick={handleConnectLivechat}>Configure</Button>
+            <Button onClick={handleConnectLivechat} disabled={lcSaving}>{lcSaving ? 'Saving…' : 'Configure'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

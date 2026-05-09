@@ -24,7 +24,7 @@ router.get('/', requireReadRole, async (req, res, next) => {
       return res.json(cachedDashboard);
     }
 
-    const [statsRes, reportRes, trendRes, hotLeadRes, channelRes, aiUsageRes] = await Promise.all([
+    const [statsRes, reportRes, trendRes, hotLeadRes, channelRes, aiUsageRes, stageRes, recentConvRes] = await Promise.all([
       // Use tenant_stats for counts
       req.db.query(`SELECT deals_count, conversations_count, active_users_count FROM tenant_stats WHERE tenant_id = $1`, [tenant_id]),
       // Daily summary (already efficient)
@@ -75,6 +75,27 @@ router.get('/', requireReadRole, async (req, res, next) => {
         FROM report_daily
         WHERE tenant_id = $1 AND date >= CURRENT_DATE - INTERVAL '7 days'
       `, [tenant_id]),
+      // Deal stage breakdown + pipeline value (live, accurate)
+      req.db.query(`
+        SELECT
+          stage,
+          COUNT(*)::int AS total,
+          COALESCE(SUM(estimated_value), 0)::numeric AS stage_value
+        FROM deals
+        WHERE tenant_id = $1
+        GROUP BY stage
+      `, [tenant_id]),
+      // Recent conversations (no limit cap issue — direct LIMIT 6)
+      req.db.query(`
+        SELECT c.id, c.channel, c.updated_at,
+               c.last_message_preview AS last_message,
+               cu.name AS customer_name
+        FROM conversations c
+        LEFT JOIN customers cu ON cu.id = c.customer_id
+        WHERE c.tenant_id = $1
+        ORDER BY c.updated_at DESC
+        LIMIT 6
+      `, [tenant_id]),
     ]);
 
     const stats = statsRes.rows[0] || {};
@@ -82,15 +103,30 @@ router.get('/', requireReadRole, async (req, res, next) => {
     const aiSent = Number(aiUsageRes.rows[0]?.sent || 0);
     const aiUsed = Number(aiUsageRes.rows[0]?.used || 0);
 
+    const stageBreakdown = Object.fromEntries(stageRes.rows.map((r) => [r.stage, Number(r.total)]));
+    const activeDeals = stageRes.rows
+      .filter((r) => !['won', 'lost'].includes(r.stage))
+      .reduce((sum, r) => sum + Number(r.total), 0);
+    const wonDeals = stageRes.rows
+      .filter((r) => r.stage === 'won')
+      .reduce((sum, r) => sum + Number(r.total), 0);
+    const pipelineValue = stageRes.rows
+      .filter((r) => !['won', 'lost'].includes(r.stage))
+      .reduce((sum, r) => sum + Number(r.stage_value), 0);
+
     const payload = {
-      deals_by_stage: [], // Simplified or can be added to tenant_stats if needed
       open_conversations: parseInt(stats.conversations_count || 0),
+      activeDeals,
+      wonDeals,
+      pipelineValue,
+      stageBreakdown,
       today: todayRow,
-      trend: trendRes.rows.map((row) => ({
+      revenueSeries: trendRes.rows.map((row) => ({
         date: row.date,
         revenue: Number(row.revenue || 0),
-        dealsWon: Number(row.deals_won || 0),
+        deals_won: Number(row.deals_won || 0),
       })),
+      recentConversations: recentConvRes.rows,
       hot_leads: hotLeadRes.rows.map((row) => ({
         id: row.id,
         name: row.customer_name || 'Unknown customer',
@@ -100,9 +136,9 @@ router.get('/', requireReadRole, async (req, res, next) => {
         estimatedValue: Number(row.estimated_value || 0),
         updatedAt: row.updated_at,
       })),
-      channels: channelRes.rows.map((row) => ({
+      channelBreakdown: channelRes.rows.map((row) => ({
         channel: row.channel,
-        conversations: Number(row.conversations || 0),
+        total: Number(row.conversations || 0),
       })),
       ai_usage: {
         sent: aiSent,

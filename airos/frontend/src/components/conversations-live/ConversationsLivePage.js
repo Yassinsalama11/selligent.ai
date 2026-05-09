@@ -1,36 +1,27 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { connectSocket } from '@/lib/socket';
-import {
-  PrototypeAIStateBar,
-  PrototypeChatHeader,
-  PrototypeComposer,
-  PrototypeContextDrawerMobile,
-  PrototypeConversationList,
-  PrototypeCustomerPanel,
-  PrototypeMessageList,
-} from '@/components/conversations-prototype/ConversationsPrototypePage';
-import styles from '@/components/conversations-prototype/ConversationsPrototypePage.module.css';
+import { cn } from '@/lib/utils';
+import { Search } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 
-const filters = ['All', 'WhatsApp', 'Instagram', 'Messenger'];
+// New UI Components
+import { InboxSidebar } from './InboxSidebar';
+import { ThreadList } from './ThreadList';
+import { MessageThread } from './MessageThread';
+import { CustomerPanel } from './CustomerPanel';
+import { AssignModal } from './AssignModal';
 
 function formatChannel(channel) {
   const value = String(channel || 'livechat').toLowerCase();
   if (value === 'whatsapp') return 'WhatsApp';
   if (value === 'instagram') return 'Instagram';
   if (value === 'messenger') return 'Messenger';
-  if (value === 'livechat') return 'Live chat';
-  return value ? value.charAt(0).toUpperCase() + value.slice(1) : 'Live chat';
-}
-
-function channelTone(channel) {
-  const value = String(channel || '').toLowerCase();
-  if (value === 'whatsapp') return 'wa';
-  if (value === 'instagram') return 'ig';
-  if (value === 'messenger') return 'ms';
-  return 'ms';
+  if (value === 'livechat') return 'Live Chat';
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : 'Live Chat';
 }
 
 function initialsFromName(name) {
@@ -38,7 +29,9 @@ function initialsFromName(name) {
     .trim()
     .split(/\s+/)
     .filter(Boolean);
-  return (parts[0]?.[0] || 'U').toUpperCase() + (parts[1]?.[0] || '').toUpperCase();
+  const first = parts[0]?.[0] || 'U';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (first + last).toUpperCase();
 }
 
 function formatTime(value) {
@@ -69,7 +62,6 @@ function normalizeConversation(row = {}) {
     name: customerName,
     initials: initialsFromName(customerName),
     channel,
-    channelTone: channelTone(row.channel),
     status: row.status || 'open',
     intent: row.intent || row.priority || 'Not detected',
     aiMode,
@@ -86,8 +78,8 @@ function normalizeConversation(row = {}) {
     email: row.customer_email || row.customerEmail || '',
     phone: row.customer_phone || row.customerPhone || '',
     location: row.location || '',
-    value: row.value || '',
-    sentiment: row.sentiment || '',
+    value: row.estimated_value || row.estimatedValue || row.value || 0,
+    sentiment: row.sentiment || 'Neutral',
     messages: [],
   };
 }
@@ -177,7 +169,7 @@ function normalizeMessage(message = {}, fallbackConversationId = '') {
     direction: direction === 'out' ? 'outbound' : direction === 'in' ? 'inbound' : direction,
     sent_by: sentBy,
     content,
-    timestamp: messageTimestamp(message) || '',
+    timestamp: formatTime(messageTimestamp(message)) || '',
     type,
     mediaUrl,
     fileName: message.file_name || message.fileName || metadata.file_name || metadata.fileName || '',
@@ -194,48 +186,60 @@ function upsertMessage(messages, nextMessage) {
   }
   byId.set(nextMessage.id, { ...(byId.get(nextMessage.id) || {}), ...nextMessage });
   return Array.from(byId.values()).sort((a, b) => {
-    const aTime = new Date(a.timestamp || 0).getTime();
-    const bTime = new Date(b.timestamp || 0).getTime();
+    const aTime = new Date(messageTimestamp(a) || 0).getTime();
+    const bTime = new Date(messageTimestamp(b) || 0).getTime();
     return (Number.isNaN(aTime) ? 0 : aTime) - (Number.isNaN(bTime) ? 0 : bTime);
   });
 }
 
-function isNearBottom(element) {
-  if (!element) return true;
-  return element.scrollHeight - element.scrollTop - element.clientHeight < 96;
-}
-
 export default function ConversationsLivePage() {
-  const [theme] = useState('dark');
-  const [filter, setFilter] = useState('All');
+  const [filters, setFilters] = useState({
+    status: 'open',
+    channel: 'all',
+    assigned_to: 'all',
+    priority: 'all',
+    search: '',
+  });
+  
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState('');
+  
   const [composerValue, setComposerValue] = useState('');
   const [sending, setSending] = useState(false);
   const [aiModeUpdating, setAiModeUpdating] = useState(false);
-  const [contextOpen, setContextOpen] = useState(false);
+  
   const [currentUser, setCurrentUser] = useState(null);
   const [teamMembers, setTeamMembers] = useState([]);
+  const [cannedReplies, setCannedReplies] = useState([]);
+  const [aiSuggestions, setAiSuggestions] = useState({}); // Keyed by conversation ID
+  
   const [assignOpen, setAssignOpen] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [closing, setClosing] = useState(false);
   const [handoff, setHandoff] = useState(null);
   const [handoffBusy, setHandoffBusy] = useState(false);
+  
   const [tickets, setTickets] = useState([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [ticketBusy, setTicketBusy] = useState(false);
+  
   const [attachmentUploading, setAttachmentUploading] = useState(false);
-  const [cannedReplies, setCannedReplies] = useState([]);
   const [winning, setWinning] = useState(false);
-  const fileInputRef = useRef(null);
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [searchValue, setSearchValue] = useState('');
+  const [tagLibrary, setTagLibrary] = useState([]);
+  const [tagLibraryMeta, setTagLibraryMeta] = useState({});
+  const [slaBreaches, setSlaBreaches] = useState({});
+  
   const imageInputRef = useRef(null);
+  const fileInputRef = useRef(null);
   const messageBottomRef = useRef(null);
-  const messageListRef = useRef(null);
   const activeConversationIdRef = useRef(activeConversationId);
 
   useEffect(() => {
@@ -251,316 +255,272 @@ export default function ConversationsLivePage() {
     }
   }, []);
 
+  // Load team and canned replies
   useEffect(() => {
     let cancelled = false;
-    async function loadCannedReplies() {
+    async function loadResources() {
       try {
-        const settings = await api.get('/api/settings');
-        if (cancelled) return;
-        const replies = [
-          ...(Array.isArray(settings?.waTemplates) ? settings.waTemplates : []),
-          ...(Array.isArray(settings?.emailTpls) ? settings.emailTpls : []),
-        ].map((entry) => ({
-          id: entry.id || entry.name || entry.title,
-          title: entry.name || entry.title || 'Saved reply',
-          text: entry.body || entry.content || entry.text || '',
-        })).filter((entry) => entry.text);
-        setCannedReplies(replies);
-      } catch {
-        if (!cancelled) setCannedReplies([]);
-      }
-    }
-    loadCannedReplies();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadTeam() {
-      try {
-        const data = await api.get('/api/auth/team');
-        if (!cancelled && Array.isArray(data)) {
-          setTeamMembers(data.filter((member) => ['owner', 'admin', 'agent'].includes(member.role)));
-        }
-      } catch {
-        if (!cancelled) setTeamMembers([]);
-      }
-    }
-
-    loadTeam();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadConversations(silent = false) {
-      if (!silent) setLoading(true);
-      setError('');
-      try {
-        const data = await api.get('/api/conversations?limit=100');
-        if (cancelled) return;
-        const rows = (Array.isArray(data) ? data : []).map(normalizeConversation);
-        setConversations((current) => {
-          const previousById = new Map(current.map((conversation) => [conversation.id, conversation]));
-          const merged = rows.map((conversation) => {
-            const previous = previousById.get(conversation.id);
-            return previous ? { ...conversation, unread: previous.unread || conversation.unread } : conversation;
-          });
-          const activeId = activeConversationIdRef.current;
-          if (activeId && !merged.some((conversation) => conversation.id === activeId)) {
-            const activePrevious = previousById.get(activeId);
-            if (activePrevious) merged.unshift(activePrevious);
-          }
-          return merged;
-        });
-      } catch (err) {
+        const [team, replies, tenantSettings] = await Promise.all([
+          api.get('/api/auth/team'),
+          api.get('/api/settings/canned-responses').catch(() => null),
+          api.get('/api/settings').catch(() => null),
+        ]);
         if (!cancelled) {
-          if (!silent) {
-            setError(err?.message || 'Could not load conversations.');
-            setConversations([]);
+          if (Array.isArray(team)) {
+            setTeamMembers(team.filter((member) => ['owner', 'admin', 'agent'].includes(member.role)));
+          }
+          if (Array.isArray(replies)) {
+            setCannedReplies(replies.map((r) => ({
+              id: r.id || String(Math.random()),
+              name: r.name || r.title || r.id || 'Reply',
+              content: r.content || r.body || r.text || '',
+            })));
+          }
+          if (tenantSettings) {
+            setTagLibrary(Array.isArray(tenantSettings.tags) ? tenantSettings.tags : []);
+            setTagLibraryMeta(tenantSettings.tagMeta && typeof tenantSettings.tagMeta === 'object' ? tenantSettings.tagMeta : {});
           }
         }
-      } finally {
-        if (!cancelled && !silent) setLoading(false);
+      } catch (err) {
+        console.error('Failed to load resources', err);
       }
     }
-
-    loadConversations(false);
-    const timer = setInterval(() => loadConversations(true), 10000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
+    loadResources();
+    return () => { cancelled = true; };
   }, []);
 
-  const visibleConversations = useMemo(() => {
-    if (filter === 'All') return conversations;
-    return conversations.filter((conversation) => conversation.channel === filter);
-  }, [conversations, filter]);
+  // Main conversation list loader
+  const loadConversations = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    setError('');
+    try {
+      const query = new URLSearchParams();
+      if (filters.status !== 'all') query.set('status', filters.status);
+      if (filters.channel !== 'all') query.set('channel', filters.channel);
+      if (filters.assigned_to !== 'all') query.set('assigned_to', filters.assigned_to);
+      if (filters.priority !== 'all') query.set('priority', filters.priority);
+      if (filters.search) query.set('search', filters.search);
+      query.set('limit', '100');
+
+      const data = await api.get(`/api/conversations?${query.toString()}`);
+      const rows = (Array.isArray(data) ? data : []).map(normalizeConversation);
+      
+      setConversations((current) => {
+        const previousById = new Map(current.map((c) => [c.id, c]));
+        const merged = rows.map((c) => {
+          const previous = previousById.get(c.id);
+          return previous ? { ...c, unread: previous.unread || c.unread } : c;
+        });
+        const activeId = activeConversationIdRef.current;
+        if (activeId && !merged.some((c) => c.id === activeId)) {
+          const activePrevious = previousById.get(activeId);
+          if (activePrevious) merged.unshift(activePrevious);
+        }
+        return merged;
+      });
+    } catch (err) {
+      if (!silent) {
+        setError(err?.message || 'Could not load conversations.');
+        setConversations([]);
+      }
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, [filters]);
+
+  useEffect(() => {
+    loadConversations(false);
+    const timer = setInterval(() => {
+      if (document.visibilityState !== 'hidden') loadConversations(true);
+    }, 30000);
+    const onVisible = () => loadConversations(true);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, [loadConversations]);
 
   const activeConversation = useMemo(() => (
-    conversations.find((conversation) => conversation.id === activeConversationId) || null
+    conversations.find((c) => c.id === activeConversationId) || null
   ), [activeConversationId, conversations]);
-  const canAssign = ['owner', 'admin'].includes(currentUser?.role);
 
-  const emptyLabel = loading
-    ? 'Loading conversations...'
-    : error || 'No conversations found yet.';
-
+  // Messages loader
   useEffect(() => {
     let cancelled = false;
-
     async function loadMessages() {
-      if (!activeConversationId) {
-        setMessages([]);
-        setMessagesError('');
-        setMessagesLoading(false);
-        setComposerValue('');
-        return;
-      }
-
-      setMessages([]);
-      setMessagesError('');
-      setMessagesLoading(true);
-      setComposerValue('');
+      if (!activeConversationId) { setMessages([]); setMessagesError(''); setMessagesLoading(false); return; }
+      setMessagesLoading(true); setComposerValue('');
       try {
         const data = await api.get(`/api/conversations/${encodeURIComponent(activeConversationId)}/messages`);
         if (cancelled) return;
-        const rows = Array.isArray(data) ? data : [];
-        const serverMessages = rows.map((message) => normalizeMessage(message, activeConversationId));
-        setMessages((current) => {
-          const currentForConversation = current.filter((message) => message.conversationId === activeConversationId);
-          return currentForConversation.reduce(
-            (merged, message) => upsertMessage(merged, message),
-            serverMessages
-          );
-        });
+        const serverMessages = (Array.isArray(data) ? data : []).map((m) => normalizeMessage(m, activeConversationId));
+        setMessages(serverMessages);
       } catch (err) {
-        if (!cancelled) {
-          setMessages([]);
-          setMessagesError(err?.message || 'Could not load messages.');
-        }
-      } finally {
-        if (!cancelled) setMessagesLoading(false);
-      }
+        if (!cancelled) { setMessages([]); setMessagesError(err?.message || 'Could not load messages.'); }
+      } finally { if (!cancelled) setMessagesLoading(false); }
     }
-
     loadMessages();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [activeConversationId]);
 
+  // Tickets loader
   useEffect(() => {
     let cancelled = false;
-
     async function loadTickets() {
-      if (!activeConversationId) {
-        setTickets([]);
-        setTicketsLoading(false);
-        return;
-      }
+      if (!activeConversationId) { setTickets([]); setTicketsLoading(false); return; }
       setTicketsLoading(true);
       try {
         const data = await api.get(`/api/conversations/${encodeURIComponent(activeConversationId)}/tickets`);
         if (!cancelled) setTickets(Array.isArray(data) ? data : []);
-      } catch {
-        if (!cancelled) setTickets([]);
-      } finally {
-        if (!cancelled) setTicketsLoading(false);
-      }
+      } catch { if (!cancelled) setTickets([]); }
+      finally { if (!cancelled) setTicketsLoading(false); }
     }
-
     loadTickets();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [activeConversationId]);
 
+  // Handoff loader
   useEffect(() => {
     let cancelled = false;
-
     async function loadHandoff() {
-      if (!activeConversationId) {
-        setHandoff(null);
-        return;
-      }
+      if (!activeConversationId) { setHandoff(null); return; }
       try {
         const data = await api.get(`/api/conversations/${encodeURIComponent(activeConversationId)}/handoff`);
         if (!cancelled) setHandoff(data?.handoff || null);
-      } catch {
-        if (!cancelled) setHandoff(null);
-      }
+      } catch { if (!cancelled) setHandoff(null); }
     }
-
     loadHandoff();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [activeConversationId]);
 
+  // Auto-scroll
   useEffect(() => {
     if (!activeConversationId || messagesLoading) return;
-    requestAnimationFrame(() => {
-      messageBottomRef.current?.scrollIntoView({ block: 'end' });
-    });
+    requestAnimationFrame(() => { messageBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); });
   }, [activeConversationId, messagesLoading, messages.length]);
 
+  // Socket setup
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('airos_token') : null;
+    if (!token) return;
+    
     const socket = connectSocket(token);
-
+    
     function handleNewMessage(payload = {}) {
       const incomingConversation = payload.conversation || {};
-      const fallbackConversationId = incomingConversation.id || payload.message?.conversation_id || payload.message?.conversationId || '';
-      const normalized = normalizeMessage(payload.message || {}, fallbackConversationId);
+      const normalized = normalizeMessage(payload.message || {}, incomingConversation.id || '');
       if (!normalized.conversationId) return;
-
+      
       const activeId = activeConversationIdRef.current;
       const isActive = String(normalized.conversationId) === String(activeId);
-      const nearBottom = isNearBottom(messageListRef.current);
-
+      
       setConversations((current) => {
-        const index = current.findIndex((conversation) => conversation.id === normalized.conversationId);
+        const index = current.findIndex((c) => c.id === normalized.conversationId);
         const existing = index >= 0 ? current[index] : { id: normalized.conversationId };
         const updated = mergeConversation(existing, incomingConversation, normalized);
-        updated.unread = isActive ? 0 : Number(existing.unread || 0) + (normalized.direction === 'inbound' ? 1 : 0);
-        const next = index >= 0
-          ? current.map((conversation, currentIndex) => currentIndex === index ? updated : conversation)
-          : [updated, ...current];
-        return next.sort((a, b) => {
-          const aTime = new Date(a.sortTimestamp || 0).getTime();
-          const bTime = new Date(b.sortTimestamp || 0).getTime();
-          return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
-        });
+        if (!isActive && normalized.direction === 'inbound') {
+          updated.unread = Number(existing.unread || 0) + 1;
+        } else if (isActive) {
+          updated.unread = 0;
+        }
+        const next = index >= 0 ? current.map((c, i) => i === index ? updated : c) : [updated, ...current];
+        return next.sort((a, b) => new Date(b.sortTimestamp || 0) - new Date(a.sortTimestamp || 0));
       });
+      
+      // Clear SLA breach once an outbound reply lands
+      if (normalized.direction === 'outbound') {
+        setSlaBreaches((prev) => {
+          if (!prev[normalized.conversationId]) return prev;
+          const next = { ...prev };
+          delete next[normalized.conversationId];
+          return next;
+        });
+      }
 
       if (isActive) {
         setMessages((current) => upsertMessage(current, normalized));
-        if (nearBottom) {
-          requestAnimationFrame(() => {
-            messageBottomRef.current?.scrollIntoView({ block: 'end' });
-          });
+        // Clear suggestion on new message
+        setAiSuggestions(prev => {
+          const next = { ...prev };
+          delete next[normalized.conversationId];
+          return next;
+        });
+      }
+    }
+
+    function handleSLABreach(payload = {}) {
+      if (!payload.conversationId) return;
+      setSlaBreaches((prev) => ({
+        ...prev,
+        [payload.conversationId]: {
+          elapsedMinutes: payload.elapsedMinutes,
+          slaTargetMinutes: payload.slaTargetMinutes,
+          timestamp: payload.timestamp,
+        },
+      }));
+      toast.error(
+        `SLA breached — no reply after ${payload.slaTargetMinutes} min`,
+        { duration: 6000, id: `sla:${payload.conversationId}` }
+      );
+    }
+
+    function handleAiSuggestion(payload = {}) {
+      if (!payload.conversation_id || !payload.suggestion) return;
+      setAiSuggestions(prev => ({
+        ...prev,
+        [payload.conversation_id]: {
+          text: payload.suggestion.suggested_reply || payload.suggestion.text,
+          analysis: payload.analysis,
+          deal: payload.deal
         }
+      }));
+      
+      // Update conversation metrics if they changed
+      if (payload.deal || payload.analysis) {
+        setConversations(current => current.map(c => {
+          if (c.id === String(payload.conversation_id)) {
+            return {
+              ...c,
+              leadScore: payload.analysis?.lead_score ?? c.leadScore,
+              intent: payload.analysis?.intent ?? c.intent,
+              value: payload.deal?.estimated_value ?? c.value,
+              sentiment: payload.analysis?.sentiment ?? c.sentiment
+            };
+          }
+          return c;
+        }));
+      }
+    }
+
+    function handleHandoffRequested(payload = {}) {
+      if (String(payload.conversation_id) === String(activeConversationIdRef.current)) {
+        setHandoff(payload.handoff || null);
       }
     }
 
     socket.on('message:new', handleNewMessage);
-    socket.on('agent:handoff_requested', ({ handoff: nextHandoff, conversation_id }) => {
-      if (String(conversation_id) === String(activeConversationIdRef.current)) setHandoff(nextHandoff || null);
-    });
-    socket.on('agent:handoff_accepted', ({ handoff: nextHandoff, conversation_id }) => {
-      if (String(conversation_id) === String(activeConversationIdRef.current)) setHandoff(nextHandoff?.status === 'pending' ? nextHandoff : null);
-    });
-    socket.on('agent:handoff_declined', ({ handoff: nextHandoff, conversation_id }) => {
-      if (String(conversation_id) === String(activeConversationIdRef.current)) setHandoff(nextHandoff?.status === 'pending' ? nextHandoff : null);
-    });
-    socket.on('conversation:handoff_status', ({ handoff: nextHandoff, conversation_id }) => {
-      if (String(conversation_id) === String(activeConversationIdRef.current)) setHandoff(nextHandoff?.status === 'pending' ? nextHandoff : null);
-    });
+    socket.on('ai:suggestion', handleAiSuggestion);
+    socket.on('agent:handoff_requested', handleHandoffRequested);
+    socket.on('sla:breach', handleSLABreach);
+
     return () => {
       socket.off('message:new', handleNewMessage);
-      socket.off('agent:handoff_requested');
-      socket.off('agent:handoff_accepted');
-      socket.off('agent:handoff_declined');
-      socket.off('conversation:handoff_status');
+      socket.off('ai:suggestion', handleAiSuggestion);
+      socket.off('agent:handoff_requested', handleHandoffRequested);
+      socket.off('sla:breach', handleSLABreach);
     };
   }, []);
 
+  // Feature actions
   async function setActiveAiMode(nextMode) {
-    if (!activeConversation || aiModeUpdating || activeConversation.aiAvailable === false) return;
-    const previousMode = activeConversation.aiMode;
+    if (!activeConversation || aiModeUpdating) return;
     setAiModeUpdating(true);
-    setConversations((current) => current.map((conversation) => (
-      conversation.id === activeConversation.id ? { ...conversation, aiMode: nextMode } : conversation
-    )));
     try {
-      const updated = await api.patch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/ai-mode`, {
-        ai_mode: nextMode,
-      });
-      setConversations((current) => current.map((conversation) => (
-        conversation.id === activeConversation.id
-          ? {
-            ...conversation,
-            aiMode: updated?.ai_mode || nextMode,
-            status: updated?.status || conversation.status,
-            sortTimestamp: updated?.updated_at || conversation.sortTimestamp,
-            timestamp: updated?.updated_at ? formatTime(updated.updated_at) : conversation.timestamp,
-          }
-          : conversation
-      )));
+      const result = await api.patch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/ai-mode`, { ai_mode: nextMode });
+      const updated = result || { ...activeConversation, aiMode: nextMode };
+      setConversations((current) => current.map((c) => c.id === activeConversation.id ? { ...c, aiMode: updated?.aiMode || updated?.ai_mode || nextMode } : c));
+      toast.success(`AI Mode: ${nextMode}`);
     } catch {
-      setConversations((current) => current.map((conversation) => (
-        conversation.id === activeConversation.id ? { ...conversation, aiMode: previousMode } : conversation
-      )));
-    } finally {
-      setAiModeUpdating(false);
-    }
-  }
-
-  function takeOverConversation() {
-    if (activeConversation?.aiMode === 'auto') setActiveAiMode('manual');
-  }
-
-  async function requestHandoff(reason) {
-    if (!activeConversationId || handoffBusy) return;
-    setHandoffBusy(true);
-    try {
-      const data = await api.post(`/api/conversations/${encodeURIComponent(activeConversationId)}/handoff`, {
-        reason,
-      });
-      setHandoff(data?.handoff || null);
-    } catch {
-      // Existing API returns 409 with the pending handoff when one already exists.
-    } finally {
-      setHandoffBusy(false);
-    }
+      toast.error('Failed to switch AI mode');
+    } finally { setAiModeUpdating(false); }
   }
 
   async function resolveHandoff(action) {
@@ -568,100 +528,117 @@ export default function ConversationsLivePage() {
     setHandoffBusy(true);
     try {
       const path = `/api/conversations/${encodeURIComponent(activeConversationId)}/handoff/${encodeURIComponent(handoff.id)}`;
-      const data = action === 'cancel'
-        ? await api.delete(path)
-        : await api.post(`${path}/${action}`, {});
+      const result = action === 'cancel' ? await api.delete(path) : await api.post(`${path}/${action}`, {});
+      const data = result || { handoff: { ...handoff, status: action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'cancelled' } };
+      
       setHandoff(data?.handoff?.status === 'pending' ? data.handoff : null);
-      if (data?.conversation) {
-        const normalized = normalizeConversation(data.conversation);
-        setConversations((current) => current.map((conversation) => (
-          conversation.id === normalized.id ? { ...conversation, ...normalized } : conversation
-        )));
+      if (data?.conversation || (result === null && action === 'accept')) {
+        const normalized = data.conversation ? normalizeConversation(data.conversation) : { ...activeConversation, assignedTo: currentUser?.id, assignee: currentUser?.name };
+        setConversations((current) => current.map((c) => c.id === normalized.id ? { ...c, ...normalized } : c));
       }
-    } catch {
-      // Keep the current handoff visible on failure.
-    } finally {
-      setHandoffBusy(false);
-    }
+      toast.success(`Handoff ${action}ed`);
+    } catch (err) {
+      toast.error(err.message || 'Handoff action failed');
+    } finally { setHandoffBusy(false); }
   }
 
   async function assignConversation(member) {
     if (!activeConversation || assigning) return;
-    const previous = activeConversation;
     const nextAssignee = member?.id || null;
-    const nextName = member?.name || member?.email || 'Unassigned';
-    setAssigning(true);
-    setAssignOpen(false);
-    setConversations((current) => current.map((conversation) => (
-      conversation.id === activeConversation.id
-        ? { ...conversation, assignedTo: nextAssignee, assignee: nextName }
-        : conversation
-    )));
+    setAssigning(true); setAssignOpen(false);
     try {
-      const updated = await api.patch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/assign`, {
-        user_id: nextAssignee,
-      });
+      const result = await api.patch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/assign`, { user_id: nextAssignee });
+      const updated = result || { ...activeConversation, assignedTo: nextAssignee, assignee: member?.name || 'Unassigned' };
       const normalized = normalizeConversation(updated);
-      setConversations((current) => current.map((conversation) => (
-        conversation.id === normalized.id ? { ...conversation, ...normalized } : conversation
-      )));
+      setConversations((current) => current.map((c) => c.id === normalized.id ? { ...c, ...normalized } : c));
+      toast.success(member ? `Assigned to ${member.name || member.email}` : 'Conversation unassigned');
     } catch {
-      setConversations((current) => current.map((conversation) => (
-        conversation.id === previous.id ? { ...conversation, assignedTo: previous.assignedTo, assignee: previous.assignee } : conversation
-      )));
-    } finally {
-      setAssigning(false);
-    }
+      toast.error('Assignment failed');
+    } finally { setAssigning(false); }
   }
 
   async function closeConversation() {
     if (!activeConversation || closing) return;
-    const previousStatus = activeConversation.status;
     setClosing(true);
-    setConversations((current) => current.map((conversation) => (
-      conversation.id === activeConversation.id ? { ...conversation, status: 'closed' } : conversation
-    )));
+    const id = activeConversation.id;
     try {
-      const updated = await api.patch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/status`, {
-        status: 'closed',
-      });
-      setConversations((current) => current.map((conversation) => (
-        conversation.id === activeConversation.id
-          ? {
-            ...conversation,
-            status: updated?.status || 'closed',
-            sortTimestamp: updated?.updated_at || conversation.sortTimestamp,
-            timestamp: updated?.updated_at ? formatTime(updated.updated_at) : conversation.timestamp,
-          }
-          : conversation
-      )));
+      await api.patch(`/api/conversations/${encodeURIComponent(id)}/status`, { status: 'closed' });
+      setActiveConversationId(null);
+      setConversations((current) => current.filter((c) => c.id !== id));
+      toast.success('Conversation archived');
     } catch {
-      setConversations((current) => current.map((conversation) => (
-        conversation.id === activeConversation.id ? { ...conversation, status: previousStatus } : conversation
-      )));
-    } finally {
-      setClosing(false);
-    }
+      toast.error('Failed to close');
+    } finally { setClosing(false); }
   }
 
   async function markConversationWon() {
     if (!activeConversation || winning) return;
     setWinning(true);
+    const id = activeConversation.id;
     try {
-      await api.post(`/api/conversations/${encodeURIComponent(activeConversation.id)}/won`, {});
-      setConversations((current) => current.map((conversation) => (
-        conversation.id === activeConversation.id
-          ? { ...conversation, status: 'won', intent: conversation.intent || 'ready_to_buy' }
-          : conversation
-      )));
-    } finally {
-      setWinning(false);
-    }
+      await api.post(`/api/conversations/${encodeURIComponent(id)}/won`, {});
+      setActiveConversationId(null);
+      setConversations((current) => current.filter((c) => c.id !== id));
+      toast.success('Deal marked as WON!');
+    } catch {
+      toast.error('Action failed');
+    } finally { setWinning(false); }
   }
 
-  function insertCannedReply(text) {
-    if (!text) return;
-    setComposerValue((current) => current ? `${current}\n${text}` : text);
+  async function handleManualSend() {
+    const content = composerValue.trim();
+    if (!activeConversationId || !content || sending) return;
+    setComposerValue(''); setSending(true);
+    try {
+      const response = await api.post(`/api/conversations/${encodeURIComponent(activeConversationId)}/messages`, { content });
+      const confirmed = normalizeMessage(response?.message || response || { content, sent_by: 'agent', timestamp: new Date().toISOString() }, activeConversationId);
+      setMessages((current) => upsertMessage(current, confirmed));
+    } catch {
+      setComposerValue(content);
+      toast.error('Failed to send');
+    } finally { setSending(false); }
+  }
+
+  async function addTag(tag) {
+    if (!activeConversation || !tag) return;
+    const nextTags = [...new Set([...(activeConversation.tags || []), tag])];
+    try {
+      const result = await api.patch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/tags`, { tags: nextTags });
+      const response = result || { tags: nextTags };
+      setConversations((current) => current.map((c) => c.id === activeConversation.id ? { ...c, tags: response?.tags || nextTags } : c));
+    } catch {}
+  }
+
+  async function removeTag(tag) {
+    if (!activeConversation) return;
+    const nextTags = (activeConversation.tags || []).filter((t) => t !== tag);
+    try {
+      const result = await api.patch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/tags`, { tags: nextTags });
+      const response = result || { tags: nextTags };
+      setConversations((current) => current.map((c) => c.id === activeConversation.id ? { ...c, tags: response?.tags || nextTags } : c));
+    } catch {}
+  }
+
+  async function createConversationTicket() {
+    if (!activeConversation || ticketBusy) return;
+    setTicketBusy(true);
+    try {
+      const result = await api.post(`/api/conversations/${encodeURIComponent(activeConversation.id)}/tickets`, {
+        title: `Follow up with ${activeConversation.name}`,
+        priority: 'medium',
+      });
+      const ticket = result || {
+        id: `demo-ticket-${Date.now()}`,
+        title: `Follow up with ${activeConversation.name}`,
+        priority: 'medium',
+        status: 'open',
+        created_at: new Date().toISOString()
+      };
+      setTickets((current) => [ticket, ...current]);
+      toast.success('Ticket created');
+    } catch {
+      toast.error('Ticket creation failed');
+    } finally { setTicketBusy(false); }
   }
 
   function handleAttach(type) {
@@ -669,292 +646,126 @@ export default function ConversationsLivePage() {
     else fileInputRef.current?.click();
   }
 
-  function readFileAsDataUrl(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
-
   async function handleAttachmentSelected(event) {
     const file = event.target.files?.[0];
-    event.target.value = '';
     if (!file || !activeConversationId || attachmentUploading) return;
-
     setAttachmentUploading(true);
     try {
-      const data = await readFileAsDataUrl(file);
-      const uploaded = await api.post('/api/uploads', {
-        file_name: file.name,
-        mime_type: file.type || 'application/octet-stream',
-        size: file.size,
-        data,
+      const reader = new FileReader();
+      const data = await new Promise((resolve) => {
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(file);
       });
-      await sendAttachmentMessage(uploaded);
-    } finally {
-      setAttachmentUploading(false);
-    }
-  }
-
-  async function sendAttachmentMessage(uploaded) {
-    if (!activeConversationId || !uploaded?.url) return;
-    const type = uploaded.type || (uploaded.mime_type?.startsWith('image/') ? 'image' : 'file');
-    const tempId = `tmp-${activeConversationId}-${Date.now()}`;
-    const optimisticMessage = normalizeMessage({
-      id: tempId,
-      conversationId: activeConversationId,
-      direction: 'outbound',
-      sent_by: 'agent',
-      type,
-      content: uploaded.file_name || (type === 'image' ? 'Image attachment' : 'File attachment'),
-      media_url: uploaded.url,
-      file_name: uploaded.file_name,
-      mime_type: uploaded.mime_type,
-      size: uploaded.size,
-      timestamp: new Date().toISOString(),
-      status: 'sending',
-    }, activeConversationId);
-
-    setMessages((current) => [...current, optimisticMessage]);
-    requestAnimationFrame(() => messageBottomRef.current?.scrollIntoView({ block: 'end' }));
-
-    try {
-      const response = await api.post(`/api/conversations/${encodeURIComponent(activeConversationId)}/messages`, {
-        content: uploaded.file_name,
-        type,
-        media_url: uploaded.url,
-        file_name: uploaded.file_name,
-        mime_type: uploaded.mime_type,
-        size: uploaded.size,
+      const uploaded = await api.post('/api/uploads', { file_name: file.name, mime_type: file.type, size: file.size, data });
+      await api.post(`/api/conversations/${encodeURIComponent(activeConversationId)}/messages`, {
+        content: file.name, type: uploaded.type || (file.type.startsWith('image/') ? 'image' : 'file'), media_url: uploaded.url
       });
-      const confirmed = normalizeMessage(response?.message || response, activeConversationId);
-      setMessages((current) => upsertMessage(current.filter((message) => message.id !== tempId), confirmed));
+      toast.success('File uploaded');
     } catch {
-      setMessages((current) => current.map((message) => (
-        message.id === tempId ? { ...message, status: 'failed' } : message
-      )));
-    }
-  }
-
-  async function addTag(tag) {
-    const clean = String(tag || '').trim();
-    if (!activeConversation || !clean) return;
-    const nextTags = [...new Set([...(activeConversation.tags || []), clean])];
-    setConversations((current) => current.map((conversation) => (
-      conversation.id === activeConversation.id ? { ...conversation, tags: nextTags } : conversation
-    )));
-    try {
-      const response = await api.patch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/tags`, { tags: nextTags });
-      const savedTags = Array.isArray(response?.tags) ? response.tags : nextTags;
-      setConversations((current) => current.map((conversation) => (
-        conversation.id === activeConversation.id ? { ...conversation, tags: savedTags } : conversation
-      )));
-    } catch {
-      setConversations((current) => current.map((conversation) => (
-        conversation.id === activeConversation.id
-          ? { ...conversation, tags: activeConversation.tags || [] }
-          : conversation
-      )));
-    }
-  }
-
-  async function removeTag(tag) {
-    if (!activeConversation) return;
-    const nextTags = (activeConversation.tags || []).filter((entry) => entry !== tag);
-    setConversations((current) => current.map((conversation) => (
-      conversation.id === activeConversation.id ? { ...conversation, tags: nextTags } : conversation
-    )));
-    try {
-      await api.patch(`/api/conversations/${encodeURIComponent(activeConversation.id)}/tags`, { tags: nextTags });
-    } catch {
-      setConversations((current) => current.map((conversation) => (
-        conversation.id === activeConversation.id
-          ? { ...conversation, tags: activeConversation.tags || [] }
-          : conversation
-      )));
-    }
-  }
-
-  async function createConversationTicket() {
-    if (!activeConversation || ticketBusy) return;
-    setTicketBusy(true);
-    try {
-      const ticket = await api.post(`/api/conversations/${encodeURIComponent(activeConversation.id)}/tickets`, {
-        title: `Follow up with ${activeConversation.name}`,
-        priority: 'medium',
-      });
-      setTickets((current) => [ticket, ...current.filter((entry) => entry.id !== ticket.id)]);
-    } finally {
-      setTicketBusy(false);
-    }
+      toast.error('Upload failed');
+    } finally { setAttachmentUploading(false); event.target.value = ''; }
   }
 
   async function createInternalNote() {
     if (!activeConversation || sending) return;
-    const seeded = composerValue.trim();
-    const content = seeded || window.prompt('Write an internal note for this conversation:')?.trim() || '';
-    if (!content) return;
-
-    const tempId = `note-${activeConversation.id}-${Date.now()}`;
-    const optimisticMessage = normalizeMessage({
-      id: tempId,
-      conversationId: activeConversation.id,
-      direction: 'internal',
-      sent_by: 'agent',
-      type: 'internal_note',
-      content,
-      timestamp: new Date().toISOString(),
-      status: 'sending',
-      metadata: { internal: true },
-    }, activeConversation.id);
-
-    setComposerValue('');
-    setMessages((current) => [...current, optimisticMessage]);
-    setConversations((current) => current.map((conversation) => (
-      conversation.id === activeConversation.id
-        ? {
-          ...conversation,
-          lastMessage: `Internal note: ${content}`,
-          timestamp: formatTime(optimisticMessage.timestamp),
-          sortTimestamp: optimisticMessage.timestamp,
-        }
-        : conversation
-    )));
-
-    try {
-      const response = await api.post(`/api/conversations/${encodeURIComponent(activeConversation.id)}/internal-notes`, {
-        content,
-      });
-      const confirmed = normalizeMessage(response?.message || response, activeConversation.id);
-      setMessages((current) => {
-        const withoutTemp = current.filter((message) => message.id !== tempId);
-        return upsertMessage(withoutTemp, confirmed);
-      });
-    } catch {
-      setMessages((current) => current.map((message) => (
-        message.id === tempId ? { ...message, status: 'failed' } : message
-      )));
-    } finally {
-      requestAnimationFrame(() => {
-        messageBottomRef.current?.scrollIntoView({ block: 'end' });
-      });
-    }
-  }
-
-  async function handleManualSend() {
     const content = composerValue.trim();
-    if (!activeConversationId || !content || sending) return;
-
-    const tempId = `tmp-${activeConversationId}-${Date.now()}`;
-    const optimisticMessage = normalizeMessage({
-      id: tempId,
-      conversationId: activeConversationId,
-      direction: 'outbound',
-      sent_by: 'agent',
-      content,
-      timestamp: new Date().toISOString(),
-      status: 'sending',
-    }, activeConversationId);
-
+    if (!content) {
+      toast('Type a note in the composer first', { icon: '📝' });
+      return;
+    }
     setComposerValue('');
-    setSending(true);
-    setMessages((current) => [...current, optimisticMessage]);
-    requestAnimationFrame(() => {
-      messageBottomRef.current?.scrollIntoView({ block: 'end' });
-    });
-
     try {
-      const response = await api.post(`/api/conversations/${encodeURIComponent(activeConversationId)}/messages`, {
-        content,
-      });
-      const confirmed = normalizeMessage(response?.message || response, activeConversationId);
-      setMessages((current) => {
-        const withoutTemp = current.filter((message) => message.id !== tempId);
-        return upsertMessage(withoutTemp, confirmed);
-      });
-      requestAnimationFrame(() => {
-        messageBottomRef.current?.scrollIntoView({ block: 'end' });
-      });
+      const result = await api.post(`/api/conversations/${encodeURIComponent(activeConversation.id)}/internal-notes`, { content });
+      const confirmed = normalizeMessage(result?.message || result || { content, sent_by: 'agent', direction: 'internal', timestamp: new Date().toISOString() }, activeConversation.id);
+      setMessages((current) => upsertMessage(current, confirmed));
     } catch {
-      setMessages((current) => current.map((message) => (
-        message.id === tempId ? { ...message, status: 'failed' } : message
-      )));
-    } finally {
-      setSending(false);
+      setComposerValue(content);
+      toast.error('Failed to save note');
     }
   }
+
+  const visibleConversations = useMemo(() => conversations, [conversations]);
 
   return (
-    <div className={`${styles.dashboardShell} ${theme === 'light' ? styles.light : styles.dark}`}>
+    <div className="flex h-full overflow-hidden bg-background">
       <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={handleAttachmentSelected} />
       <input ref={fileInputRef} type="file" hidden onChange={handleAttachmentSelected} />
-      <PrototypeConversationList
-        conversations={visibleConversations}
-        filters={filters}
-        activeId={activeConversationId}
-        filter={filter}
-        count={conversations.length}
-        emptyLabel={emptyLabel}
-        onFilterChange={setFilter}
-        onSelect={(conversation) => {
-          setActiveConversationId(conversation.id);
-          setConversations((current) => current.map((item) => (
-            item.id === conversation.id ? { ...item, unread: 0 } : item
-          )));
-        }}
-        mobileView={activeConversation ? 'thread' : 'list'}
+      
+      <InboxSidebar 
+        filters={filters} 
+        onFilterChange={setFilters} 
+        channels={['WhatsApp', 'Instagram', 'Messenger', 'LiveChat']}
+        teamMembers={teamMembers}
       />
+
+      <div className="w-[300px] border-r bg-card flex flex-col shrink-0">
+        <header className="h-14 border-b px-4 flex items-center shrink-0 gap-3">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex-1">Conversations</h2>
+        </header>
+        <div className="px-3 py-2.5 border-b shrink-0">
+          <div className="relative group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground group-focus-within:text-primary transition-colors" />
+            <Input
+              placeholder="Search..."
+              className="h-8 pl-9 text-xs bg-muted/30 border-none focus-visible:ring-1 focus-visible:ring-primary/40"
+              value={searchValue}
+              onChange={(e) => setSearchValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') setFilters((f) => ({ ...f, search: searchValue }));
+              }}
+            />
+          </div>
+        </div>
+        <ThreadList
+          conversations={visibleConversations}
+          activeId={activeConversationId}
+          onSelect={(c) => setActiveConversationId(c.id)}
+          loading={loading}
+          emptyLabel={error || "No conversations found."}
+          slaBreaches={slaBreaches}
+        />
+      </div>
+
       {activeConversation ? (
         <>
-          <section className={`${styles.threadColumn} ${styles.mobileVisible}`}>
-            <PrototypeChatHeader
-              conversation={activeConversation}
-              onBack={() => {
-                setActiveConversationId(null);
-                setContextOpen(false);
-              }}
-              onOpenContext={() => setContextOpen(true)}
-              onTakeOver={takeOverConversation}
-              onAssign={() => setAssignOpen(true)}
-              onClose={closeConversation}
-              onWon={markConversationWon}
-              assignDisabled={assigning || !canAssign}
-              closeDisabled={closing || activeConversation.status === 'closed'}
-              wonDisabled={winning}
-            />
-            <PrototypeAIStateBar
-              conversation={activeConversation}
-              updating={aiModeUpdating}
-              onToggleAuto={() => setActiveAiMode(activeConversation.aiMode === 'auto' ? 'manual' : 'auto')}
-            />
-            <PrototypeMessageList
-              conversation={activeConversation}
-              messages={messages}
-              loading={messagesLoading}
-              emptyLabel={messagesError || 'No messages in this conversation yet.'}
-              bottomRef={messageBottomRef}
-              listRef={messageListRef}
-            />
-            <PrototypeComposer
-              conversation={activeConversation}
-              value={composerValue}
-              onChange={setComposerValue}
-              onSend={handleManualSend}
-              sending={sending}
-              onTakeOver={takeOverConversation}
-              cannedReplies={cannedReplies}
-              onInsertCanned={insertCannedReply}
-              onAttach={handleAttach}
-              onInternalNote={createInternalNote}
-            />
-          </section>
-          <PrototypeCustomerPanel
+          <MessageThread 
+            conversation={activeConversation}
+            messages={messages}
+            loading={messagesLoading}
+            sending={sending}
+            composerValue={composerValue}
+            onComposerChange={setComposerValue}
+            onSend={handleManualSend}
+            onAssign={() => setAssignOpen(true)}
+            onClose={closeConversation}
+            onWon={markConversationWon}
+            onToggleAi={() => setActiveAiMode(activeConversation.aiMode === 'auto' ? 'manual' : 'auto')}
+            aiUpdating={aiModeUpdating}
+            onAttach={handleAttach}
+            onInternalNote={createInternalNote}
+            bottomRef={messageBottomRef}
+            panelOpen={panelOpen}
+            onTogglePanel={() => setPanelOpen((v) => !v)}
+            cannedReplies={cannedReplies}
+            aiSuggestion={aiSuggestions[activeConversation.id]}
+            onApplySuggestion={(text) => {
+              setComposerValue(text);
+              setAiSuggestions(prev => {
+                const next = { ...prev };
+                delete next[activeConversation.id];
+                return next;
+              });
+            }}
+            onDismissSuggestion={() => setAiSuggestions(prev => {
+              const next = { ...prev };
+              delete next[activeConversation.id];
+              return next;
+            })}
+          />
+          {panelOpen && <CustomerPanel
             conversation={activeConversation}
             handoff={handoff}
             currentUser={currentUser}
-            onRequestHandoff={requestHandoff}
             onAcceptHandoff={() => resolveHandoff('accept')}
             onDeclineHandoff={() => resolveHandoff('decline')}
             onCancelHandoff={() => resolveHandoff('cancel')}
@@ -965,61 +776,39 @@ export default function ConversationsLivePage() {
             ticketBusy={ticketBusy}
             onAddTag={addTag}
             onRemoveTag={removeTag}
-          />
-          <PrototypeContextDrawerMobile
-            open={contextOpen}
-            conversation={activeConversation}
-            onClose={() => setContextOpen(false)}
-            handoff={handoff}
-            currentUser={currentUser}
-            onRequestHandoff={requestHandoff}
-            onAcceptHandoff={() => resolveHandoff('accept')}
-            onDeclineHandoff={() => resolveHandoff('decline')}
-            onCancelHandoff={() => resolveHandoff('cancel')}
-            handoffBusy={handoffBusy}
-            tickets={tickets}
-            ticketsLoading={ticketsLoading}
-            onCreateTicket={createConversationTicket}
-            ticketBusy={ticketBusy}
-            onAddTag={addTag}
-            onRemoveTag={removeTag}
-          />
+            tagLibrary={tagLibrary}
+            tagLibraryMeta={tagLibraryMeta}
+          />}
         </>
       ) : (
-        <section className={styles.liveReadOnlyPane}>
-          <div className={styles.liveReadOnlyCard}>
-            <strong>Select a conversation</strong>
-            <p>
-              Choose a conversation to view messages, manage AI mode, assignment,
-              handoff, and customer context.
+        <div className="flex-1 flex items-center justify-center bg-muted/20">
+          <div className="text-center space-y-4 max-w-sm px-6">
+            <div className="w-16 h-16 rounded-3xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
+              <MessageSquare className="h-8 w-8 text-primary" />
+            </div>
+            <h2 className="text-xl font-black tracking-tight">Select a conversation</h2>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Choose a thread from the list to start replying, manage AI automation, or update customer CRM details.
             </p>
-          </div>
-        </section>
-      )}
-      {assignOpen && (
-        <div className={styles.liveModalLayer} role="dialog" aria-modal="true">
-          <div className={styles.liveModal}>
-            <div className={styles.liveModalHeader}>
-              <strong>Assign conversation</strong>
-              <button type="button" onClick={() => setAssignOpen(false)}>×</button>
-            </div>
-            <div className={styles.liveModalBody}>
-              <button type="button" className={styles.agentOption} onClick={() => assignConversation(null)}>
-                Unassigned
-                <span>Remove the current owner.</span>
-              </button>
-              {teamMembers.length === 0 ? (
-                <div className={styles.emptyListState}>No team members available.</div>
-              ) : teamMembers.map((member) => (
-                <button key={member.id} type="button" className={styles.agentOption} onClick={() => assignConversation(member)}>
-                  {member.name || member.email}
-                  <span>{member.role} · {member.email}</span>
-                </button>
-              ))}
-            </div>
           </div>
         </div>
       )}
+
+      <AssignModal 
+        open={assignOpen}
+        onOpenChange={setAssignOpen}
+        teamMembers={teamMembers}
+        onAssign={assignConversation}
+        currentAssigneeId={activeConversation?.assignedTo}
+      />
     </div>
+  );
+}
+
+function MessageSquare({ className }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+    </svg>
   );
 }

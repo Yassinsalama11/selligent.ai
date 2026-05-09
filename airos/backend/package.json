@@ -4,6 +4,7 @@
   "private": true,
   "main": "src/index.js",
   "scripts": {
+    "build": "node scripts/build.js",
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "worker": "node src/workers/messageProcessor.js",
@@ -14,12 +15,12 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.0",
+    "@chatorai/action-sdk": "file:./vendor/action-sdk",
     "@chatorai/ai-core": "file:./vendor/ai-core",
     "@chatorai/db": "file:./vendor/db",
     "@chatorai/eval": "file:./vendor/eval",
-    "@chatorai/action-sdk": "file:./vendor/action-sdk",
-    "zod": "^3.23.0",
-    "@anthropic-ai/sdk": "^0.27.0",
+    "@socket.io/redis-adapter": "^8.3.0",
     "bcrypt": "^5.1.1",
     "bullmq": "^5.7.0",
     "cheerio": "^1.2.0",
@@ -32,13 +33,15 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "node-fetch": "^3.3.2",
+    "nodemailer": "^8.0.6",
     "openai": "^6.34.0",
     "otplib": "^12.0.1",
     "pg": "^8.11.5",
     "socket.io": "^4.7.5",
-    "@socket.io/redis-adapter": "^8.3.0",
     "stripe": "^22.0.1",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "xlsx": "^0.18.5",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

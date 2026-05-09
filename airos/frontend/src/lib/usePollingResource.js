@@ -7,6 +7,7 @@ export function usePollingResource(loader, deps = [], options = {}) {
   const loaderRef = useRef(loader);
   const [data, setData] = useState(initialData);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -15,9 +16,15 @@ export function usePollingResource(loader, deps = [], options = {}) {
 
   useEffect(() => {
     let active = true;
+    let timer = null;
 
     async function load({ silent = false } = {}) {
+      if (!active) return;
+      // Skip polling when tab is hidden — resume on next visibility change
+      if (silent && typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+
       if (!silent) setLoading(true);
+      if (silent) setRefreshing(true);
 
       try {
         const next = await loaderRef.current();
@@ -29,27 +36,40 @@ export function usePollingResource(loader, deps = [], options = {}) {
         if (!active) return;
         setError(err?.message || 'Could not load data');
       } finally {
-        if (active && !silent) {
-          setLoading(false);
-        }
+        if (active && !silent) setLoading(false);
+        if (active && silent) setRefreshing(false);
+      }
+    }
+
+    function scheduleTimer() {
+      if (intervalMs > 0 && active) {
+        timer = setInterval(() => load({ silent: true }), intervalMs);
+      }
+    }
+
+    function handleVisibilityChange() {
+      if (!active) return;
+      if (document.visibilityState === 'visible') {
+        // Reload immediately when tab becomes visible again
+        load({ silent: true });
+        clearInterval(timer);
+        scheduleTimer();
       }
     }
 
     load();
+    scheduleTimer();
 
-    if (intervalMs > 0) {
-      const timer = setInterval(() => {
-        load({ silent: true });
-      }, intervalMs);
-
-      return () => {
-        active = false;
-        clearInterval(timer);
-      };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
     }
 
     return () => {
       active = false;
+      clearInterval(timer);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
     };
   }, [...deps, intervalMs, reloadKey]);
 
@@ -57,6 +77,7 @@ export function usePollingResource(loader, deps = [], options = {}) {
     data,
     error,
     loading,
+    refreshing,
     lastUpdated,
     reload: () => setReloadKey((current) => current + 1),
     setData,

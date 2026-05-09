@@ -1,13 +1,14 @@
 'use client';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
+import { Smartphone, Camera, MessageCircle, Monitor } from 'lucide-react';
 import Modal from '@/components/Modal';
 
 const CHANNELS = [
-  { id:'whatsapp',  name:'WhatsApp',          icon:'📱', color:'#25D366', status:'not_connected', desc:'Meta Cloud API · Business' },
-  { id:'instagram', name:'Instagram DM',       icon:'📸', color:'#E1306C', status:'not_connected', desc:'Meta Graph API · OAuth'    },
-  { id:'messenger', name:'Messenger',          icon:'💬', color:'#0099FF', status:'not_connected', desc:'Facebook Page Messages'    },
-  { id:'livechat',  name:'Live Chat Widget',   icon:'⚡', color:'#6366f1', status:'not_connected', desc:'Your website · Socket.io'  },
+  { id:'whatsapp',  name:'WhatsApp',          Icon:Smartphone,     color:'#25D366', status:'not_connected', desc:'Meta Cloud API · Business' },
+  { id:'instagram', name:'Instagram DM',       Icon:Camera,         color:'#E1306C', status:'not_connected', desc:'Meta Graph API · OAuth'    },
+  { id:'messenger', name:'Messenger',          Icon:MessageCircle,  color:'#0099FF', status:'not_connected', desc:'Facebook Page Messages'    },
+  { id:'livechat',  name:'Live Chat Widget',   Icon:Monitor,        color:'#6366f1', status:'not_connected', desc:'Your website · Socket.io'  },
 ];
 
 const STATS = {
@@ -100,7 +101,7 @@ export default function ChannelsPage() {
                     border: sel ? '1.5px solid rgba(99,102,241,0.35)' : '1px solid var(--b1)',
                     transition:'all 0.15s' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom: on ? 10 : 0 }}>
-                    <span style={{ fontSize:26 }}>{ch.icon}</span>
+                    <ch.Icon style={{ width:26, height:26, color: ch.color }} />
                     <div style={{ flex:1 }}>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                         <span style={{ fontWeight:700, fontSize:14, color:'var(--t1)' }}>{ch.name}</span>
@@ -138,7 +139,7 @@ export default function ChannelsPage() {
             {/* Panel header */}
             <div className="card" style={{ paddingBottom:0 }}>
               <div style={{ display:'flex', alignItems:'center', gap:14, marginBottom:20 }}>
-                <span style={{ fontSize:36 }}>{active.icon}</span>
+                <active.Icon style={{ width:36, height:36, color: active.color }} />
                 <div style={{ flex:1 }}>
                   <h2 style={{ fontSize:18, fontWeight:800, marginBottom:3 }}>{active.name}</h2>
                   <p style={{ fontSize:13, color:'var(--t3)' }}>{active.desc}</p>

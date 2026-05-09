@@ -51,12 +51,18 @@ async function sendTemplate(phoneNumberId, token, to, templateName, languageCode
 /**
  * Mark an inbound message as read.
  */
-async function markRead(phoneNumberId, token, messageId) {
-  return _post(`${BASE_URL}/${phoneNumberId}/messages`, token, {
+async function markRead(phoneNumberId, token, messageId, options = {}) {
+  const body = {
     messaging_product: 'whatsapp',
     status: 'read',
     message_id: messageId,
-  });
+  };
+
+  if (options.typingIndicator) {
+    body.typing_indicator = { type: 'text' };
+  }
+
+  return _post(`${BASE_URL}/${phoneNumberId}/messages`, token, body);
 }
 
 function _post(url, token, body) {

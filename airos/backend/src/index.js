@@ -1,4 +1,5 @@
 require('./core/otel/register');
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
 const express = require('express');
 const http = require('http');
@@ -35,6 +36,9 @@ const correctionsRoutes = require('./api/routes/corrections');
 const memoryRoutes = require('./api/routes/memory');
 const brainRoutes = require('./api/routes/brain');
 const uploadRoutes = require('./api/routes/uploads');
+const demoRoutes = require('./api/routes/demo');
+const billingRoutes = require('./api/routes/billing');
+const supportRoutes = require('./api/routes/support');
 const { getUploadRoot } = require('./api/routes/uploads');
 
 // Boot action registry (must require before routes)
@@ -42,6 +46,7 @@ require('./actions');
 
 const { authMiddleware } = require('./api/middleware/auth');
 const { tenantMiddleware } = require('./api/middleware/tenant');
+const { subscriptionAccessMiddleware } = require('./api/middleware/subscriptionAccess');
 const { initSocketServer, getSocketMetrics, createCorsOriginChecker } = require('./channels/livechat/socket');
 const { initCopilotNamespace } = require('./channels/copilot/socket');
 const { startReportScheduler } = require('./core/reportScheduler');
@@ -56,6 +61,7 @@ const { ensureRuntimeSchema } = require('./db/runtimeSchema');
 const { runPerformanceMigrations } = require('./db/migrations');
 const { validateTenantStatsBackfill } = require('./db/validate_backfill');
 const { startWorker } = require('./core/queue');
+const { runLifecycleEmailSweep } = require('./services/email/emailService');
 
 const telemetry = initTelemetry();
 
@@ -89,12 +95,21 @@ app.use(express.json({ limit: '16mb' }));
 
 // Request tracing (adds request_id, tenant_id, latency tracking)
 app.use(requestTracer);
-app.use(morgan('dev'));
+if (process.env.NODE_ENV !== 'production') app.use(morgan('dev'));
 app.use('/uploads', express.static(getUploadRoot(), {
   fallthrough: false,
   setHeaders(res) {
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
   },
+}));
+
+// Live chat widget script — served publicly at /widget/widget.js
+app.use('/widget', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  next();
+}, express.static(require('path').join(__dirname, '..', '..', 'widget', 'dist'), {
+  index: false,
 }));
 
 // Health check with dependency status
@@ -170,6 +185,9 @@ app.use('/api/stripe', stripeRoutes);
 const scanRoutes = require('./api/scan');
 app.use('/api/scan', scanRoutes);
 
+// Demo booking (public)
+app.use('/api/demo', demoRoutes);
+
 // Onboarding — trial account registration (public)
 const onboardingRoutes = require('./api/onboarding');
 app.use('/api/onboarding', onboardingRoutes);
@@ -205,13 +223,15 @@ app.use('/v1/catalog', catalogRoutes);
 
 // AI reply streaming (auth required) — mounted before global /api auth
 // so we can apply auth specifically and keep the /v1/ai prefix.
-app.use('/v1/ai', authMiddleware, tenantMiddleware, aiRoutes);
+app.use('/v1/ai', authMiddleware, tenantMiddleware, subscriptionAccessMiddleware, aiRoutes);
 
 // Channel routes expose a public Meta callback and protect the rest internally
 app.use('/api/channels', channelsRoutes);
 
 // Protected routes — require JWT + tenant context
-app.use('/api', authMiddleware, tenantMiddleware);
+app.use('/api', authMiddleware, tenantMiddleware, subscriptionAccessMiddleware);
+app.use('/api/billing', billingRoutes);
+app.use('/api/support', supportRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/deals', dealsRoutes);
 app.use('/api/conversations', conversationsRoutes);
@@ -233,17 +253,17 @@ app.use('/api/actions', actionsRoutes);
 app.use('/api/understand', understandRoutes);
 
 // Privacy / DSR (auth + tenant already applied by /api middleware above)
-app.use('/v1/privacy', authMiddleware, tenantMiddleware, privacyRoutes);
+app.use('/v1/privacy', authMiddleware, tenantMiddleware, subscriptionAccessMiddleware, privacyRoutes);
 
 // Eval dashboard + human corrections (2-C1, 2-C2)
-app.use('/v1/eval', authMiddleware, tenantMiddleware, evalRoutes);
-app.use('/v1/corrections', authMiddleware, tenantMiddleware, correctionsRoutes);
+app.use('/v1/eval', authMiddleware, tenantMiddleware, subscriptionAccessMiddleware, evalRoutes);
+app.use('/v1/corrections', authMiddleware, tenantMiddleware, subscriptionAccessMiddleware, correctionsRoutes);
 
 // Tenant memory facts (2-C5)
-app.use('/v1/memory', authMiddleware, tenantMiddleware, memoryRoutes);
+app.use('/v1/memory', authMiddleware, tenantMiddleware, subscriptionAccessMiddleware, memoryRoutes);
 
 // Platform Brain — benchmarks + workflow recommender (3-C4)
-app.use('/v1/brain', authMiddleware, tenantMiddleware, brainRoutes);
+app.use('/v1/brain', authMiddleware, tenantMiddleware, subscriptionAccessMiddleware, brainRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {
@@ -261,7 +281,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3011;
 
 async function bootstrap() {
   // Step 1: Redis Initialization
@@ -298,6 +318,12 @@ async function bootstrap() {
   try {
     if (process.env.ENABLE_REPORT_SCHEDULER !== '0' && process.env.DATABASE_URL) {
       startReportScheduler();
+      const EMAIL_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+      setTimeout(function fireEmailSweep() {
+        runLifecycleEmailSweep()
+          .catch((err) => logger.error('[EmailLifecycle] sweep failed', { error: err.message }))
+          .finally(() => setTimeout(fireEmailSweep, EMAIL_SWEEP_INTERVAL_MS));
+      }, 30000);
       if (startRetentionScheduler) startRetentionScheduler();
 
       // Weekly correction miner (2-C2) — runs every Sunday at 02:00 UTC

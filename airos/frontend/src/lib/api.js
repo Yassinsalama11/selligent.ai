@@ -1,5 +1,5 @@
 const PROD_API_BASE = 'https://api.chatorai.com';
-const LOCAL_API_BASE = 'http://localhost:3001';
+const LOCAL_API_PORT = '3011';
 
 function trimTrailingSlash(value) {
   return typeof value === 'string' ? value.replace(/\/+$/, '') : '';
@@ -14,7 +14,7 @@ export function getApiBase() {
 
   const hostname = window.location.hostname;
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return configured || LOCAL_API_BASE;
+    return `http://${hostname}:${LOCAL_API_PORT}`;
   }
 
   if (
@@ -50,8 +50,10 @@ function getToken() {
 }
 
 async function request(path, options = {}) {
-  // Demo mode — never hit the network
-  if (isDemo()) return null;
+  // Demo mode — never hit the network. Return undefined so callers using
+  // optional chaining or null-coalescing get safe empty values instead of
+  // crashing on null property access.
+  if (isDemo()) return undefined;
 
   const token = getToken();
   let res;
@@ -74,7 +76,12 @@ async function request(path, options = {}) {
     return;
   }
 
-  const data = await res.json();
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(res.ok ? 'Server returned an invalid response' : `Server error (${res.status})`);
+  }
   if (!res.ok) throw new Error(data.error || 'Request failed');
   return data;
 }

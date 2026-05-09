@@ -1,16 +1,22 @@
 import './globals.css';
 import { Toaster } from 'react-hot-toast';
+import { ThemeProvider } from '@/components/theme-provider';
 import FrontendErrorTracking from '@/components/FrontendErrorTracking';
+import { GlobalSchema } from '@/components/seo/GlobalSchema';
 
 export const metadata = {
-  title: 'ChatOrAI — AI Revenue Operating System',
+  metadataBase: new URL('https://chatorai.com'),
+  title: 'ChatorAI — AI Revenue Operating System',
   description: 'Turn every conversation into revenue. Unify WhatsApp, Instagram, Messenger & Live Chat with AI-powered sales automation.',
-  keywords: 'AI sales, WhatsApp CRM, ecommerce chat, Arabic AI, lead scoring, ChatOrAI',
+  keywords: 'AI sales, WhatsApp CRM, ecommerce chat, Arabic AI, lead scoring, ChatorAI',
+  alternates: {
+    canonical: 'https://chatorai.com',
+  },
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" dir="ltr">
+    <html lang="en" dir="ltr" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="true" />
@@ -19,24 +25,27 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
         />
       </head>
-      <body>
-        <FrontendErrorTracking />
-        {children}
-        <Toaster
-          position="bottom-right"
-          toastOptions={{
-            style: {
-              background: 'var(--bg4)',
-              color: 'var(--t1)',
-              border: '1px solid var(--b2)',
-              borderRadius: '10px',
-              fontSize: '13.5px',
-              fontWeight: 500,
-            },
-            success: { iconTheme: { primary: '#34d399', secondary: '#1e2535' } },
-            error:   { iconTheme: { primary: '#fca5a5', secondary: '#1e2535' } },
-          }}
-        />
+      <body suppressHydrationWarning>
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+          <GlobalSchema />
+          <FrontendErrorTracking />
+          {children}
+          <Toaster
+            position="bottom-right"
+            toastOptions={{
+              style: {
+                background: 'var(--card)',
+                color: 'var(--foreground)',
+                border: '1px solid var(--border)',
+                borderRadius: '10px',
+                fontSize: '13.5px',
+                fontWeight: 500,
+              },
+              success: { iconTheme: { primary: '#ff5a1f', secondary: 'var(--card)' } },
+              error:   { iconTheme: { primary: '#ef4444', secondary: 'var(--card)' } },
+            }}
+          />
+        </ThemeProvider>
       </body>
     </html>
   );

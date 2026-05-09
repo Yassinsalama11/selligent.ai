@@ -12,6 +12,7 @@ const {
 const { assignConversation } = require('../../db/queries/conversations');
 const { decryptMessageRow } = require('../../db/queries/messages');
 const { emitToTenantConversations } = require('../../channels/livechat/socket');
+const { sendHumanTakeoverAlert } = require('../../services/email/emailService');
 
 const router = express.Router({ mergeParams: true }); // inherits :id from parent
 const requireAny = requireRole('owner', 'admin', 'agent');
@@ -99,6 +100,13 @@ router.post('/', requireAny, async (req, res, next) => {
     const handoff = await createHandoff(
       tenantId, conversationId, req.user.id, requested_to || null, reason || '', req.db
     );
+
+    sendHumanTakeoverAlert({
+      tenantId,
+      customerName: req.body?.customer_name || '',
+      handoffReason: reason || '',
+      conversationLink: `${process.env.FRONTEND_URL || 'https://chatorai.com'}/dashboard/conversations?conversation=${conversationId}`,
+    }).catch(() => {});
 
     emitToTenantConversations(tenantId, 'agent:handoff_requested', {
       handoff,

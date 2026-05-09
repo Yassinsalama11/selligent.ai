@@ -1,38 +1,30 @@
 'use client';
+
 import Link from 'next/link';
+import { ArrowLeft, RotateCcw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 export default function CancelPage() {
   return (
-    <div style={{ minHeight:'100vh', background:'var(--bg)',
-      display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-      <div style={{ textAlign:'center', maxWidth:440 }}>
-
-        <div style={{ width:80, height:80, borderRadius:'50%', margin:'0 auto 24px',
-          background:'rgba(251,191,36,0.08)', border:'2px solid rgba(251,191,36,0.25)',
-          display:'flex', alignItems:'center', justifyContent:'center', fontSize:36 }}>
-          ↩
+    <div className="min-h-screen bg-background flex items-center justify-center p-6">
+      <div className="text-center max-w-sm">
+        <div className="w-20 h-20 rounded-2xl bg-amber-500/10 flex items-center justify-center mx-auto mb-6 border border-amber-500/20">
+          <RotateCcw className="h-10 w-10 text-amber-500" />
         </div>
-
-        <h1 style={{ fontSize:26, fontWeight:800, color:'var(--t1)',
-          letterSpacing:'-0.03em', marginBottom:10 }}>
-          Payment Cancelled
-        </h1>
-
-        <p style={{ fontSize:14, color:'var(--t3)', marginBottom:28, lineHeight:1.6 }}>
-          No worries — you haven't been charged. Come back anytime to start your subscription.
+        <h1 className="text-2xl font-bold tracking-tight mb-2">Payment Cancelled</h1>
+        <p className="text-sm text-muted-foreground mb-8">
+          No worries — you haven&apos;t been charged. Come back anytime to start your subscription.
         </p>
-
-        <div style={{ display:'flex', gap:12, justifyContent:'center' }}>
-          <Link href="/#pricing"
-            style={{ padding:'11px 24px', borderRadius:10, background:'#6366f1',
-              color:'#fff', fontWeight:700, fontSize:13, textDecoration:'none' }}>
-            View Plans
+        <div className="flex gap-3 justify-center">
+          <Link href="/#pricing">
+            <Button className="h-10 px-6 rounded-xl text-sm font-bold bg-primary text-white border-none shadow-md shadow-primary/15">
+              View Plans
+            </Button>
           </Link>
-          <Link href="/"
-            style={{ padding:'11px 24px', borderRadius:10,
-              background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)',
-              color:'var(--t2)', fontWeight:600, fontSize:13, textDecoration:'none' }}>
-            Back to Home
+          <Link href="/">
+            <Button variant="outline" className="h-10 px-6 rounded-xl text-sm font-semibold">
+              <ArrowLeft className="h-3.5 w-3.5 mr-2" /> Home
+            </Button>
           </Link>
         </div>
       </div>

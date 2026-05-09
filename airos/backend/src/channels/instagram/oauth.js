@@ -261,7 +261,8 @@ async function subscribePageApp(pageId, pageToken, channel) {
 }
 
 function encryptCredentials(obj) {
-  const key = Buffer.from(process.env.ENCRYPTION_KEY || '').slice(0, 32);
+  const raw = process.env.ENCRYPTION_KEY || '';
+  const key = raw ? crypto.createHash('sha256').update(raw).digest() : Buffer.alloc(32);
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const enc = Buffer.concat([cipher.update(JSON.stringify(obj), 'utf8'), cipher.final()]);

@@ -191,6 +191,79 @@ async function getOverviewReport(tenantId, { from, to } = {}, client) {
   };
 }
 
+async function getDashboardSummary(tenantId, { from } = {}) {
+  const fromDate = from || new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const toDate = new Date().toISOString().slice(0, 10);
+
+  const [liveStats, revenueSeries, channelBreakdown, recentConversations, stageBreakdown] = await Promise.all([
+    // Live counts direct from source tables — no limit cap
+    queryAdmin(`
+      SELECT
+        (SELECT COUNT(*)::int FROM conversations WHERE tenant_id=$1 AND status='open') AS open_conversations,
+        (SELECT COUNT(*)::int FROM deals WHERE tenant_id=$1 AND stage NOT IN ('won','lost')) AS active_deals,
+        (SELECT COALESCE(SUM(estimated_value),0)::numeric FROM deals WHERE tenant_id=$1 AND stage NOT IN ('won','lost')) AS pipeline_value,
+        (SELECT COUNT(*)::int FROM deals WHERE tenant_id=$1 AND stage='won') AS won_deals
+    `, [tenantId]),
+
+    // Revenue time series from pre-aggregated report_daily
+    queryAdmin(`
+      SELECT date,
+        SUM(revenue_won) AS revenue,
+        SUM(deals_won) AS deals_won
+      FROM report_daily
+      WHERE tenant_id=$1 AND date BETWEEN $2 AND $3
+      GROUP BY date ORDER BY date
+    `, [tenantId, fromDate, toDate]),
+
+    // Channel breakdown from report_daily (7-day window, accurate at scale)
+    queryAdmin(`
+      SELECT channel, SUM(total_conversations)::int AS total
+      FROM report_daily
+      WHERE tenant_id=$1 AND date BETWEEN $2 AND $3 AND channel IS NOT NULL
+      GROUP BY channel ORDER BY total DESC
+    `, [tenantId, fromDate, toDate]),
+
+    // Recent conversations — minimal fields, no limit issue
+    queryAdmin(`
+      SELECT c.id, c.channel, c.updated_at, c.status,
+             c.last_message_preview AS last_message,
+             cu.name AS customer_name
+      FROM conversations c
+      LEFT JOIN customers cu ON cu.id = c.customer_id
+      WHERE c.tenant_id=$1
+      ORDER BY c.updated_at DESC
+      LIMIT 6
+    `, [tenantId]),
+
+    // Deal stage breakdown — for funnel chart
+    queryAdmin(`
+      SELECT stage, COUNT(*)::int AS total
+      FROM deals
+      WHERE tenant_id=$1
+      GROUP BY stage
+    `, [tenantId]),
+  ]);
+
+  const stats = liveStats.rows[0] || {};
+
+  const stageMap = Object.fromEntries(stageBreakdown.rows.map((r) => [r.stage, Number(r.total)]));
+
+  return {
+    openConversations: Number(stats.open_conversations || 0),
+    activeDeals: Number(stats.active_deals || 0),
+    pipelineValue: Number(stats.pipeline_value || 0),
+    wonDeals: Number(stats.won_deals || 0),
+    revenueSeries: revenueSeries.rows.map((row) => ({
+      date: row.date,
+      revenue: Number(row.revenue || 0),
+      deals_won: Number(row.deals_won || 0),
+    })),
+    stageBreakdown: stageMap,
+    channelBreakdown: channelBreakdown.rows,
+    recentConversations: recentConversations.rows,
+  };
+}
+
 module.exports = {
   getRevenueReport,
   getConversionReport,
@@ -198,4 +271,5 @@ module.exports = {
   getAgentReport,
   getChannelReport,
   getOverviewReport,
+  getDashboardSummary,
 };

@@ -9,6 +9,7 @@ const { normalizeTenantSettings, buildCompanyContext, isBlockedSpammer } = requi
 const { addToQueue } = require('../../workers/messageProcessor');
 const { verifyMetaSignature } = require('../verify');
 const { normalizeMessenger } = require('./normalizer');
+const { sendWebhookFailureAlert } = require('../../services/email/emailService');
 
 /* ── Fetch real customer name from Meta Graph API ───────────────────────────── */
 async function fetchFbName(userId, token) {
@@ -70,73 +71,91 @@ router.post('/messenger', async (req, res) => {
 });
 
 async function processMessengerMessage(msg, pageId) {
-  const senderId = msg.sender.id;
-  const normalized = normalizeMessenger('pending', msg);
-  const text     = normalized.message.content || '';
-  const msgId    = msg.message?.mid || `fb_${Date.now()}`;
-  const tenantMatch = pageId ? await getTenantByPageId(pageId, 'messenger') : null;
-  const tenantId = tenantMatch?.tenant_id;
-  const tenantRow = tenantId
-    ? await queryAdmin('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantId]).then((r) => r.rows[0] || null)
-    : null;
-  const settings = normalizeTenantSettings(tenantRow?.settings);
-  const token = tenantMatch?.credentials?.access_token || process.env.MESSENGER_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
-
-  const realName = token ? await fetchFbName(senderId, token) : null;
-  const displayName = realName || `FB_${senderId.slice(-6)}`;
-
-  if (isBlockedSpammer({
-    channelCustomerId: senderId,
-    name: displayName,
-  }, settings.spammers)) {
-    console.warn(`[Messenger] blocked message from configured spammer ${senderId}`);
-    return;
-  }
-
-  if (!tenantId) {
-    console.warn('[Messenger] No tenant found for page_id:', pageId);
-    return;
-  }
-
-  console.log(`[Messenger] Message from ${displayName} (${senderId}): ${text}`);
-
-  // Persist to DB
-  const dbCustomer = await getOrCreateCustomer(tenantId, {
-    channel: 'messenger',
-    channelCustomerId: senderId,
-    name: displayName,
-  });
-  const conv = await getOrCreateConversation(tenantId, dbCustomer.id, 'messenger');
-
-  const savedMsg = await saveMessage(tenantId, conv.id, {
-    direction: 'inbound',
-    type: normalized.message.type,
-    content: text,
-    media_url: normalized.message.media_url,
-    sent_by: 'customer',
-    metadata: { fb_message_id: msgId, timestamp: normalized.message.timestamp },
-  });
-
   try {
-    emitToTenantConversations(tenantId, 'message:new', {
-      conversation: conv,
-      message: savedMsg,
-      customer: dbCustomer,
-      channel: 'messenger',
-    });
-  } catch {}
+    const senderId = msg.sender.id;
+    const normalized = normalizeMessenger('pending', msg);
+    const text     = normalized.message.content || '';
+    const msgId    = msg.message?.mid || `fb_${Date.now()}`;
+    const tenantMatch = pageId ? await getTenantByPageId(pageId, 'messenger') : null;
+    const tenantId = tenantMatch?.tenant_id;
+    const tenantRow = tenantId
+      ? await queryAdmin('SELECT id, name, email, settings FROM tenants WHERE id = $1', [tenantId]).then((r) => r.rows[0] || null)
+      : null;
+    const settings = normalizeTenantSettings(tenantRow?.settings);
+    const token = tenantMatch?.credentials?.access_token || process.env.MESSENGER_PAGE_TOKEN || process.env.META_PAGE_TOKEN;
 
-  if (text) {
-    addToQueue({
-      already_saved: true,
+    const realName = token ? await fetchFbName(senderId, token) : null;
+    const displayName = realName || `FB_${senderId.slice(-6)}`;
+
+    if (isBlockedSpammer({
+      channelCustomerId: senderId,
+      name: displayName,
+    }, settings.spammers)) {
+      console.warn(`[Messenger] blocked message from configured spammer ${senderId}`);
+      return;
+    }
+
+    if (!tenantId) {
+      console.warn('[Messenger] No tenant found for page_id:', pageId);
+      return;
+    }
+
+    console.log(`[Messenger] Message from ${displayName} (${senderId}): ${text}`);
+
+    const dbCustomer = await getOrCreateCustomer(tenantId, {
       channel: 'messenger',
-      tenant_id: tenantId,
-      conversation_id: conv.id,
-      customer_id: dbCustomer.id,
-      message_id: savedMsg.id,
-      credentials: tenantMatch?.credentials,
-      page_id: pageId,
-    }).catch(err => console.error('[Messenger] Queue failed:', err.message));
+      channelCustomerId: senderId,
+      name: displayName,
+    });
+    const conv = await getOrCreateConversation(tenantId, dbCustomer.id, 'messenger');
+
+    const savedMsg = await saveMessage(tenantId, conv.id, {
+      direction: 'inbound',
+      type: normalized.message.type,
+      content: text,
+      media_url: normalized.message.media_url,
+      sent_by: 'customer',
+      metadata: { fb_message_id: msgId, timestamp: normalized.message.timestamp },
+    });
+
+    try {
+      emitToTenantConversations(tenantId, 'message:new', {
+        conversation: conv,
+        message: savedMsg,
+        customer: dbCustomer,
+        channel: 'messenger',
+      });
+    } catch {}
+
+    if (text) {
+      addToQueue({
+        already_saved: true,
+        channel: 'messenger',
+        tenant_id: tenantId,
+        conversation_id: conv.id,
+        customer_id: dbCustomer.id,
+        message_id: savedMsg.id,
+        credentials: tenantMatch?.credentials,
+        page_id: pageId,
+      }).catch(err => {
+        console.error('[Messenger] Queue failed:', err.message);
+        sendWebhookFailureAlert({
+          tenantId,
+          webhookSource: 'messenger.queue',
+          errorSummary: err.message,
+        }).catch(() => {});
+      });
+    }
+  } catch (err) {
+    const tenantMatch = pageId ? await getTenantByPageId(pageId, 'messenger').catch(() => null) : null;
+    if (tenantMatch?.tenant_id) {
+      sendWebhookFailureAlert({
+        tenantId: tenantMatch.tenant_id,
+        webhookSource: 'messenger.webhook',
+        errorSummary: err.message,
+      }).catch(() => {});
+    }
+    throw err;
   }
 }
 

@@ -1,7 +1,20 @@
 'use client';
+
 import { useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
+import { CheckCircle2, Send, Mail, Wrench, Briefcase, Lock } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import PublicNav from '@/components/PublicNav';
+import PublicFooter from '@/components/PublicFooter';
+
+const CHANNELS = [
+  { icon: Mail, label: 'General', value: 'hello@chatorai.com', desc: 'General inquiries and partnerships' },
+  { icon: Wrench, label: 'Support', value: 'support@chatorai.com', desc: 'Platform issues and technical help' },
+  { icon: Briefcase, label: 'Sales', value: 'sales@chatorai.com', desc: 'Pricing, plans, and enterprise' },
+  { icon: Lock, label: 'Security', value: 'security@chatorai.com', desc: 'Vulnerabilities and security reports' },
+];
 
 export default function ContactPage() {
   const [form, setForm] = useState({ name: '', email: '', company: '', subject: 'General inquiry', message: '' });
@@ -14,113 +27,100 @@ export default function ContactPage() {
     setTimeout(() => { setLoading(false); setSent(true); }, 1200);
   }
 
-  const inp = {
-    width: '100%', padding: '11px 14px', borderRadius: 10, fontSize: 14,
-    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-    color: 'var(--t1)', outline: 'none', boxSizing: 'border-box',
-  };
-
-  const channels = [
-    { icon: '📧', label: 'General', value: 'hello@chatorai.com', desc: 'General inquiries and partnerships' },
-    { icon: '🛠', label: 'Support', value: 'support@chatorai.com', desc: 'Platform issues and technical help' },
-    { icon: '💼', label: 'Sales', value: 'sales@chatorai.com', desc: 'Pricing, plans, and enterprise' },
-    { icon: '🔒', label: 'Security', value: 'security@chatorai.com', desc: 'Vulnerabilities and security reports' },
-  ];
-
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--t1)' }}>
-      <nav style={{ borderBottom: '1px solid var(--border)', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Link href="/" style={{ textDecoration: 'none' }}>
-          <div style={{ display: 'inline-flex' }}>
-            <Image src="/ChatOrAi.png" alt="ChatOrAI" width={130} height={32} style={{ height: 32, width: 'auto', objectFit: 'contain' }} priority />
+    <main className="min-h-screen bg-background antialiased">
+      <PublicNav />
+
+      <section className="pt-32 pb-20 px-6 md:px-10">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-12">
+            <Badge variant="outline" className="bg-primary/5 text-primary border-primary/15 font-bold text-[10px] uppercase tracking-widest px-3 h-6 mb-6">
+              Contact
+            </Badge>
+            <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-3">Get in touch</h1>
+            <p className="text-sm text-muted-foreground">We typically reply within a few hours during business days.</p>
           </div>
-        </Link>
-        <Link href="/" style={{ fontSize: 13, color: 'var(--t4)', textDecoration: 'none' }}>← Back to Home</Link>
-      </nav>
 
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '64px 32px 100px' }}>
-        <div style={{ textAlign: 'center', marginBottom: 64 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#818cf8', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>Contact</div>
-          <h1 style={{ fontSize: 48, fontWeight: 900, letterSpacing: '-0.04em', marginBottom: 14 }}>Get in touch</h1>
-          <p style={{ fontSize: 16, color: 'var(--t3)' }}>We typically reply within a few hours during business days (Sun–Thu, Cairo time).</p>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 40 }}>
-          {/* Left: info */}
-          <div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 40 }}>
-              {channels.map((ch, i) => (
-                <div key={i} style={{ display: 'flex', gap: 14, padding: '16px 18px', borderRadius: 14, background: 'var(--bg3)', border: '1px solid var(--border)' }}>
-                  <span style={{ fontSize: 22 }}>{ch.icon}</span>
+          <div className="grid md:grid-cols-5 gap-8">
+            {/* Left: channels */}
+            <div className="md:col-span-2 space-y-3">
+              {CHANNELS.map((ch, i) => (
+                <div key={i} className="flex gap-3 p-4 rounded-xl bg-card border border-border/40 hover:border-primary/15 transition-colors">
+                  <ch.icon className="h-5 w-5 text-primary shrink-0 mt-0.5" />
                   <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t4)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 3 }}>{ch.label}</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#818cf8', marginBottom: 2 }}>{ch.value}</div>
-                    <div style={{ fontSize: 12, color: 'var(--t4)' }}>{ch.desc}</div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/50 mb-0.5">{ch.label}</p>
+                    <p className="text-[13px] font-semibold text-primary">{ch.value}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{ch.desc}</p>
                   </div>
                 </div>
               ))}
+
+              <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/15">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span className="text-[12px] font-semibold text-emerald-600 dark:text-emerald-400">All systems operational</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Check our <Link href="/status" className="text-primary hover:underline">Status page</Link> for real-time uptime.
+                </p>
+              </div>
             </div>
 
-            <div style={{ padding: '20px', borderRadius: 14, background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.18)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#34d399', display: 'inline-block' }} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#34d399' }}>All systems operational</span>
-              </div>
-              <p style={{ fontSize: 12, color: 'var(--t4)' }}>Check our <Link href="/status" style={{ color: '#818cf8' }}>Status page</Link> for real-time uptime.</p>
-            </div>
-          </div>
-
-          {/* Right: form */}
-          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 20, padding: '36px' }}>
-            {sent ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-                <div style={{ fontSize: 52, marginBottom: 20 }}>✅</div>
-                <h3 style={{ fontSize: 22, fontWeight: 800, marginBottom: 10 }}>Message sent!</h3>
-                <p style={{ color: 'var(--t3)', marginBottom: 24 }}>We'll get back to you at <strong>{form.email}</strong> within a few hours.</p>
-                <button onClick={() => { setSent(false); setForm({ name: '', email: '', company: '', subject: 'General inquiry', message: '' }); }}
-                  style={{ padding: '10px 24px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--t2)', cursor: 'pointer', fontSize: 14 }}>
-                  Send another
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Send us a message</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Name *</label>
-                    <input style={inp} required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Ahmed Hassan" />
+            {/* Right: form */}
+            <Card className="md:col-span-3 border-border/40 shadow-lg rounded-2xl">
+              <CardContent className="p-7">
+                {sent ? (
+                  <div className="text-center py-10">
+                    <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
+                      <CheckCircle2 className="h-7 w-7 text-emerald-500" />
+                    </div>
+                    <h3 className="text-lg font-bold mb-1">Message sent!</h3>
+                    <p className="text-sm text-muted-foreground mb-5">
+                      We&apos;ll get back to you at <strong>{form.email}</strong> shortly.
+                    </p>
+                    <Button variant="outline" onClick={() => { setSent(false); setForm({ name: '', email: '', company: '', subject: 'General inquiry', message: '' }); }} className="rounded-xl h-9 px-5 text-[13px]">
+                      Send another
+                    </Button>
                   </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Email *</label>
-                    <input style={inp} type="email" required value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="you@company.com" />
-                  </div>
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Company</label>
-                  <input style={inp} value={form.company} onChange={e => setForm(f => ({ ...f, company: e.target.value }))} placeholder="My Store" />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Subject</label>
-                  <select style={{ ...inp, cursor: 'pointer' }} value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))}>
-                    {['General inquiry', 'Sales & pricing', 'Technical support', 'Partnership', 'Press & media', 'Security report'].map(s => <option key={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t4)', marginBottom: 5 }}>Message *</label>
-                  <textarea style={{ ...inp, resize: 'vertical' }} rows={5} required value={form.message} onChange={e => setForm(f => ({ ...f, message: e.target.value }))} placeholder="Tell us how we can help…" />
-                </div>
-                <button type="submit" disabled={loading} style={{ padding: '13px', borderRadius: 12, border: 'none', background: '#6366f1', color: '#fff', fontWeight: 700, fontSize: 14, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
-                  {loading ? 'Sending…' : 'Send Message →'}
-                </button>
-              </form>
-            )}
+                ) : (
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    <h3 className="text-base font-bold mb-4">Send us a message</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Name *</label>
+                        <input className="input" required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Your name" />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Email *</label>
+                        <input className="input" type="email" required value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="you@company.com" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Company</label>
+                      <input className="input" value={form.company} onChange={(e) => setForm((f) => ({ ...f, company: e.target.value }))} placeholder="Your company" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Subject</label>
+                      <select className="input cursor-pointer" value={form.subject} onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))}>
+                        {['General inquiry', 'Sales & pricing', 'Technical support', 'Partnership', 'Press & media', 'Security report'].map((s) => <option key={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-muted-foreground block mb-1.5">Message *</label>
+                      <textarea className="input resize-y" rows={4} required value={form.message} onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))} placeholder="Tell us how we can help..." />
+                    </div>
+                    <Button type="submit" disabled={loading} className="w-full h-11 rounded-xl text-sm font-bold bg-primary text-white border-none shadow-md shadow-primary/15">
+                      {loading ? 'Sending...' : <><Send className="h-3.5 w-3.5 mr-2" /> Send Message</>}
+                    </Button>
+                  </form>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
-      </div>
+      </section>
 
-      <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 32px', textAlign: 'center', fontSize: 13, color: 'var(--t4)' }}>
-        © {new Date().getFullYear()} ChatOrAI · <Link href="/privacy" style={{ color: 'var(--t4)' }}>Privacy</Link> · <Link href="/terms" style={{ color: 'var(--t4)' }}>Terms</Link>
-      </footer>
-    </div>
+      <PublicFooter />
+    </main>
   );
 }

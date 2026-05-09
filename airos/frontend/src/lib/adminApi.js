@@ -19,11 +19,15 @@ async function adminRequest(path, options = {}) {
   const data = isJson ? await res.json() : null;
 
   if (res.status === 401) {
-    clearAdminSession();
-    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/admin/login')) {
-      window.location.href = '/admin/login';
+    const isSessionRequest = path.startsWith('/api/admin/auth/');
+    if (isSessionRequest) {
+      clearAdminSession();
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/admin/login')) {
+        window.location.href = '/admin/login';
+      }
+      throw new Error(data?.error || 'Admin session expired');
     }
-    throw new Error(data?.error || 'Admin session expired');
+    throw new Error(data?.error || 'Admin request was rejected');
   }
 
   if (!res.ok) throw new Error(data?.error || 'Request failed');

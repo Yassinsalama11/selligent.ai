@@ -1,8 +1,28 @@
 'use client';
 
+import * as React from 'react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { 
+  Users, 
+  TrendingUp, 
+  MessageSquare, 
+  MessageCircle, 
+  UserCircle2, 
+  Zap, 
+  ArrowRight,
+  RefreshCcw,
+  Globe,
+  Bot,
+  Shield,
+  Clock
+} from 'lucide-react';
 import { adminApi } from '@/lib/adminApi';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 function formatMoney(value) {
   return new Intl.NumberFormat('en-IE', {
@@ -21,31 +41,55 @@ function formatDate(value) {
   });
 }
 
+function AdminMetricCard({ label, value, sub, color, icon: Icon, loading }) {
+  return (
+    <Card className="relative overflow-hidden group">
+      <div 
+        className="absolute top-0 right-0 w-24 h-24 -mr-8 -mt-8 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity"
+        style={{ color }}
+      >
+        <Icon className="w-full h-full" />
+      </div>
+      <CardHeader className="pb-2">
+        <CardDescription className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: color }} />
+          {label}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="h-9 w-24 bg-muted animate-pulse rounded-md" />
+        ) : (
+          <div className="text-3xl font-black tracking-tighter" style={{ color }}>{value}</div>
+        )}
+        <p className="text-[11px] font-medium text-muted-foreground mt-1 uppercase tracking-tight">{sub}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AdminOverview() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
 
-  useEffect(() => {
+  async function load() {
     let cancelled = false;
-
-    async function load() {
-      try {
-        setLoading(true);
-        setError('');
-        const next = await adminApi.get('/api/admin/overview');
-        if (!cancelled) setData(next);
-      } catch (err) {
-        if (!cancelled) setError(err.message || 'Could not load admin overview');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+    try {
+      setLoading(true);
+      setError('');
+      const next = await adminApi.get('/api/admin/overview');
+      if (!cancelled) setData(next);
+    } catch (err) {
+      if (!cancelled) setError(err.message || 'Could not load admin overview');
+    } finally {
+      if (!cancelled) setLoading(false);
     }
+    return () => { cancelled = true; };
+  }
 
+  useEffect(() => {
     load();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const totals = data?.totals || {
@@ -55,107 +99,233 @@ export default function AdminOverview() {
     totalMessages: 0,
     totalCustomers: 0,
     connectedChannels: 0,
-    byStatus: { active: 0, trial: 0, suspended: 0 },
+    byStatus: { active: 0, trialing: 0, payment_due: 0, overdue: 0, suspended: 0, cancelled: 0 },
   };
 
-  const cards = [
-    { label:'Clients', value: totals.totalClients, sub:`${totals.byStatus.active || 0} active`, color:'#818cf8' },
-    { label:'MRR', value: formatMoney(totals.monthlyRevenue), sub:'Active client plans', color:'#f59e0b' },
-    { label:'Conversations', value: Number(totals.totalConversations || 0).toLocaleString(), sub:'Across all tenants', color:'#06b6d4' },
-    { label:'Messages', value: Number(totals.totalMessages || 0).toLocaleString(), sub:'Persisted messages', color:'#34d399' },
-    { label:'Customers', value: Number(totals.totalCustomers || 0).toLocaleString(), sub:'Live customer records', color:'#a78bfa' },
-    { label:'Channels', value: Number(totals.connectedChannels || 0).toLocaleString(), sub:'Connected integrations', color:'#fb7185' },
-  ];
-
   return (
-    <div style={{ padding:'28px', display:'flex', flexDirection:'column', gap:24 }}>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:16 }}>
+    <div className="p-8 pb-12 flex flex-col gap-8 max-w-[1600px] mx-auto animate-in fade-in duration-500">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 style={{ fontSize:24, fontWeight:800, letterSpacing:'-0.03em', color:'var(--t1)', marginBottom:4 }}>
-            Platform Overview
-          </h1>
-          <p style={{ fontSize:13, color:'var(--t4)' }}>
-            Real tenant data only. No seeded dashboard content.
+          <h1 className="text-3xl font-black tracking-tight mb-2">Platform Control</h1>
+          <p className="text-sm text-muted-foreground max-w-md">
+            Consolidated real-time operational data across all live tenant workspaces.
           </p>
         </div>
-        <Link href="/admin/clients" style={{ padding:'9px 18px', borderRadius:10, fontSize:13, fontWeight:600, background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.2)', color:'#f59e0b', textDecoration:'none' }}>
-          Manage Clients →
-        </Link>
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={load} className="gap-2 h-9">
+            <RefreshCcw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+            Sync
+          </Button>
+          <Button asChild className="h-9 bg-primary group">
+            <Link href="/admin/clients" className="gap-2">
+              Manage Clients
+              <ArrowRight className="h-3.5 w-3.5 group-hover:translate-x-1 transition-transform" />
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {error && (
-        <div style={{ padding:'14px 16px', borderRadius:12, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.2)', color:'#fca5a5', fontSize:13 }}>
-          {error}
-        </div>
+        <Card className="border-destructive/20 bg-destructive/5">
+          <CardContent className="p-4 text-sm text-destructive font-medium flex items-center gap-3">
+            <div className="w-1.5 h-1.5 rounded-full bg-destructive" />
+            {error}
+          </CardContent>
+        </Card>
       )}
 
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:14 }}>
-        {cards.map((card) => (
-          <div key={card.label} style={{ padding:'20px 22px', borderRadius:14, background:'var(--bg2)', border:'1px solid var(--b1)', borderTop:`2px solid ${card.color}`, opacity: loading ? 0.65 : 1 }}>
-            <p style={{ fontSize:28, fontWeight:800, color:card.color, fontFamily:'Space Grotesk, sans-serif', letterSpacing:'-0.02em', marginBottom:4 }}>
-              {card.value}
-            </p>
-            <p style={{ fontSize:12, color:'var(--t2)', marginBottom:2 }}>{card.label}</p>
-            <p style={{ fontSize:11, color:'var(--t4)' }}>{card.sub}</p>
-          </div>
-        ))}
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <AdminMetricCard 
+          label="Tenants" 
+          value={totals.totalClients} 
+          sub={`${totals.byStatus.active || 0} paid • ${totals.byStatus.trialing || 0} trialing`} 
+          color="#6366f1" 
+          icon={Users} 
+          loading={loading}
+        />
+        <AdminMetricCard 
+          label="MRR" 
+          value={formatMoney(totals.monthlyRevenue)} 
+          sub="Subscription Value" 
+          color="#f59e0b" 
+          icon={TrendingUp} 
+          loading={loading}
+        />
+        <AdminMetricCard 
+          label="Threads" 
+          value={Number(totals.totalConversations || 0).toLocaleString()} 
+          sub="Inbound volume" 
+          color="#06b6d4" 
+          icon={MessageSquare} 
+          loading={loading}
+        />
+        <AdminMetricCard 
+          label="Messages" 
+          value={Number(totals.totalMessages || 0).toLocaleString()} 
+          sub="Processed events" 
+          color="#10b981" 
+          icon={MessageCircle} 
+          loading={loading}
+        />
+        <AdminMetricCard 
+          label="Customers" 
+          value={Number(totals.totalCustomers || 0).toLocaleString()} 
+          sub="Live CRM records" 
+          color="#8b5cf6" 
+          icon={UserCircle2} 
+          loading={loading}
+        />
+        <AdminMetricCard 
+          label="Integrations" 
+          value={Number(totals.connectedChannels || 0).toLocaleString()} 
+          sub="Active webhooks" 
+          color="#f43f5e" 
+          icon={Zap} 
+          loading={loading}
+        />
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
-        <section style={{ padding:'20px', borderRadius:14, background:'var(--bg2)', border:'1px solid var(--b1)' }}>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
-            <h2 style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>Newest Clients</h2>
-            <span style={{ fontSize:11.5, color:'var(--t4)' }}>{(data?.recentClients || []).length} shown</span>
-          </div>
-
-          {(data?.recentClients || []).length === 0 && !loading && (
-            <p style={{ fontSize:13, color:'var(--t4)' }}>No clients have been created yet.</p>
-          )}
-
-          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-            {(data?.recentClients || []).map((client) => (
-              <div key={client.id} style={{ padding:'12px 14px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', gap:12, marginBottom:4 }}>
-                  <span style={{ fontSize:13, fontWeight:700, color:'var(--t1)' }}>{client.name}</span>
-                  <span style={{ fontSize:11, color:'var(--t4)', textTransform:'uppercase' }}>{client.plan}</span>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <Card className="border-none shadow-xl bg-card/50">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2"><Bot className="h-4 w-4" /> Custom AI</CardTitle>
+            <CardDescription>Tenant AI config status and prompt risk signals.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {(data?.enterpriseFeatures?.customAi || []).slice(0, 5).map((item) => (
+              <div key={item.tenantId} className="rounded-xl border bg-background/50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-bold truncate">{item.tenantName}</p>
+                  {item.unsafePromptWarning && <Badge variant="destructive">Prompt warning</Badge>}
                 </div>
-                <p style={{ fontSize:12, color:'var(--t4)' }}>
-                  {client.owner?.email || client.email} · {client.country || 'No country'} · {formatDate(client.createdAt)}
-                </p>
+                <p className="text-xs text-muted-foreground">{item.agentName || 'No agent name'} · {formatDate(item.lastUpdated)}</p>
               </div>
             ))}
-          </div>
-        </section>
+            {!loading && (data?.enterpriseFeatures?.customAi || []).length === 0 && <p className="text-sm text-muted-foreground">No custom AI configurations.</p>}
+          </CardContent>
+        </Card>
 
-        <section style={{ padding:'20px', borderRadius:14, background:'var(--bg2)', border:'1px solid var(--b1)' }}>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
-            <h2 style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>Top Clients</h2>
-            <span style={{ fontSize:11.5, color:'var(--t4)' }}>By message volume</span>
-          </div>
-
-          {(data?.topClients || []).length === 0 && !loading && (
-            <p style={{ fontSize:13, color:'var(--t4)' }}>No live tenant activity yet.</p>
-          )}
-
-          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-            {(data?.topClients || []).map((client) => (
-              <div key={client.id} style={{ padding:'12px 14px', borderRadius:10, background:'var(--s1)', border:'1px solid var(--b1)', display:'grid', gridTemplateColumns:'1.4fr 90px 90px', gap:12, alignItems:'center' }}>
-                <div>
-                  <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)' }}>{client.name}</p>
-                  <p style={{ fontSize:11.5, color:'var(--t4)' }}>{client.owner?.email || client.email}</p>
-                </div>
-                <div style={{ textAlign:'right' }}>
-                  <p style={{ fontSize:13, fontWeight:700, color:'#34d399' }}>{Number(client.messagesCount || 0).toLocaleString()}</p>
-                  <p style={{ fontSize:10.5, color:'var(--t4)' }}>messages</p>
-                </div>
-                <div style={{ textAlign:'right' }}>
-                  <p style={{ fontSize:13, fontWeight:700, color:'#818cf8' }}>{Number(client.conversationsCount || 0).toLocaleString()}</p>
-                  <p style={{ fontSize:10.5, color:'var(--t4)' }}>conversations</p>
-                </div>
+        <Card className="border-none shadow-xl bg-card/50">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2"><Shield className="h-4 w-4" /> SSO</CardTitle>
+            <CardDescription>Enabled tenants, providers, domains, and last login.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {(data?.enterpriseFeatures?.sso || []).slice(0, 5).map((item) => (
+              <div key={item.tenantId} className="rounded-xl border bg-background/50 p-3">
+                <p className="text-sm font-bold truncate">{item.tenantName}</p>
+                <p className="text-xs text-muted-foreground">{item.provider} · {(item.domains || []).join(', ') || 'No domains'} · {formatDate(item.lastLoginAt)}</p>
+                {item.lastError && <p className="text-xs text-destructive mt-1">{item.lastError}</p>}
               </div>
             ))}
-          </div>
-        </section>
+            {!loading && (data?.enterpriseFeatures?.sso || []).length === 0 && <p className="text-sm text-muted-foreground">No SSO-enabled tenants.</p>}
+          </CardContent>
+        </Card>
+
+        <Card className="border-none shadow-xl bg-card/50">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2"><Clock className="h-4 w-4" /> Priority Support</CardTitle>
+            <CardDescription>Priority tickets, SLA due dates, and escalation queue.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {(data?.enterpriseFeatures?.prioritySupport || []).slice(0, 5).map((ticket) => (
+              <div key={ticket.id} className="rounded-xl border bg-background/50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-bold truncate">{ticket.subject}</p>
+                  {ticket.escalationState === 'escalated' && <Badge variant="destructive">Escalated</Badge>}
+                </div>
+                <p className="text-xs text-muted-foreground">{ticket.tenantName} · {ticket.status} · SLA {formatDate(ticket.slaDueAt)}</p>
+              </div>
+            ))}
+            {!loading && (data?.enterpriseFeatures?.prioritySupport || []).length === 0 && <p className="text-sm text-muted-foreground">No priority tickets.</p>}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Lists Section */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+        {/* Newest Clients */}
+        <Card className="border-none shadow-xl bg-card/50">
+          <CardHeader className="flex flex-row items-center justify-between pb-6">
+            <div className="space-y-1">
+              <CardTitle className="text-lg font-bold">Registration Timeline</CardTitle>
+              <CardDescription className="text-xs font-medium uppercase tracking-widest opacity-60">Latest onboarding activity</CardDescription>
+            </div>
+            <Badge variant="outline" className="text-[10px] uppercase font-bold border-muted">Chronological</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {(data?.recentClients || []).length === 0 && !loading && (
+                <div className="py-12 text-center text-muted-foreground text-sm italic">No recent registrations.</div>
+              )}
+              {(data?.recentClients || []).map((client) => (
+                <div key={client.id} className="group flex items-center justify-between p-4 rounded-xl border bg-background/50 hover:bg-muted/50 transition-all border-transparent hover:border-muted">
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-xs font-bold uppercase tracking-tighter">
+                      {client.name?.[0] || 'T'}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold truncate group-hover:text-primary transition-colors">{client.name}</div>
+                      <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                        <span className="uppercase font-black">{client.plan}</span>
+                        <span>•</span>
+                        <span className="truncate">{client.owner?.email || client.email}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[11px] font-bold text-foreground mb-1 flex items-center justify-end gap-1.5">
+                      <Globe className="h-3 w-3 opacity-30" />
+                      {client.country || 'Global'}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground uppercase font-black tracking-tighter opacity-50">
+                      {formatDate(client.createdAt)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Top Clients */}
+        <Card className="border-none shadow-xl bg-card/50">
+          <CardHeader className="flex flex-row items-center justify-between pb-6">
+            <div className="space-y-1">
+              <CardTitle className="text-lg font-bold">Performance Leaders</CardTitle>
+              <CardDescription className="text-xs font-medium uppercase tracking-widest opacity-60">Sorted by processing load</CardDescription>
+            </div>
+            <Badge variant="outline" className="text-[10px] uppercase font-bold border-muted">Active</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {(data?.topClients || []).length === 0 && !loading && (
+                <div className="py-12 text-center text-muted-foreground text-sm italic">No workload data available.</div>
+              )}
+              {(data?.topClients || []).map((client) => (
+                <div key={client.id} className="group flex items-center gap-6 p-4 rounded-xl border bg-background/50 hover:bg-muted/50 transition-all border-transparent hover:border-muted">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-bold truncate group-hover:text-primary transition-colors">{client.name}</div>
+                    <div className="text-[11px] text-muted-foreground truncate mt-0.5">{client.owner?.email || client.email}</div>
+                  </div>
+                  
+                  <div className="flex items-center gap-8 shrink-0">
+                    <div className="text-right w-24">
+                      <div className="text-sm font-black text-emerald-500">{Number(client.messagesCount || 0).toLocaleString()}</div>
+                      <div className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-50">Messages</div>
+                    </div>
+                    <div className="text-right w-24">
+                      <div className="text-sm font-black text-indigo-500">{Number(client.conversationsCount || 0).toLocaleString()}</div>
+                      <div className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-50">Threads</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

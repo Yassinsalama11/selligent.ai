@@ -1,5 +1,11 @@
 'use client';
 
+import * as React from 'react';
+import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Clock, MessageSquare, User } from 'lucide-react';
+
 function formatDate(value) {
   if (!value) return 'Recently';
   const date = new Date(value);
@@ -7,129 +13,91 @@ function formatDate(value) {
   return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(date);
 }
 
+const statusTones = {
+  escalated: "bg-red-500/10 text-red-500 border-red-500/20",
+  resolved: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+  closed: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+  waiting: "bg-amber-500/10 text-amber-500 border-amber-500/20",
+  in_progress: "bg-indigo-500/10 text-indigo-500 border-indigo-500/20",
+  open: "bg-primary/10 text-primary border-primary/20",
+};
+
+const priorityTones = {
+  urgent: "bg-red-500/10 text-red-500 border-red-500/20",
+  high: "bg-red-500/10 text-red-400 border-red-500/20",
+  medium: "bg-amber-500/10 text-amber-500 border-amber-500/20",
+  low: "bg-slate-500/10 text-slate-500 border-slate-500/20",
+};
+
 export default function TicketList({ tickets, selectedId, onSelect }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div className="flex flex-col gap-2">
       {tickets.map((ticket) => {
-        const selected = ticket.id === selectedId;
+        const isSelected = ticket.id === selectedId;
 
         return (
           <button
             key={ticket.id}
             type="button"
             onClick={() => onSelect(ticket.id)}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              borderRadius: 16,
-              border: selected ? '1px solid rgba(99,102,241,0.34)' : '1px solid var(--b1)',
-              background: selected ? 'rgba(99,102,241,0.08)' : 'var(--bg3)',
-              padding: '15px 16px',
-              cursor: 'pointer',
-              display: 'flex',
-              justifyContent: 'space-between',
-              gap: 14,
-            }}
+            className={cn(
+              "w-full text-left rounded-xl border p-4 transition-all duration-200 group relative overflow-hidden",
+              isSelected 
+                ? "border-primary bg-primary/[0.03] shadow-sm" 
+                : "border-transparent bg-card hover:bg-muted/50 hover:border-border"
+            )}
           >
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                <span style={{
-                  fontSize: 11.5,
-                  fontFamily: 'monospace',
-                  color: 'var(--t4)',
-                  background: 'var(--s2)',
-                  padding: '2px 7px',
-                  borderRadius: 8,
-                }}>
-                  {ticket.ticket_code || `#${ticket.ticket_number}`}
-                </span>
-                <span style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: '3px 8px',
-                  borderRadius: 999,
-                  background: ticket.priority === 'urgent'
-                    ? 'rgba(220,38,38,0.14)'
-                    : ticket.priority === 'high'
-                      ? 'rgba(239,68,68,0.1)'
-                      : ticket.priority === 'medium'
-                        ? 'rgba(245,158,11,0.12)'
-                        : 'rgba(100,116,139,0.12)',
-                  color: ticket.priority === 'urgent'
-                    ? '#fecaca'
-                    : ticket.priority === 'high'
-                      ? '#fca5a5'
-                      : ticket.priority === 'medium'
-                        ? '#fcd34d'
-                        : '#cbd5e1',
-                }}>
-                  {ticket.priority}
-                </span>
-                <span style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: '3px 8px',
-                  borderRadius: 999,
-                  background: ticket.status === 'escalated'
-                    ? 'rgba(239,68,68,0.12)'
-                    : ticket.status === 'resolved' || ticket.status === 'closed'
-                      ? 'rgba(16,185,129,0.1)'
-                      : ticket.status === 'waiting'
-                        ? 'rgba(245,158,11,0.1)'
-                        : 'rgba(99,102,241,0.1)',
-                  color: ticket.status === 'escalated'
-                    ? '#fca5a5'
-                    : ticket.status === 'resolved' || ticket.status === 'closed'
-                      ? '#86efac'
-                      : ticket.status === 'waiting'
-                        ? '#fcd34d'
-                        : '#c7d2fe',
-                }}>
-                  {String(ticket.status || '').replace(/_/g, ' ')}
-                </span>
+            {isSelected && (
+              <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />
+            )}
+
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <span className="text-[10px] font-mono font-bold text-muted-foreground bg-muted px-1.5 py-0.5 rounded leading-none shrink-0">
+                    {ticket.ticket_code || `#${ticket.ticket_number}`}
+                  </span>
+                  <Badge variant="outline" className={cn(
+                    "text-[9px] font-black uppercase tracking-widest px-2 py-0 h-4 border-none",
+                    priorityTones[ticket.priority] || priorityTones.low
+                  )}>
+                    {ticket.priority}
+                  </Badge>
+                  <Badge variant="outline" className={cn(
+                    "text-[9px] font-black uppercase tracking-widest px-2 py-0 h-4 border-none",
+                    statusTones[ticket.status] || statusTones.open
+                  )}>
+                    {String(ticket.status || '').replace(/_/g, ' ')}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0 text-[10px] font-bold text-muted-foreground/60 uppercase">
+                  <Clock className="h-3 w-3" />
+                  {formatDate(ticket.created_at)}
+                </div>
               </div>
 
-              <div style={{
-                fontSize: 14.5,
-                fontWeight: 800,
-                color: 'var(--t1)',
-                marginBottom: 6,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}>
+              <div className="text-[14px] font-bold text-foreground leading-snug truncate group-hover:text-primary transition-colors">
                 {ticket.title}
               </div>
 
-              <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 10,
-                fontSize: 12.2,
-                color: 'var(--t4)',
-              }}>
-                <span>{ticket.customer_name || 'Unknown customer'}</span>
-                <span>•</span>
-                <span>{ticket.channel || 'manual'}</span>
-                <span>•</span>
-                <span>{formatDate(ticket.created_at)}</span>
-              </div>
-            </div>
+              <div className="flex items-center justify-between gap-4 mt-1">
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground font-medium truncate">
+                  <User className="h-3 w-3 opacity-50 shrink-0" />
+                  <span className="truncate">{ticket.customer_name || 'Anonymous'}</span>
+                  <span className="opacity-30">•</span>
+                  <span className="uppercase tracking-tighter text-[9px] font-black">{ticket.channel || 'manual'}</span>
+                </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
-              <span style={{ fontSize: 12, color: 'var(--t4)' }}>
-                {ticket.assignee_name || 'Unassigned'}
-              </span>
-              <span style={{
-                fontSize: 11,
-                fontWeight: 700,
-                padding: '3px 8px',
-                borderRadius: 999,
-                background: 'rgba(99,102,241,0.12)',
-                color: '#c7d2fe',
-              }}>
-                {Number(ticket.message_count || 0)} msg{Number(ticket.message_count || 0) === 1 ? '' : 's'}
-              </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="text-[11px] font-bold text-muted-foreground">
+                    {ticket.assignee_name || '—'}
+                  </div>
+                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-black bg-muted/50 text-muted-foreground/80 border-none gap-1">
+                    <MessageSquare className="h-2.5 w-2.5 opacity-50" />
+                    {Number(ticket.message_count || 0)}
+                  </Badge>
+                </div>
+              </div>
             </div>
           </button>
         );

@@ -1,5 +1,57 @@
 const { queryAdmin, adminWithTransaction } = require('../pool');
 const { enqueueJob } = require('../../core/queue');
+const { sendRevenueAlert } = require('../../services/email/emailService');
+
+const VIP_LEAD_SCORE_THRESHOLD = Number.parseInt(process.env.VIP_LEAD_SCORE_THRESHOLD || '85', 10);
+const HIGH_VALUE_OPPORTUNITY_THRESHOLD = Number.parseFloat(process.env.HIGH_VALUE_OPPORTUNITY_THRESHOLD || '5000');
+
+function buildConversationLink(conversationId) {
+  if (!conversationId) return `${process.env.FRONTEND_URL || 'https://chatorai.com'}/dashboard/deals`;
+  return `${process.env.FRONTEND_URL || 'https://chatorai.com'}/dashboard/conversations?conversation=${conversationId}`;
+}
+
+async function loadDealAlertContext(tenantId, deal) {
+  if (!deal) return null;
+
+  const result = await queryAdmin(
+    `SELECT d.id, d.conversation_id, d.lead_score, d.estimated_value, d.currency, c.channel, cu.name AS customer_name
+     FROM deals d
+     LEFT JOIN conversations c ON c.id = d.conversation_id
+     LEFT JOIN customers cu ON cu.id = d.customer_id
+     WHERE d.id = $1 AND d.tenant_id = $2
+     LIMIT 1`,
+    [deal.id, tenantId],
+  );
+
+  return result.rows[0] || null;
+}
+
+async function emitDealAlerts(tenantId, deal) {
+  const context = await loadDealAlertContext(tenantId, deal);
+  if (!context) return;
+
+  if (Number(context.lead_score || 0) >= VIP_LEAD_SCORE_THRESHOLD) {
+    sendRevenueAlert({
+      tenantId,
+      template: 'vip_lead_alert',
+      customerName: context.customer_name,
+      leadScore: context.lead_score,
+      channelName: context.channel,
+      conversationLink: buildConversationLink(context.conversation_id),
+    }).catch(() => {});
+  }
+
+  if (Number(context.estimated_value || 0) >= HIGH_VALUE_OPPORTUNITY_THRESHOLD) {
+    sendRevenueAlert({
+      tenantId,
+      template: 'high_value_opportunity_alert',
+      customerName: context.customer_name,
+      estimatedValue: context.estimated_value,
+      currency: context.currency,
+      conversationLink: buildConversationLink(context.conversation_id),
+    }).catch(() => {});
+  }
+}
 
 async function getOrCreateDeal(tenantId, conversationId, customerId, client) {
   const existing = client ? await client.query(`
@@ -24,6 +76,7 @@ async function getOrCreateDeal(tenantId, conversationId, customerId, client) {
 
   if (res.rows[0]) {
     enqueueJob('refresh_tenant_stats', { tenantId }).catch(() => {});
+    emitDealAlerts(tenantId, res.rows[0]).catch(() => {});
   }
 
   return res.rows[0];
@@ -164,6 +217,7 @@ async function updateDeal(tenantId, dealId, updates, client) {
     if (updates.stage) {
       enqueueJob('refresh_daily_report', { tenantId }).catch(() => {});
     }
+    emitDealAlerts(tenantId, res.rows[0]).catch(() => {});
   }
 
   return res.rows[0];

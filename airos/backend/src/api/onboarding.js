@@ -12,6 +12,7 @@ const {
 const {
   analyzeBusinessProfile,
   getTenantProfile,
+  mergeProfileIntoSettings,
   saveTenantProfile,
 } = require('../ai/businessAnalyzer');
 const { logger } = require('../core/logger');
@@ -26,38 +27,58 @@ function normalizePlan(value) {
   return ['starter', 'growth', 'pro', 'enterprise'].includes(plan) ? plan : 'starter';
 }
 
+function normalizeWebsiteUrl(rawUrl) {
+  const value = String(rawUrl || '').trim();
+  if (!value) return '';
+  if (/^[a-z]+:\/\//i.test(value)) return value;
+  return `${/^(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(value) ? 'http' : 'https'}://${value}`;
+}
+
 function brandProfileFromSignup(tenant, account = {}, presence = {}, aiData = {}) {
+  const faqCandidates = Array.isArray(aiData.faqCandidates)
+    ? aiData.faqCandidates
+    : String(aiData.faqCandidates || '')
+      .split('\n')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  const offerings = Array.isArray(aiData.productServiceTypes) && aiData.productServiceTypes.length
+    ? aiData.productServiceTypes
+    : String(aiData.products || '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
   return {
     businessName: aiData.companyName || account.company || tenant.name || '',
-    businessCategory: aiData.category || aiData.industry || 'general',
-    businessModel: aiData.businessModel || 'not specified',
-    vertical: aiData.industry || 'general',
-    offerings: String(aiData.products || '')
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean),
+    businessCategory: aiData.businessCategory || aiData.category || aiData.industry || '',
+    businessModel: aiData.businessModel || '',
+    vertical: aiData.vertical || aiData.industry || '',
+    offerings,
     policies: [],
-    tone: aiData.tone || 'Professional & friendly',
+    tone: aiData.tone || '',
     primaryLanguage: aiData.language || 'Arabic + English',
-    primaryDialect: /arab/i.test(aiData.language || '') ? 'ar-msa' : 'en',
-    supportStyle: aiData.supportStyle || 'Helpful, concise, and sales-aware',
+    primaryDialect: aiData.primaryDialect || (/arab/i.test(aiData.language || '') ? 'ar-msa' : 'en'),
+    supportStyle: aiData.supportStyle || '',
     leadQualificationHints: Array.isArray(aiData.leadQualificationHints)
       ? aiData.leadQualificationHints
-      : ['Need', 'budget', 'timeline', 'preferred product or service'],
+      : [],
     customerIntentPatterns: Array.isArray(aiData.customerIntentPatterns)
       ? aiData.customerIntentPatterns
-      : ['product inquiry', 'pricing question', 'availability check', 'support request'],
-    productServiceTypes: String(aiData.products || '')
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean),
+      : [],
+    productServiceTypes: offerings,
     agentName: aiData.agentName || 'Chator Assistant',
-    openingHours: '',
-    locations: [aiData.country].filter(Boolean),
-    faqCandidates: [],
-    brandVoiceNotes: aiData.description || 'Generated from signup onboarding details.',
+    openingHours: aiData.openingHours || '',
+    locations: Array.isArray(aiData.locations) ? aiData.locations : [aiData.country].filter(Boolean),
+    faqCandidates,
+    faqs: Array.isArray(aiData.faqs) ? aiData.faqs : faqCandidates.map((question) => ({ question, answer: '' })),
+    brandVoiceNotes: aiData.description || aiData.brandVoiceNotes || '',
+    targetCustomers: Array.isArray(aiData.targetCustomers) ? aiData.targetCustomers : [],
+    likelyDepartments: Array.isArray(aiData.likelyDepartments) ? aiData.likelyDepartments : [],
+    routingSuggestions: Array.isArray(aiData.routingSuggestions) ? aiData.routingSuggestions : [],
+    suggestedTags: Array.isArray(aiData.suggestedTags) ? aiData.suggestedTags : [],
+    suggestedTriggers: Array.isArray(aiData.suggestedTriggers) ? aiData.suggestedTriggers : [],
+    scanMeta: aiData.sourceStats && typeof aiData.sourceStats === 'object' ? aiData.sourceStats : {},
     channels: {
-      website: presence.website || '',
+      website: normalizeWebsiteUrl(presence.website || ''),
       whatsapp: presence.whatsapp || '',
       instagram: presence.instagram || '',
       facebook: presence.facebook || '',
@@ -125,7 +146,7 @@ router.post('/register', async (req, res) => {
       name: account.name,
       company: aiData?.companyName || account.company,
       plan: plan || 'starter',
-      status: 'trial',
+      status: 'trialing',
       trialEnd,
       createdAt: now,
       brand: {
@@ -171,17 +192,22 @@ router.post('/start', authMiddleware, tenantMiddleware, async (req, res, next) =
   try {
     const { account = {}, presence = {}, aiData = {}, plan } = req.body || {};
     const now = new Date().toISOString();
+    const normalizedPresence = {
+      ...presence,
+      website: normalizeWebsiteUrl(presence.website || ''),
+    };
+    const profileSeed = brandProfileFromSignup(req.tenant, account, normalizedPresence, aiData);
     const nextSettings = {
-      ...(req.tenant.settings || {}),
+      ...mergeProfileIntoSettings(profileSeed, req.tenant.settings || {}, req.tenant),
       country: aiData.country || req.tenant.settings?.country || '',
-      domain: presence.website || req.tenant.settings?.domain || '',
-      phone: account.phone || presence.whatsapp || req.tenant.settings?.phone || '',
+      domain: normalizedPresence.website || req.tenant.settings?.domain || '',
+      phone: account.phone || normalizedPresence.whatsapp || req.tenant.settings?.phone || '',
       onboarding: {
         account,
-        presence,
+        presence: normalizedPresence,
         aiData,
         plan: normalizePlan(plan || req.tenant.plan),
-        status: presence.website ? 'ingesting' : 'review',
+        status: normalizedPresence.website ? 'ingesting' : 'review',
         startedAt: req.tenant.settings?.onboarding?.startedAt || now,
         updatedAt: now,
       },
@@ -190,12 +216,12 @@ router.post('/start', authMiddleware, tenantMiddleware, async (req, res, next) =
     const tenant = await updateTenantOnboarding(req.user.tenant_id, nextSettings, plan);
     const seededProfile = await saveTenantProfile(
       req.user.tenant_id,
-      brandProfileFromSignup(tenant, account, presence, aiData),
+      profileSeed,
       'draft'
     );
 
     let job = null;
-    const website = String(presence.website || '').trim();
+    const website = String(normalizedPresence.website || '').trim();
     if (website) {
       job = await createIngestionJob(req.user.tenant_id, website, {
         source: 'onboarding',
@@ -229,13 +255,23 @@ router.post('/start', authMiddleware, tenantMiddleware, async (req, res, next) =
 
 router.get('/progress', authMiddleware, tenantMiddleware, async (req, res, next) => {
   try {
-    const [jobs, profile] = await Promise.all([
+    const [jobs, initialProfile] = await Promise.all([
       listIngestionJobs(req.user.tenant_id, { limit: 1 }),
       getTenantProfile(req.user.tenant_id),
     ]);
+    const latestJob = jobs[0] || null;
+    let profile = initialProfile;
+
+    if (
+      latestJob
+      && latestJob.status === 'completed'
+      && (!profile?.source_job_id || profile.source_job_id !== latestJob.id)
+    ) {
+      profile = await analyzeBusinessProfile(req.user.tenant_id).catch(() => profile);
+    }
 
     res.json({
-      onboarding: buildOnboardingState(req.tenant.settings || {}, jobs[0] || null, profile),
+      onboarding: buildOnboardingState(req.tenant.settings || {}, latestJob, profile),
     });
   } catch (err) {
     next(err);

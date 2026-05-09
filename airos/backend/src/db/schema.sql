@@ -15,6 +15,29 @@ CREATE TABLE tenants (
   email VARCHAR(255) UNIQUE NOT NULL,
   plan VARCHAR(50) DEFAULT 'starter',       -- starter | growth | pro
   status VARCHAR(50) DEFAULT 'active',
+  billing_email VARCHAR(255),
+  stripe_customer_id VARCHAR(255),
+  stripe_subscription_id VARCHAR(255),
+  subscription_status VARCHAR(50) DEFAULT 'trialing',
+  billing_cycle VARCHAR(20) DEFAULT 'monthly',
+  billing_currency VARCHAR(10) DEFAULT 'EUR',
+  billing_region VARCHAR(10) DEFAULT 'EU',
+  next_billing_at TIMESTAMPTZ,
+  renewal_at TIMESTAMPTZ,
+  payment_method_status VARCHAR(50) DEFAULT 'missing',
+  invoice_status VARCHAR(50) DEFAULT 'none',
+  failed_payment_count INTEGER NOT NULL DEFAULT 0,
+  last_payment_at TIMESTAMPTZ,
+  last_invoice_at TIMESTAMPTZ,
+  trial_started_at TIMESTAMPTZ,
+  trial_ends_at TIMESTAMPTZ,
+  seat_count INTEGER NOT NULL DEFAULT 1,
+  selected_channels JSONB DEFAULT '["livechat"]',
+  feature_package VARCHAR(50) DEFAULT 'starter',
+  discount_percent NUMERIC(5,2) DEFAULT 0,
+  enterprise_contract BOOLEAN NOT NULL DEFAULT FALSE,
+  suspended_at TIMESTAMPTZ,
+  cancelled_at TIMESTAMPTZ,
   settings JSONB DEFAULT '{}',              -- tone, language, business rules
   knowledge_base JSONB DEFAULT '{}',        -- FAQs, policies
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -27,6 +50,8 @@ CREATE TABLE users (
   password_hash VARCHAR(255) NOT NULL,
   name VARCHAR(255),
   role VARCHAR(50) DEFAULT 'agent',         -- owner | admin | agent | platform_admin
+  department VARCHAR(255),
+  email_verified_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(tenant_id, email)
 );
@@ -94,6 +119,31 @@ CREATE TABLE platform_ai_config (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_by UUID
 );
+
+CREATE TABLE IF NOT EXISTS priority_support_tickets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  subject VARCHAR(180) NOT NULL,
+  category VARCHAR(80) NOT NULL DEFAULT 'general',
+  priority VARCHAR(30) NOT NULL DEFAULT 'priority',
+  description TEXT NOT NULL,
+  attachments JSONB NOT NULL DEFAULT '[]',
+  status VARCHAR(40) NOT NULL DEFAULT 'open',
+  assigned_to UUID REFERENCES users(id) ON DELETE SET NULL,
+  sla_due_at TIMESTAMPTZ,
+  escalation_state VARCHAR(40) NOT NULL DEFAULT 'none',
+  escalated_at TIMESTAMPTZ,
+  resolved_at TIMESTAMPTZ,
+  metadata JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_priority_support_tickets_tenant_created
+  ON priority_support_tickets (tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_priority_support_tickets_status_sla
+  ON priority_support_tickets (status, sla_due_at);
 
 CREATE TABLE platform_team_members (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -361,6 +411,64 @@ CREATE TABLE audit_log (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE email_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  recipient VARCHAR(255) NOT NULL,
+  template_name VARCHAR(120) NOT NULL,
+  subject VARCHAR(255) NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'queued',
+  provider VARCHAR(50) NOT NULL DEFAULT 'zepto',
+  provider_message_id VARCHAR(255),
+  metadata JSONB DEFAULT '{}',
+  error_message TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE billing_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  actor_type VARCHAR(50) NOT NULL DEFAULT 'system',
+  actor_id VARCHAR(255),
+  event_type VARCHAR(100) NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'recorded',
+  amount NUMERIC(12,2),
+  currency VARCHAR(10) DEFAULT 'EUR',
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE email_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  email VARCHAR(255) NOT NULL,
+  token_type VARCHAR(50) NOT NULL,
+  token_hash VARCHAR(255) NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ,
+  invalidated_at TIMESTAMPTZ,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE demo_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  full_name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) NOT NULL,
+  company VARCHAR(255) NOT NULL,
+  phone VARCHAR(64),
+  team_size VARCHAR(50) NOT NULL DEFAULT 'small',
+  preferred_date TIMESTAMPTZ,
+  locale VARCHAR(16) NOT NULL DEFAULT 'en',
+  status VARCHAR(50) NOT NULL DEFAULT 'new',
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE prompt_versions (
   tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
   id VARCHAR(120) NOT NULL,
@@ -493,6 +601,12 @@ CREATE INDEX idx_products_tenant ON products(tenant_id);
 CREATE INDEX idx_products_source ON products(tenant_id, source);
 CREATE INDEX idx_offers_tenant_active ON offers(tenant_id, is_active);
 CREATE INDEX idx_audit_log_tenant_created ON audit_log(tenant_id, created_at DESC);
+CREATE INDEX idx_email_logs_tenant_created ON email_logs(tenant_id, created_at DESC);
+CREATE INDEX idx_email_logs_status_created ON email_logs(status, created_at DESC);
+CREATE INDEX idx_email_tokens_lookup ON email_tokens(token_type, email, expires_at DESC);
+CREATE INDEX idx_email_tokens_active ON email_tokens(user_id, token_type, expires_at DESC)
+  WHERE consumed_at IS NULL AND invalidated_at IS NULL;
+CREATE INDEX idx_demo_requests_created ON demo_requests(created_at DESC);
 CREATE INDEX idx_prompt_versions_tenant_prompt ON prompt_versions(tenant_id, id, created_at DESC);
 CREATE INDEX idx_ingestion_jobs_tenant_created ON ingestion_jobs(tenant_id, created_at DESC);
 CREATE INDEX idx_knowledge_chunks_tenant ON knowledge_chunks(tenant_id, created_at DESC);

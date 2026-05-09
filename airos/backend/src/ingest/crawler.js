@@ -3,7 +3,13 @@ const cheerio = require('cheerio');
 
 function normalizeUrl(rawUrl, baseUrl) {
   try {
-    const url = new URL(rawUrl, baseUrl);
+    let candidate = rawUrl;
+    if (!baseUrl && typeof candidate === 'string' && candidate.trim() && !/^[a-z]+:\/\//i.test(candidate) && !candidate.startsWith('/')) {
+      const trimmed = candidate.trim();
+      const localHost = /^(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(trimmed);
+      candidate = `${localHost ? 'http' : 'https'}://${trimmed}`;
+    }
+    const url = new URL(candidate, baseUrl);
     url.hash = '';
     return url.toString();
   } catch {
@@ -24,16 +30,32 @@ async function fetchText(url) {
     headers: {
       'User-Agent': 'ChatOrAI-Crawler/1.0 (+https://chatorai.com)',
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Cache-Control': 'no-cache',
     },
+    redirect: 'follow',
   });
-  if (!response.ok) throw new Error(`Fetch failed ${response.status} for ${url}`);
-  return response.text();
+  const html = await response.text();
+  const contentType = response.headers.get('content-type') || '';
+  return {
+    ok: response.ok,
+    status: response.status,
+    url: response.url || url,
+    html,
+    contentType,
+    headers: {
+      server: response.headers.get('server') || '',
+      xVercelMitigated: response.headers.get('x-vercel-mitigated') || '',
+    },
+  };
 }
 
 async function getRobotsRules(rootUrl) {
   try {
     const robotsUrl = new URL('/robots.txt', rootUrl).toString();
-    const body = await fetchText(robotsUrl);
+    const response = await fetchText(robotsUrl);
+    if (!response.ok) return { disallow: [] };
+    const body = response.html;
     const disallow = body
       .split('\n')
       .map((line) => line.trim())
@@ -54,7 +76,9 @@ function allowedByRobots(url, rules) {
 async function discoverSitemapUrls(rootUrl) {
   try {
     const sitemapUrl = new URL('/sitemap.xml', rootUrl).toString();
-    const xml = await fetchText(sitemapUrl);
+    const response = await fetchText(sitemapUrl);
+    if (!response.ok) return [];
+    const xml = response.html;
     return [...xml.matchAll(/<loc>(.*?)<\/loc>/g)]
       .map((match) => normalizeUrl(match[1], rootUrl))
       .filter(Boolean)
@@ -108,6 +132,33 @@ function extractPage(url, html) {
   };
 }
 
+function classifyPageIssue(response, html) {
+  const lowerHtml = String(html || '').toLowerCase();
+  const lowerServer = String(response.headers?.server || '').toLowerCase();
+  const mitigated = String(response.headers?.xVercelMitigated || '').toLowerCase();
+  const blocked = response.status === 403
+    || response.status === 429
+    || mitigated === 'challenge'
+    || lowerHtml.includes('security checkpoint')
+    || lowerHtml.includes('vercel security checkpoint')
+    || lowerHtml.includes('access denied')
+    || lowerHtml.includes('captcha');
+  const reason = blocked
+    ? (mitigated === 'challenge'
+      ? 'security_challenge'
+      : response.status === 429
+        ? 'rate_limited'
+        : 'blocked')
+    : 'fetch_failed';
+  const titleMatch = String(html || '').match(/<title[^>]*>([^<]+)<\/title>/i);
+  return {
+    blocked,
+    reason,
+    title: titleMatch ? titleMatch[1].trim() : '',
+    server: lowerServer,
+  };
+}
+
 async function crawlWebsite(rootUrl, options = {}) {
   const maxPages = Math.min(Number(options.maxPages || 500), 500);
   const rateLimitMs = Number(options.rateLimitMs || 250);
@@ -120,6 +171,7 @@ async function crawlWebsite(rootUrl, options = {}) {
   const visited = new Set();
   const contentHashes = new Set();
   const pages = [];
+  const failures = [];
 
   while (queue.length && pages.length < maxPages) {
     const url = queue.shift();
@@ -127,8 +179,23 @@ async function crawlWebsite(rootUrl, options = {}) {
     visited.add(url);
 
     try {
-      const html = await fetchText(url);
-      const page = extractPage(url, html);
+      const response = await fetchText(url);
+      if (!response.ok) {
+        const issue = classifyPageIssue(response, response.html);
+        failures.push({
+          url,
+          finalUrl: response.url || url,
+          status: response.status,
+          reason: issue.reason,
+          blocked: issue.blocked,
+          title: issue.title,
+          contentType: response.contentType,
+          server: issue.server,
+        });
+        continue;
+      }
+
+      const page = extractPage(response.url || url, response.html);
       if (page.content && !contentHashes.has(page.contentHash)) {
         contentHashes.add(page.contentHash);
         pages.push(page);
@@ -140,8 +207,19 @@ async function crawlWebsite(rootUrl, options = {}) {
           queue.push(link);
         }
       }
-    } catch {
+    } catch (error) {
       // Individual page failures should not abort the whole crawl.
+      failures.push({
+        url,
+        finalUrl: url,
+        status: 0,
+        reason: 'network_error',
+        blocked: false,
+        title: '',
+        contentType: '',
+        server: '',
+        error: error.message,
+      });
     }
 
     if (rateLimitMs > 0) {
@@ -153,6 +231,7 @@ async function crawlWebsite(rootUrl, options = {}) {
     rootUrl: startUrl,
     pages,
     pagesSeen: visited.size,
+    failures,
   };
 }
 

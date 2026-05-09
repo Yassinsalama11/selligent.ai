@@ -4,8 +4,13 @@ const { queryAdmin } = require('../../db/pool');
 const { getOAuthUrl, handleOAuthCallback } = require('../../channels/instagram/oauth');
 const { decryptCredentials } = require('../../core/tenantManager');
 const { authMiddleware } = require('../middleware/auth');
+const { tenantMiddleware } = require('../middleware/tenant');
+const { subscriptionAccessMiddleware } = require('../middleware/subscriptionAccess');
 const { requireRole } = require('../middleware/rbac');
 const { enqueueJob } = require('../../core/queue');
+const { sendChannelConnectedEmail } = require('../../services/email/emailService');
+const { normalizeTenantSettings, isPlainObject } = require('../../core/tenantSettings');
+const { updateTenantSettings } = require('../../db/queries/tenants');
 
 const router = express.Router();
 
@@ -14,6 +19,7 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'https://chatorai.com';
 const DEFAULT_RETURN_TO = '/dashboard/settings';
 const requireReadRole = requireRole('owner', 'admin', 'agent');
 const requireOwnerRole = requireRole('owner', 'admin');
+const VALID_BUSINESS_HOURS_MODES = new Set(['global', 'always', 'off']);
 
 function maskToken(value) {
   if (typeof value !== 'string' || value.length < 8) return '';
@@ -60,6 +66,7 @@ function summarizeCredentials(channel, rawCredentials) {
       widgetId: credentials.widget_id || credentials.widgetId || '',
       domain: credentials.domain || '',
       color: credentials.color || '',
+      position: credentials.position || '',
       verified: Boolean(credentials.widget_id || credentials.widgetId),
     };
   }
@@ -67,8 +74,17 @@ function summarizeCredentials(channel, rawCredentials) {
   return {};
 }
 
+function getEncryptionKey() {
+  const raw = process.env.ENCRYPTION_KEY || '';
+  if (!raw) {
+    throw new Error('ENCRYPTION_KEY environment variable is not set. Add a 32+ character secret to your .env file.');
+  }
+  // Derive a fixed-length 32-byte key regardless of input length
+  return crypto.createHash('sha256').update(raw).digest();
+}
+
 function encrypt(text) {
-  const key = Buffer.from(process.env.ENCRYPTION_KEY || '', 'utf8').slice(0, 32);
+  const key = getEncryptionKey();
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv(ALGO, key, iv);
   const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
@@ -114,6 +130,16 @@ router.use((req, res, next) => {
   return authMiddleware(req, res, next);
 });
 
+router.use((req, res, next) => {
+  if (req.path === '/meta/callback') return next();
+  return tenantMiddleware(req, res, next);
+});
+
+router.use((req, res, next) => {
+  if (req.path === '/meta/callback') return next();
+  return subscriptionAccessMiddleware(req, res, next);
+});
+
 // GET /api/channels — list connected channels
 router.get('/', requireReadRole, async (req, res, next) => {
   try {
@@ -143,20 +169,22 @@ router.post('/', requireOwnerRole, async (req, res, next) => {
     }
 
     const encryptedCreds = encrypt(JSON.stringify(normalizedCredentials));
+    const tokenExpiresAt = normalizedCredentials.token_expires_at || normalizedCredentials.expires_at || null;
     const updated = await queryAdmin(`
       UPDATE channel_connections
       SET credentials = $3, status = 'active'
       WHERE tenant_id = $1 AND channel = $2
       RETURNING id, channel, status, created_at, credentials
-    `, [req.user.tenant_id, channel, JSON.stringify({ encrypted: encryptedCreds })]);
+    `, [req.user.tenant_id, channel, JSON.stringify({ encrypted: encryptedCreds, token_expires_at: tokenExpiresAt })]);
 
     const result = updated.rowCount > 0 ? updated : await queryAdmin(`
       INSERT INTO channel_connections (tenant_id, channel, status, credentials)
       VALUES ($1, $2, 'active', $3)
       RETURNING id, channel, status, created_at, credentials
-    `, [req.user.tenant_id, channel, JSON.stringify({ encrypted: encryptedCreds })]);
+    `, [req.user.tenant_id, channel, JSON.stringify({ encrypted: encryptedCreds, token_expires_at: tokenExpiresAt })]);
 
     enqueueJob('refresh_tenant_stats', { tenantId: req.user.tenant_id }).catch(() => {});
+    sendChannelConnectedEmail({ tenantId: req.user.tenant_id, channel }).catch(() => {});
 
     res.status(updated.rowCount > 0 ? 200 : 201).json({
       id: result.rows[0].id,
@@ -235,6 +263,7 @@ router.get('/meta/callback', async (req, res) => {
   try {
     await handleOAuthCallback(state.tenantId, req.query.code, channel);
     enqueueJob('refresh_tenant_stats', { tenantId: state.tenantId }).catch(() => {});
+    sendChannelConnectedEmail({ tenantId: state.tenantId, channel }).catch(() => {});
     return res.redirect(buildFrontendRedirect(returnTo, { channel_connected: channel }));
   } catch (err) {
     console.error('[Meta OAuth callback]', err);
@@ -243,6 +272,208 @@ router.get('/meta/callback', async (req, res) => {
       channel_error: err.message || 'Meta OAuth failed',
     }));
   }
+});
+
+const VALID_CHANNELS = ['messenger', 'instagram', 'whatsapp', 'livechat'];
+
+function defaultChannelConfig() {
+  return {
+    aiEnabled: true,
+    suggestOnly: true,
+    requireApproval: false,
+    confidenceThreshold: 70,
+    welcomeMessage: '',
+    awayMessage: '',
+    businessHoursMode: 'global',
+    brandId: '',
+    departmentId: '',
+    defaultOperatorId: '',
+    fallbackDepartmentId: '',
+    slaTargetMinutes: 480,
+    escalationRules: '',
+    humanTakeoverPolicy: '',
+    fallbackReply: '',
+    readReceipts: true,
+    typingIndicator: true,
+  };
+}
+
+function validateChannelConfigPayload(payload) {
+  const errors = [];
+
+  function ensureBoolean(key) {
+    if (key in payload && typeof payload[key] !== 'boolean') {
+      errors.push(`${key} must be a boolean`);
+    }
+  }
+
+  function ensureString(key, { maxLength = 4000 } = {}) {
+    if (!(key in payload) || payload[key] == null) return;
+    if (typeof payload[key] !== 'string') {
+      errors.push(`${key} must be a string`);
+      return;
+    }
+    if (payload[key].length > maxLength) {
+      errors.push(`${key} exceeds ${maxLength} characters`);
+    }
+  }
+
+  function ensureOptionalId(key) {
+    if (!(key in payload) || payload[key] == null) return;
+    if (typeof payload[key] !== 'string') {
+      errors.push(`${key} must be a string`);
+      return;
+    }
+    if (payload[key].length > 255) {
+      errors.push(`${key} exceeds 255 characters`);
+    }
+  }
+
+  ensureBoolean('aiEnabled');
+  ensureBoolean('suggestOnly');
+  ensureBoolean('requireApproval');
+  ensureBoolean('readReceipts');
+  ensureBoolean('typingIndicator');
+  ensureString('welcomeMessage');
+  ensureString('awayMessage');
+  ensureString('escalationRules');
+  ensureString('humanTakeoverPolicy');
+  ensureString('fallbackReply');
+  ensureOptionalId('brandId');
+  ensureOptionalId('departmentId');
+  ensureOptionalId('defaultOperatorId');
+  ensureOptionalId('fallbackDepartmentId');
+
+  if ('businessHoursMode' in payload) {
+    if (typeof payload.businessHoursMode !== 'string' || !VALID_BUSINESS_HOURS_MODES.has(payload.businessHoursMode)) {
+      errors.push('businessHoursMode must be one of: global, always, off');
+    }
+  }
+
+  if ('confidenceThreshold' in payload) {
+    const value = Number(payload.confidenceThreshold);
+    if (!Number.isFinite(value) || value < 0 || value > 100) {
+      errors.push('confidenceThreshold must be between 0 and 100');
+    } else {
+      payload.confidenceThreshold = value;
+    }
+  }
+
+  if ('slaTargetMinutes' in payload) {
+    const value = Number(payload.slaTargetMinutes);
+    if (!Number.isInteger(value) || value < 1 || value > 10080) {
+      errors.push('slaTargetMinutes must be an integer between 1 and 10080');
+    } else {
+      payload.slaTargetMinutes = value;
+    }
+  }
+
+  return errors;
+}
+
+// GET /api/channels/:channel/config
+router.get('/:channel/config', requireReadRole, async (req, res, next) => {
+  try {
+    const { channel } = req.params;
+    if (!VALID_CHANNELS.includes(channel)) return res.status(400).json({ error: 'Unknown channel' });
+    const tenantId = req.user.tenant_id;
+    const tenantRow = await queryAdmin('SELECT settings FROM tenants WHERE id = $1', [tenantId])
+      .then((r) => r.rows[0] || null);
+    const settings = normalizeTenantSettings(tenantRow?.settings);
+    let channelConfig = isPlainObject(settings.channels[channel]) ? { ...settings.channels[channel] } : {};
+    if (channel === 'whatsapp' && isPlainObject(settings.waSettings)) {
+      channelConfig = {
+        welcomeMessage: settings.waSettings.welcome_msg || '',
+        awayMessage: settings.waSettings.away_msg || '',
+        businessHoursMode: settings.waSettings.business_hours ? 'global' : 'always',
+        readReceipts: settings.waSettings.read_receipts !== false,
+        typingIndicator: settings.waSettings.typing_indicator !== false,
+        ...channelConfig,
+      };
+    }
+    res.json({ ...defaultChannelConfig(), ...channelConfig });
+  } catch (err) { next(err); }
+});
+
+// PUT /api/channels/:channel/config
+router.put('/:channel/config', requireOwnerRole, async (req, res, next) => {
+  try {
+    const { channel } = req.params;
+    if (!VALID_CHANNELS.includes(channel)) return res.status(400).json({ error: 'Unknown channel' });
+    if (!isPlainObject(req.body)) return res.status(400).json({ error: 'Payload must be an object' });
+    const payload = { ...req.body };
+    const validationErrors = validateChannelConfigPayload(payload);
+    if (validationErrors.length > 0) {
+      return res.status(422).json({ error: 'Validation failed', details: validationErrors });
+    }
+    const tenantId = req.user.tenant_id;
+    const tenantRow = await queryAdmin('SELECT settings FROM tenants WHERE id = $1', [tenantId])
+      .then((r) => r.rows[0] || null);
+    const settings = normalizeTenantSettings(tenantRow?.settings);
+    if (!isPlainObject(settings.channels)) settings.channels = {};
+    settings.channels[channel] = {
+      ...(isPlainObject(settings.channels[channel]) ? settings.channels[channel] : {}),
+      ...payload,
+    };
+    if (channel === 'whatsapp') {
+      settings.waSettings = {
+        ...settings.waSettings,
+        welcome_msg: payload.welcomeMessage ?? settings.waSettings?.welcome_msg ?? '',
+        away_msg: payload.awayMessage ?? settings.waSettings?.away_msg ?? '',
+        business_hours: payload.businessHoursMode !== 'always',
+        read_receipts: payload.readReceipts ?? settings.waSettings?.read_receipts ?? true,
+        typing_indicator: payload.typingIndicator ?? settings.waSettings?.typing_indicator ?? true,
+      };
+    }
+    await updateTenantSettings(tenantId, settings);
+    res.json({ ...defaultChannelConfig(), ...settings.channels[channel] });
+  } catch (err) { next(err); }
+});
+
+// GET /api/channels/:channel/health
+router.get('/:channel/health', requireReadRole, async (req, res, next) => {
+  try {
+    const { channel } = req.params;
+    if (!VALID_CHANNELS.includes(channel)) return res.status(400).json({ error: 'Unknown channel' });
+    const tenantId = req.user.tenant_id;
+    const [lastInbound, lastOutbound, failedSends, totalToday, totalConversations] = await Promise.all([
+      queryAdmin(
+        `SELECT m.created_at FROM messages m JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.tenant_id = $1 AND c.channel = $2 AND m.direction = 'inbound'
+         ORDER BY m.created_at DESC LIMIT 1`,
+        [tenantId, channel],
+      ).then((r) => r.rows[0]?.created_at || null),
+      queryAdmin(
+        `SELECT m.created_at FROM messages m JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.tenant_id = $1 AND c.channel = $2 AND m.direction = 'outbound'
+         ORDER BY m.created_at DESC LIMIT 1`,
+        [tenantId, channel],
+      ).then((r) => r.rows[0]?.created_at || null),
+      queryAdmin(
+        `SELECT COUNT(*)::int AS count FROM messages m JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.tenant_id = $1 AND c.channel = $2
+         AND m.metadata->>'send_error' IS NOT NULL
+         AND m.created_at > NOW() - INTERVAL '7 days'`,
+        [tenantId, channel],
+      ).then((r) => r.rows[0]?.count || 0),
+      queryAdmin(
+        `SELECT COUNT(*)::int AS count FROM messages m JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.tenant_id = $1 AND c.channel = $2 AND m.created_at > NOW() - INTERVAL '24 hours'`,
+        [tenantId, channel],
+      ).then((r) => r.rows[0]?.count || 0),
+      queryAdmin(
+        `SELECT COUNT(*)::int AS count FROM conversations WHERE tenant_id = $1 AND channel = $2`,
+        [tenantId, channel],
+      ).then((r) => r.rows[0]?.count || 0),
+    ]);
+    res.json({
+      lastInboundAt: lastInbound,
+      lastOutboundAt: lastOutbound,
+      failedSends7d: failedSends,
+      messagesToday: totalToday,
+      totalConversations,
+    });
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

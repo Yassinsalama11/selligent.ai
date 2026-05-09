@@ -102,7 +102,54 @@ async function processSavedInboundMessage(payload, jobId = 'inline-saved') {
   }
 
   const savedMessage = await decryptMessageRow(tenantId, rawMessage);
-  const deal = await getOrCreateDeal(tenantId, conversation.id, customer.id);
+  const { normalizeTenantSettings: normSettings } = require('../core/tenantSettings');
+  const tenantSettings = normSettings(tenantRow?.settings);
+  const deal = tenantSettings.global?.autoCreateLead !== false
+    ? await getOrCreateDeal(tenantId, conversation.id, customer.id)
+    : null;
+
+  // Auto-assign if conversation still unassigned (skipped by the already_saved path)
+  if (!conversation.assigned_to) {
+    const { determineAssignee, checkSLABreach } = require('../core/messageRouter');
+    const { assignConversation } = require('../db/queries/conversations');
+    try {
+      const assigneeId = await determineAssignee(tenantId, tenantSettings, {
+        conversation,
+        customer,
+        message: { type: savedMessage.type, content: savedMessage.content },
+        ticket,
+        deal,
+      });
+      if (assigneeId) {
+        const assigned = await assignConversation(tenantId, conversation.id, assigneeId);
+        if (assigned) Object.assign(conversation, assigned);
+      }
+    } catch (err) {
+      console.warn('[Worker] Assignment failed (non-fatal):', err.message);
+    }
+
+    // Schedule SLA breach check
+    const channelSlaCfg = tenantSettings?.channels?.[conversation.channel];
+    const slaTargetMinutes = Number(channelSlaCfg?.slaTargetMinutes || 0);
+    if (slaTargetMinutes > 0 && savedMessage?.id) {
+      setTimeout(() => {
+        checkSLABreach(tenantId, conversation.id, conversation.channel, savedMessage.id, slaTargetMinutes).catch(() => {});
+      }, slaTargetMinutes * 60 * 1000);
+    }
+  }
+
+  try {
+    await maybeSendChannelGreeting({
+      tenantId,
+      conversation,
+      customer,
+      savedMessage,
+      credentials: payload.credentials,
+      tenantSettings,
+    });
+  } catch (err) {
+    console.warn('[Worker] Greeting failed (non-fatal):', err.message);
+  }
 
   await processRoutedResult({
     unified: {
@@ -134,6 +181,14 @@ async function processRoutedResult(result, jobId = 'inline') {
   const { getMessages }      = require('../db/queries/messages');
   const { queryAdmin }       = require('../db/pool');
   const { getIO }            = require('../channels/livechat/socket');
+  const { sendFailedTriggerAlert } = require('../services/email/emailService');
+  const { normalizeTenantSettings, isWithinWorkingHours } = require('../core/tenantSettings');
+  const {
+    getAiTimeBehavior,
+    matchesSilentModeConditions,
+    countConsecutiveAiFailures,
+    evaluateHandoffRules,
+  } = require('../ai/policyEngine');
 
   const { unified, savedMessage, conversation, customer, deal, credentials } = result;
   const { tenant_id: tenantId } = savedMessage;
@@ -157,6 +212,38 @@ async function processRoutedResult(result, jobId = 'inline') {
   ]);
 
   const messageText = unified.message.content;
+  const tenantSettings = normalizeTenantSettings(tenantRow?.settings);
+  const channelCfg = tenantSettings?.channels?.[conversation?.channel];
+
+  if (channelCfg?.aiEnabled === false) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({
+      tenantId,
+      conversationId: conversation?.id,
+      messageId: savedMessage?.id,
+      channel: conversation?.channel,
+      jobId,
+      reason: 'channel_ai_disabled',
+    }));
+    return;
+  }
+
+  const aiTimeBehavior = getAiTimeBehavior(
+    tenantSettings.aiConfig?.responseControl,
+    tenantSettings.global,
+    new Date(),
+    isWithinWorkingHours,
+  );
+  if (aiTimeBehavior === 'off') {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({
+      tenantId,
+      conversationId: conversation?.id,
+      messageId: savedMessage?.id,
+      channel: conversation?.channel,
+      jobId,
+      reason: 'ai_time_behavior_off',
+    }));
+    return;
+  }
 
   // 3. Detect intent
   let analysis;
@@ -183,13 +270,70 @@ async function processRoutedResult(result, jobId = 'inline') {
       settings: tenantRow?.settings || {},
       message: messageText,
       historyLength: history.length,
+      history,
+      currentMessageAt: savedMessage.created_at,
     }
   );
   analysis.lead_score = final_score;
   analysis.probability = probability;
 
-  // 5. Advance deal stage
-  const updatedDeal = await advanceDeal(tenantId, deal.id, analysis);
+  // Apply minScoreForQualification: if score meets threshold and stage is still new_lead, promote to engaged
+  const tenantGlobal = tenantSettings.global;
+  const minQualScore = tenantGlobal?.minScoreForQualification != null
+    ? Number(tenantGlobal.minScoreForQualification)
+    : null;
+  if (
+    minQualScore !== null
+    && Number.isFinite(minQualScore)
+    && final_score >= minQualScore
+    && (!analysis.suggested_stage || analysis.suggested_stage === 'new_lead')
+  ) {
+    analysis.suggested_stage = 'engaged';
+  }
+
+  const responseControl = tenantSettings.aiConfig?.responseControl || {};
+  const silentMatch = matchesSilentModeConditions(responseControl.silentModeConditions, {
+    channel: conversation.channel,
+    customer,
+    intent: analysis.intent,
+    sentiment: analysis.sentiment,
+  });
+  if (silentMatch) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({
+      tenantId,
+      conversationId: conversation?.id,
+      messageId: savedMessage?.id,
+      channel: conversation?.channel,
+      jobId,
+      reason: 'silent_mode_condition_matched',
+      condition: silentMatch,
+    }));
+    return;
+  }
+
+  const handoffRuleMatch = evaluateHandoffRules(tenantSettings.aiConfig?.handoffRules, {
+    channel: conversation.channel,
+    customer,
+    intent: analysis.intent,
+    leadScore: final_score,
+    text: messageText,
+    consecutiveFailures: countConsecutiveAiFailures(history),
+  });
+  if (handoffRuleMatch) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({
+      tenantId,
+      conversationId: conversation?.id,
+      messageId: savedMessage?.id,
+      channel: conversation?.channel,
+      jobId,
+      reason: 'handoff_rule_matched',
+      rule: handoffRuleMatch.rule?.id || handoffRuleMatch.rule?.condition || null,
+    }));
+    return;
+  }
+
+  // 5. Advance deal stage (skipped when autoCreateLead is off and no deal exists)
+  const updatedDeal = deal?.id ? await advanceDeal(tenantId, deal.id, analysis) : null;
 
   // 6. Generate reply suggestion
   let suggestion;
@@ -208,6 +352,7 @@ async function processRoutedResult(result, jobId = 'inline') {
       offers,
       shipping,
       detectedLanguage: analysis.language,
+      channel: conversation.channel,
     });
   } catch (err) {
     console.error('[Worker] Reply generation failed:', err.message);
@@ -221,6 +366,9 @@ async function processRoutedResult(result, jobId = 'inline') {
     suggestion,
     credentials,
     jobId,
+    tenantSettings,
+    history,
+    aiTimeBehavior,
   });
 
   // 7. Run tenant triggers against the analyzed message
@@ -235,10 +383,17 @@ async function processRoutedResult(result, jobId = 'inline') {
       analysis,
       credentials,
       suggestion,
+      deal: updatedDeal || deal,
+      previousDeal: deal,
       historyLength: history.length,
     });
   } catch (err) {
     console.error('[Worker] Trigger execution failed:', err.message);
+    sendFailedTriggerAlert({
+      tenantId,
+      triggerName: 'message processing trigger execution',
+      errorSummary: err.message,
+    }).catch(() => {});
   }
 
   // 8. Push AI results to dashboard in real-time
@@ -255,7 +410,7 @@ async function processRoutedResult(result, jobId = 'inline') {
   }
 
   console.log(
-    `[Worker] Done — intent: ${analysis.intent}, score: ${final_score}, stage: ${(updatedDeal || deal).stage}`
+    `[Worker] Done — intent: ${analysis.intent}, score: ${final_score}, stage: ${(updatedDeal || deal)?.stage || 'none'}`
   );
 }
 
@@ -267,10 +422,17 @@ async function maybeSendAutoReply({
   suggestion,
   credentials,
   jobId,
+  tenantSettings,
+  history = [],
+  aiTimeBehavior = 'auto',
 }) {
   const { getPendingHandoff } = require('../db/queries/handoffs');
   const { saveMessage } = require('../db/queries/messages');
   const { getIO } = require('../channels/livechat/socket');
+  const {
+    countConsecutiveAiAutoReplies,
+    countConsecutiveAiFailures,
+  } = require('../ai/policyEngine');
 
   const logContext = {
     tenantId,
@@ -294,6 +456,78 @@ async function maybeSendAutoReply({
     return;
   }
 
+  // Global AI master switch — hard off overrides everything
+  const globalSettings = tenantSettings?.global || {};
+  if (globalSettings.aiEnabled === false) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_ai_disabled' }));
+    return;
+  }
+
+  // Global AI gate — check aiConfig.autoReply (false = suggest-only mode globally)
+  const aiConfig = tenantSettings?.aiConfig || {};
+  if (aiConfig.autoReply === false) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_auto_reply_disabled' }));
+    return;
+  }
+  if (aiConfig.suggestOnly === true) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_suggest_only' }));
+    return;
+  }
+  if (aiTimeBehavior === 'suggest') {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'ai_time_behavior_suggest_only' }));
+    return;
+  }
+
+  // Global human-approval gate — every AI reply must be approved before sending
+  if (globalSettings.humanApprovalRequired === true) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_human_approval_required' }));
+    return;
+  }
+
+  // Channel-level AI gate — check settings.channels[channel].aiEnabled / requireApproval
+  const channelCfg = tenantSettings?.channels?.[conversation?.channel];
+  if (channelCfg?.aiEnabled === false) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'channel_ai_disabled' }));
+    return;
+  }
+  if (channelCfg?.requireApproval === true) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'channel_requires_approval' }));
+    return;
+  }
+  if (channelCfg?.suggestOnly === true) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'channel_suggest_only' }));
+    return;
+  }
+
+  const responseControl = aiConfig.responseControl || {};
+  const maxConsecutiveReplies = Number(responseControl.maxConsecutiveReplies ?? 5);
+  if (Number.isFinite(maxConsecutiveReplies) && maxConsecutiveReplies > 0) {
+    const consecutiveAiReplies = countConsecutiveAiAutoReplies(history);
+    if (consecutiveAiReplies >= maxConsecutiveReplies) {
+      console.log('AI_SKIPPED_REASON', JSON.stringify({
+        ...logContext,
+        reason: 'max_consecutive_ai_replies_reached',
+        consecutiveAiReplies,
+        maxConsecutiveReplies,
+      }));
+      return;
+    }
+  }
+
+  const failedReplyThreshold = Number(responseControl.escalationThreshold ?? 3);
+  if (Number.isFinite(failedReplyThreshold) && failedReplyThreshold > 0) {
+    const consecutiveFailures = countConsecutiveAiFailures(history);
+    if (consecutiveFailures >= failedReplyThreshold) {
+      console.log('AI_SKIPPED_REASON', JSON.stringify({
+        ...logContext,
+        reason: 'ai_failed_reply_threshold_reached',
+        consecutiveFailures,
+        failedReplyThreshold,
+      }));
+      return;
+    }
+  }
+
   const handoff = await getPendingHandoff(tenantId, conversation.id);
   if (handoff) {
     console.log('AI_SKIPPED_REASON', JSON.stringify({
@@ -306,8 +540,62 @@ async function maybeSendAutoReply({
 
   const text = String(suggestion?.suggested_reply || '').trim();
   if (!text) {
+    const fallback = String(channelCfg?.fallbackReply || '').trim();
+    if (fallback) {
+      try {
+        const fallbackSend = await sendAutoReplyToChannel({ channel: conversation.channel, credentials, customer, text: fallback });
+        if (fallbackSend.status === 'sent') {
+          const fallbackMsg = await saveMessage(tenantId, conversation.id, {
+            direction: 'outbound', type: 'text', content: fallback, sent_by: 'ai',
+            metadata: { ai_auto_reply: true, is_fallback_reply: true, external_id: fallbackSend.externalId || null },
+          });
+          try {
+            const io = getIO();
+            io.to(`tenant:${tenantId}:conversations`).emit('message:new', {
+              message: fallbackMsg,
+              conversation: { id: conversation.id, tenant_id: tenantId },
+              customer,
+            });
+          } catch {}
+        }
+      } catch (err) {
+        console.warn('[Worker] Fallback reply send failed (non-fatal):', err.message);
+      }
+    }
     console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'empty_suggestion' }));
     return;
+  }
+
+  // Confidence threshold gate — per-channel override takes precedence over global responseControl setting
+  const confidenceThreshold = channelCfg?.confidenceThreshold != null
+    ? Number(channelCfg.confidenceThreshold)
+    : Number(tenantSettings?.aiConfig?.responseControl?.confidenceThreshold ?? 50);
+  const suggestionConfidence = suggestion?.confidence != null ? Number(suggestion.confidence) * 100 : null;
+  if (suggestionConfidence !== null && suggestionConfidence < confidenceThreshold) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({
+      ...logContext,
+      reason: 'below_confidence_threshold',
+      confidence: suggestionConfidence,
+      threshold: confidenceThreshold,
+    }));
+    return;
+  }
+
+  // Escalation threshold — high-value leads (score >= threshold) are routed to human, not AI
+  const escalationThreshold = globalSettings.aiEscalationThreshold != null
+    ? Number(globalSettings.aiEscalationThreshold)
+    : null;
+  if (escalationThreshold !== null && Number.isFinite(escalationThreshold)) {
+    const leadScore = suggestion?.lead_score ?? null;
+    if (leadScore !== null && Number(leadScore) >= escalationThreshold) {
+      console.log('AI_SKIPPED_REASON', JSON.stringify({
+        ...logContext,
+        reason: 'lead_score_exceeds_escalation_threshold',
+        leadScore,
+        escalationThreshold,
+      }));
+      return;
+    }
   }
 
   console.log('AI_TRIGGERED', JSON.stringify(logContext));
@@ -321,6 +609,20 @@ async function maybeSendAutoReply({
       text,
     });
   } catch (err) {
+    try {
+      await saveMessage(tenantId, conversation.id, {
+        direction: 'outbound',
+        type: 'text',
+        content: text,
+        sent_by: 'ai',
+        metadata: {
+          ai_auto_reply: true,
+          send_status: 'failed',
+          send_error: err.message,
+          suggestion_id: suggestion?.id || null,
+        },
+      });
+    } catch {}
     console.log('AI_SKIPPED_REASON', JSON.stringify({
       ...logContext,
       reason: 'send_failed',
@@ -330,6 +632,22 @@ async function maybeSendAutoReply({
   }
 
   if (sendResult.status !== 'sent') {
+    if (sendResult.reason) {
+      try {
+        await saveMessage(tenantId, conversation.id, {
+          direction: 'outbound',
+          type: 'text',
+          content: text,
+          sent_by: 'ai',
+          metadata: {
+            ai_auto_reply: true,
+            send_status: 'skipped',
+            send_error: sendResult.reason,
+            suggestion_id: suggestion?.id || null,
+          },
+        });
+      } catch {}
+    }
     console.log('AI_SKIPPED_REASON', JSON.stringify({
       ...logContext,
       reason: sendResult.reason || 'send_not_supported',
@@ -366,6 +684,74 @@ async function maybeSendAutoReply({
     responseMessageId: savedAiMessage.id,
     externalId: sendResult.externalId || null,
   }));
+}
+
+async function maybeSendChannelGreeting({
+  tenantId,
+  conversation,
+  customer,
+  savedMessage,
+  credentials,
+  tenantSettings,
+}) {
+  const { queryAdmin } = require('../db/pool');
+  const { saveMessage } = require('../db/queries/messages');
+  const { getIO } = require('../channels/livechat/socket');
+  const { getChannelGreetingText } = require('../core/tenantSettings');
+
+  if (conversation?.channel === 'livechat') return;
+  if (savedMessage?.direction !== 'inbound' || savedMessage?.sent_by !== 'customer') return;
+
+  const inboundCount = await queryAdmin(
+    `SELECT COUNT(*)::int AS count
+     FROM messages
+     WHERE tenant_id = $1
+       AND conversation_id = $2
+       AND direction = 'inbound'
+       AND sent_by = 'customer'`,
+    [tenantId, conversation.id]
+  ).then((result) => result.rows[0]?.count || 0);
+
+  if (Number(inboundCount) !== 1) return;
+
+  const { text: greetingText, businessHoursMode, withinHours } = getChannelGreetingText(tenantSettings, conversation.channel);
+  if (!greetingText) return;
+
+  const sendResult = await sendAutoReplyToChannel({
+    channel: conversation.channel,
+    credentials,
+    customer,
+    text: greetingText,
+  });
+
+  if (sendResult.status !== 'sent') return;
+
+  const greetingMessage = await saveMessage(tenantId, conversation.id, {
+    direction: 'outbound',
+    type: 'text',
+    content: greetingText,
+    sent_by: 'ai',
+    metadata: {
+      is_greeting: true,
+      auto_sent: true,
+      business_hours_mode: businessHoursMode,
+      within_hours: withinHours,
+      external_id: sendResult.externalId || null,
+    },
+  });
+
+  try {
+    const io = getIO();
+    io.to(`tenant:${tenantId}:conversations`).emit('message:new', {
+      message: greetingMessage,
+      conversation,
+      customer,
+      ai_auto_reply: true,
+      is_greeting: true,
+    });
+  } catch {
+    // Socket server is optional in tests and background workers.
+  }
 }
 
 async function sendAutoReplyToChannel({ channel, credentials, customer, text }) {
@@ -428,8 +814,8 @@ async function addToQueue(payload) {
 
   const queue = getMessageQueue();
   if (!queue) {
-    console.warn('[Worker] REDIS_URL not configured, processing inline');
-    await processMessage(payload);
+    console.warn('[Worker] REDIS_URL not configured, processing async');
+    setImmediate(() => processMessage(payload).catch(err => console.error('[Worker] Inline process failed:', err.message)));
     return;
   }
 
