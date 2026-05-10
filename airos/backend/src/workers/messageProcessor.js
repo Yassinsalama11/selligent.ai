@@ -459,17 +459,19 @@ async function maybeSendAutoReply({
     return;
   }
 
-  // Global AI master switch — hard off overrides everything
   const globalSettings = tenantSettings?.global || {};
-  if (globalSettings.aiEnabled === false) {
-    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_ai_disabled' }));
-    return;
-  }
-
-  // Global AI gate — bypassed when conversation ai_mode is explicitly 'auto' (per-conversation override)
   const aiConfig = tenantSettings?.aiConfig || {};
   const conversationAutoMode = conversation?.ai_mode === 'auto';
+  const channelCfg = tenantSettings?.channels?.[conversation?.channel];
+  const responseControl = aiConfig.responseControl || {};
+
+  // When ai_mode=auto the agent has explicitly enabled autonomous replies for this conversation.
+  // Only check gates that make sense regardless of intent: in manual/suggest mode ALL gates apply.
   if (!conversationAutoMode) {
+    if (globalSettings.aiEnabled === false) {
+      console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_ai_disabled' }));
+      return;
+    }
     if (aiConfig.autoReply === false) {
       console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_auto_reply_disabled' }));
       return;
@@ -478,77 +480,56 @@ async function maybeSendAutoReply({
       console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_suggest_only' }));
       return;
     }
-  }
-  if (!conversationAutoMode && aiTimeBehavior === 'suggest') {
-    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'ai_time_behavior_suggest_only' }));
-    return;
-  }
-
-  // Global human-approval gate — every AI reply must be approved before sending
-  // When the agent explicitly set ai_mode=auto on this conversation, bypass all suggest/approval gates.
-  // Only the hard master kill switches (aiEnabled=false, humanApprovalRequired) still apply.
-  if (!conversationAutoMode && globalSettings.humanApprovalRequired === true) {
-    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_human_approval_required' }));
-    return;
-  }
-
-  // Channel-level AI gate — check settings.channels[channel].aiEnabled / requireApproval
-  const channelCfg = tenantSettings?.channels?.[conversation?.channel];
-  if (channelCfg?.aiEnabled === false) {
-    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'channel_ai_disabled' }));
-    return;
-  }
-  if (!conversationAutoMode && channelCfg?.requireApproval === true) {
-    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'channel_requires_approval' }));
-    return;
-  }
-  if (!conversationAutoMode && channelCfg?.suggestOnly === true) {
-    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'channel_suggest_only' }));
-    return;
-  }
-
-  const responseControl = aiConfig.responseControl || {};
-  const maxConsecutiveReplies = Number(responseControl.maxConsecutiveReplies ?? 5);
-  if (Number.isFinite(maxConsecutiveReplies) && maxConsecutiveReplies > 0) {
-    const consecutiveAiReplies = countConsecutiveAiAutoReplies(history);
-    if (consecutiveAiReplies >= maxConsecutiveReplies) {
-      console.log('AI_SKIPPED_REASON', JSON.stringify({
-        ...logContext,
-        reason: 'max_consecutive_ai_replies_reached',
-        consecutiveAiReplies,
-        maxConsecutiveReplies,
-      }));
+    if (aiTimeBehavior === 'suggest') {
+      console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'ai_time_behavior_suggest_only' }));
       return;
     }
-  }
-
-  const failedReplyThreshold = Number(responseControl.escalationThreshold ?? 3);
-  if (Number.isFinite(failedReplyThreshold) && failedReplyThreshold > 0) {
-    const consecutiveFailures = countConsecutiveAiFailures(history);
-    if (consecutiveFailures >= failedReplyThreshold) {
-      console.log('AI_SKIPPED_REASON', JSON.stringify({
-        ...logContext,
-        reason: 'ai_failed_reply_threshold_reached',
-        consecutiveFailures,
-        failedReplyThreshold,
-      }));
+    if (globalSettings.humanApprovalRequired === true) {
+      console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_human_approval_required' }));
       return;
     }
-  }
-
-  const handoff = await getPendingHandoff(tenantId, conversation.id);
-  if (handoff) {
-    console.log('AI_SKIPPED_REASON', JSON.stringify({
-      ...logContext,
-      reason: 'pending_handoff',
-      handoffId: handoff.id,
-    }));
-    return;
+    if (channelCfg?.aiEnabled === false) {
+      console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'channel_ai_disabled' }));
+      return;
+    }
+    if (channelCfg?.requireApproval === true) {
+      console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'channel_requires_approval' }));
+      return;
+    }
+    if (channelCfg?.suggestOnly === true) {
+      console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'channel_suggest_only' }));
+      return;
+    }
+    const maxConsecutiveReplies = Number(responseControl.maxConsecutiveReplies ?? 5);
+    if (Number.isFinite(maxConsecutiveReplies) && maxConsecutiveReplies > 0) {
+      const consecutiveAiReplies = countConsecutiveAiAutoReplies(history);
+      if (consecutiveAiReplies >= maxConsecutiveReplies) {
+        console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'max_consecutive_ai_replies_reached', consecutiveAiReplies, maxConsecutiveReplies }));
+        return;
+      }
+    }
+    const failedReplyThreshold = Number(responseControl.escalationThreshold ?? 3);
+    if (Number.isFinite(failedReplyThreshold) && failedReplyThreshold > 0) {
+      const consecutiveFailures = countConsecutiveAiFailures(history);
+      if (consecutiveFailures >= failedReplyThreshold) {
+        console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'ai_failed_reply_threshold_reached', consecutiveFailures, failedReplyThreshold }));
+        return;
+      }
+    }
+    const handoff = await getPendingHandoff(tenantId, conversation.id);
+    if (handoff) {
+      console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'pending_handoff', handoffId: handoff.id }));
+      return;
+    }
   }
 
   const text = String(suggestion?.suggested_reply || '').trim();
   if (!text) {
-    const fallback = String(channelCfg?.fallbackReply || tenantSettings?.aiConfig?.fallbackReply || '').trim();
+    const fallback = String(
+      channelCfg?.fallbackReply ||
+      aiConfig?.fallbackReply ||
+      (conversationAutoMode ? 'Thank you for your message. Our team will get back to you shortly.' : '')
+    ).trim();
     if (fallback) {
       try {
         const fallbackSend = await sendAutoReplyToChannel({ channel: conversation.channel, credentials, customer, text: fallback });
@@ -591,8 +572,8 @@ async function maybeSendAutoReply({
     }
   }
 
-  // Escalation threshold — high-value leads (score >= threshold) are routed to human, not AI
-  const escalationThreshold = globalSettings.aiEscalationThreshold != null
+  // Escalation threshold — bypassed in auto mode (agent made a conscious decision to auto-reply)
+  const escalationThreshold = !conversationAutoMode && globalSettings.aiEscalationThreshold != null
     ? Number(globalSettings.aiEscalationThreshold)
     : null;
   if (escalationThreshold !== null && Number.isFinite(escalationThreshold)) {
