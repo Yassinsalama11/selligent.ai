@@ -525,11 +525,7 @@ async function maybeSendAutoReply({
 
   const text = String(suggestion?.suggested_reply || '').trim();
   if (!text) {
-    const fallback = String(
-      channelCfg?.fallbackReply ||
-      aiConfig?.fallbackReply ||
-      (conversationAutoMode ? 'Thank you for your message. Our team will get back to you shortly.' : '')
-    ).trim();
+    const fallback = String(channelCfg?.fallbackReply || aiConfig?.fallbackReply || '').trim();
     if (fallback) {
       try {
         const fallbackSend = await sendAutoReplyToChannel({ channel: conversation.channel, credentials, customer, text: fallback });

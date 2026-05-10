@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Bot, BrainCircuit, KeyRound, RefreshCcw, Save, ShieldCheck, Sparkles } from 'lucide-react';
+import { AlertTriangle, Bot, BrainCircuit, KeyRound, RefreshCcw, Save, ShieldCheck, Sparkles } from 'lucide-react';
 
 import { adminApi } from '@/lib/adminApi';
 import { Badge } from '@/components/ui/badge';
@@ -144,6 +144,20 @@ export default function AdminAiPage() {
           </Button>
         </div>
       </div>
+
+      {providerStatus && !providerStatus.configured && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-4 text-sm text-red-600 dark:text-red-400">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">No AI provider configured — AI auto-replies will not work</p>
+            <p className="mt-1 text-xs opacity-80">
+              Enter an Anthropic or OpenAI API key in the fields below, then click &quot;Save controls&quot;.
+              Alternatively set <code className="rounded bg-red-500/10 px-1">PLATFORM_ANTHROPIC_API_KEY</code> or{' '}
+              <code className="rounded bg-red-500/10 px-1">PLATFORM_OPENAI_API_KEY</code> in your environment variables.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Provider" value={providerStatus?.provider || config.provider || 'Unknown'} icon={Sparkles} />

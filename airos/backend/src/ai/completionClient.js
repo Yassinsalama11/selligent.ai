@@ -179,6 +179,7 @@ async function completeTextWithMetadata({
     text = (response.choices?.[0]?.message?.content || '').trim();
     usage = response.usage || {};
   } else {
+    console.error('[AI] No platform AI provider configured — AI replies will not work. Go to Admin → AI Control and enter an API key, or set PLATFORM_ANTHROPIC_API_KEY / PLATFORM_OPENAI_API_KEY env var.');
     throw new Error('No platform AI provider configured. Set PLATFORM_ANTHROPIC_API_KEY or PLATFORM_OPENAI_API_KEY.');
   }
 
