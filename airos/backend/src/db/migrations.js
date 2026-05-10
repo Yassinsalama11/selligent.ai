@@ -109,6 +109,7 @@ async function runPerformanceMigrations() {
   await runMigrationFile('20260507_user_department.sql');
   await runMigrationFile('20260509_user_email_verified.sql');
   await runMigrationFile('20260509_tenants_missing_columns.sql');
+  await runMigrationFile('20260510_custom_ai_providers.sql');
 }
 
 module.exports = {

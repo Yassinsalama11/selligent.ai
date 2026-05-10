@@ -133,43 +133,73 @@ async function sendChannelText({ conversation, credentials, text }) {
   throw err;
 }
 
-async function sendChannelMedia({ conversation, credentials, type, mediaUrl, caption }) {
-  if (type !== 'image') return null;
+async function sendChannelMedia({ conversation, credentials, type, mediaUrl, caption, mimeType, fileName }) {
   const channel = conversation.channel;
+  const normalizedType = normalizeMediaType(type, mimeType);
 
   if (channel === 'whatsapp') {
-    const { sendImage } = require('../../channels/whatsapp/sender');
+    const waModule = require('../../channels/whatsapp/sender');
     const to = conversation.customer_phone || conversation.channel_customer_id;
     if (!credentials?.phone_number_id || !credentials?.access_token || !to) {
       const err = new Error('WhatsApp send context is incomplete');
       err.status = 400;
       throw err;
     }
-    const response = await sendImage(credentials.phone_number_id, credentials.access_token, to, mediaUrl, caption);
+    const { phone_number_id: phoneId, access_token: token } = credentials;
+    if (normalizedType === 'image') {
+      const response = await waModule.sendImage(phoneId, token, to, mediaUrl, caption);
+      return response?.messages?.[0]?.id || null;
+    }
+    if (normalizedType === 'video') {
+      const response = await waModule.sendVideo(phoneId, token, to, mediaUrl, caption);
+      return response?.messages?.[0]?.id || null;
+    }
+    if (normalizedType === 'voice' || normalizedType === 'audio') {
+      const response = await waModule.sendAudio(phoneId, token, to, mediaUrl);
+      return response?.messages?.[0]?.id || null;
+    }
+    // document / file fallback
+    const response = await waModule.sendDocument(phoneId, token, to, mediaUrl, fileName || 'attachment', caption);
     return response?.messages?.[0]?.id || null;
   }
 
   if (channel === 'messenger') {
-    const { sendImage } = require('../../channels/messenger/sender');
+    const { sendImage, sendFile } = require('../../channels/messenger/sender');
     if (!credentials?.page_id || !credentials?.access_token || !conversation.channel_customer_id) {
       const err = new Error('Messenger send context is incomplete');
       err.status = 400;
       throw err;
     }
-    const response = await sendImage(credentials.page_id, credentials.access_token, conversation.channel_customer_id, mediaUrl);
-    return response?.message_id || null;
+    const { page_id, access_token } = credentials;
+    const recipientId = conversation.channel_customer_id;
+    if (normalizedType === 'image') {
+      const response = await sendImage(page_id, access_token, recipientId, mediaUrl);
+      return response?.message_id || null;
+    }
+    if (typeof sendFile === 'function') {
+      const response = await sendFile(page_id, access_token, recipientId, mediaUrl, normalizedType);
+      return response?.message_id || null;
+    }
+    return null;
   }
 
   if (channel === 'instagram') {
-    const { sendImage, resolveSenderId } = require('../../channels/instagram/sender');
+    const { sendImage, sendFile, resolveSenderId } = require('../../channels/instagram/sender');
     const senderId = resolveSenderId(credentials);
     if (!senderId || !credentials?.access_token || !conversation.channel_customer_id) {
       const err = new Error('Instagram send context is incomplete');
       err.status = 400;
       throw err;
     }
-    const response = await sendImage(senderId, credentials.access_token, conversation.channel_customer_id, mediaUrl);
-    return response?.message_id || null;
+    if (normalizedType === 'image') {
+      const response = await sendImage(senderId, credentials.access_token, conversation.channel_customer_id, mediaUrl);
+      return response?.message_id || null;
+    }
+    if (typeof sendFile === 'function') {
+      const response = await sendFile(senderId, credentials.access_token, conversation.channel_customer_id, mediaUrl, normalizedType);
+      return response?.message_id || null;
+    }
+    return null;
   }
 
   if (channel === 'livechat') return null;
@@ -177,6 +207,17 @@ async function sendChannelMedia({ conversation, credentials, type, mediaUrl, cap
   const err = new Error(`Channel ${channel} does not support media replies`);
   err.status = 400;
   throw err;
+}
+
+function normalizeMediaType(type, mimeType) {
+  if (type && !['image', 'file'].includes(type)) return type;
+  if (mimeType) {
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType.startsWith('video/')) return 'video';
+    if (mimeType.startsWith('audio/')) return 'voice';
+    return 'document';
+  }
+  return type === 'image' ? 'image' : 'document';
 }
 
 async function persistConversationMessage(req, conversation, payload) {
@@ -290,9 +331,10 @@ router.get('/:id/messages', requireReadRole, async (req, res, next) => {
 router.post('/:id/messages', requireWriteRole, async (req, res, next) => {
   try {
     const text = String(req.body?.content ?? req.body?.message ?? '').trim();
-    const messageType = String(req.body?.type || req.body?.message_type || (req.body?.media_url ? 'image' : 'text')).toLowerCase();
+    const mimeTypeRaw = req.body?.mime_type || req.body?.mimeType || null;
     const mediaUrl = req.body?.media_url || req.body?.mediaUrl || null;
-    const isAttachment = ['image', 'file'].includes(messageType);
+    const messageType = String(req.body?.type || req.body?.message_type || (mediaUrl ? normalizeMediaType(null, mimeTypeRaw) : 'text')).toLowerCase();
+    const isAttachment = Boolean(mediaUrl) || ['image', 'file', 'document', 'voice', 'video', 'audio'].includes(messageType);
     const isInternalNote = messageType === 'internal_note';
     if (!text && !mediaUrl) return res.status(400).json({ error: 'Message content or media_url is required' });
     const persistedContent = text || req.body?.file_name || req.body?.fileName || (messageType === 'image' ? 'Image attachment' : messageType === 'internal_note' ? 'Internal note' : 'File attachment');
@@ -305,7 +347,7 @@ router.post('/:id/messages', requireWriteRole, async (req, res, next) => {
       const credentials = await loadChannelCredentials(req, conversation.channel);
       try {
         externalId = isAttachment
-          ? await sendChannelMedia({ conversation, credentials, type: messageType, mediaUrl, caption: text })
+          ? await sendChannelMedia({ conversation, credentials, type: messageType, mediaUrl, caption: text, mimeType: mimeTypeRaw, fileName: req.body?.file_name || req.body?.fileName || null })
           : await sendChannelText({ conversation, credentials, text });
       } catch (err) {
         const { saved, updatedConversation } = await persistConversationMessage(req, conversation, {

@@ -195,6 +195,8 @@ function resolvePkgFlags(plan, planMetadata) {
     serviceDesk: flags.serviceDesk !== undefined ? Boolean(flags.serviceDesk) : true,
     catalogSync: flags.catalogSync !== undefined ? Boolean(flags.catalogSync) : true,
     customAi: flags.customAi !== undefined ? Boolean(flags.customAi) : plan === 'enterprise',
+    customAiByokEnabled: flags.customAiByokEnabled !== undefined ? Boolean(flags.customAiByokEnabled) : plan === 'enterprise',
+    customAiAllowedProviders: Array.isArray(flags.customAiAllowedProviders) ? flags.customAiAllowedProviders : (plan === 'enterprise' ? ['openai', 'anthropic', 'gemini'] : []),
     sso: flags.sso !== undefined ? Boolean(flags.sso) : plan === 'enterprise',
     prioritySupport: flags.prioritySupport !== undefined ? Boolean(flags.prioritySupport) : Boolean(hardcoded.prioritySupport || plan === 'enterprise'),
     supportSlaHours: Number.isFinite(Number(flags.supportSlaHours))
@@ -315,6 +317,10 @@ function getFeatureAccess({ tenant, plan, planMetadata, seatCount, seatUsage, se
       allowed: !lockedByBilling && pkg.customAi,
       reason: lockedByBilling ? billingReason : (pkg.customAi ? '' : 'Custom AI is available on Enterprise only.'),
       upgradePath: pkg.customAi ? null : 'Upgrade to Enterprise.',
+      metadata: {
+        byokEnabled: pkg.customAiByokEnabled,
+        allowedProviders: pkg.customAiAllowedProviders,
+      },
     },
     {
       key: 'sso',
@@ -658,6 +664,7 @@ function classifyOperationalAction(req) {
     path.startsWith('/api/settings/ai/prompts')
     || path.startsWith('/api/prompts')
   ) return 'custom_ai';
+  if (path.startsWith('/api/settings/ai/custom-provider') && method !== 'GET' && method !== 'HEAD') return 'custom_ai';
   if (path.startsWith('/api/settings/ai') && method !== 'GET' && method !== 'HEAD') return 'ai_config';
   if (path.startsWith('/api/conversations') && path.includes('/ai-mode') && method !== 'GET' && method !== 'HEAD') return 'ai_mode';
   if (path.startsWith('/api/conversations') && path.includes('/messages')) return 'messaging';

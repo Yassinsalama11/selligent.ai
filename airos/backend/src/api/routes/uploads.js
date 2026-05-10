@@ -11,6 +11,15 @@ const ALLOWED_MIME = new Set([
   'image/png',
   'image/webp',
   'image/gif',
+  'image/svg+xml',
+  'video/mp4',
+  'video/quicktime',
+  'video/webm',
+  'audio/mpeg',
+  'audio/ogg',
+  'audio/wav',
+  'audio/webm',
+  'audio/mp4',
   'application/pdf',
   'text/plain',
   'text/csv',
@@ -18,6 +27,8 @@ const ALLOWED_MIME = new Set([
   'application/zip',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
 ]);
 
 const EXTENSIONS = {
@@ -25,6 +36,15 @@ const EXTENSIONS = {
   'image/png': 'png',
   'image/webp': 'webp',
   'image/gif': 'gif',
+  'image/svg+xml': 'svg',
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
+  'video/webm': 'webm',
+  'audio/mpeg': 'mp3',
+  'audio/ogg': 'ogg',
+  'audio/wav': 'wav',
+  'audio/webm': 'webm',
+  'audio/mp4': 'm4a',
   'application/pdf': 'pdf',
   'text/plain': 'txt',
   'text/csv': 'csv',
@@ -32,7 +52,16 @@ const EXTENSIONS = {
   'application/zip': 'zip',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
   'application/vnd.ms-excel': 'xls',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/msword': 'doc',
 };
+
+function classifyMimeType(mimeType) {
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('audio/')) return 'voice';
+  return 'document';
+}
 
 function getUploadRoot() {
   return process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
@@ -81,7 +110,7 @@ router.post('/', async (req, res, next) => {
       file_name: fileName,
       mime_type: mimeType,
       size: decoded.buffer.length,
-      type: mimeType.startsWith('image/') ? 'image' : 'file',
+      type: classifyMimeType(mimeType),
     });
   } catch (err) {
     next(err);

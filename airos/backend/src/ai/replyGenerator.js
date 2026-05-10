@@ -1,7 +1,7 @@
 const { queryAdmin } = require('../db/pool');
 const { normalizeTenantSettings, buildCompanyContext } = require('../core/tenantSettings');
 const { resolvePromptContent } = require('./promptRegistry');
-const { completeText } = require('./completionClient');
+const { completeTextForTenant } = require('./completionClient');
 const { assessTextSafety, buildSafeRefusal } = require('./safetyGuard');
 const { getTenantBusinessContext } = require('./businessAnalyzer');
 const { evaluateForbiddenActions, buildForbiddenRefusal } = require('./policyEngine');
@@ -167,7 +167,7 @@ Avoid making up policies, delivery times, or stock details that are not present 
     ? buildSafeRefusal()
     : forbiddenMatch?.enforcement === 'block'
       ? buildForbiddenRefusal(forbiddenMatch)
-      : await completeText({
+      : await completeTextForTenant({
       tenantId,
       prompt,
       maxTokens: Number(aiConfig.maxTokens || 250),

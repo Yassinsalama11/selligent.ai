@@ -15,6 +15,14 @@ const { getUploadRoot } = require('./uploads');
 const { listPrompts, rollbackPrompt } = require('../../ai/promptRegistry');
 const { logAuditEvent } = require('../../db/queries/audit');
 const {
+  VALID_PROVIDERS,
+  VALID_MODELS,
+  getCustomAiProvider,
+  getCustomAiProviderRaw,
+  upsertCustomAiProvider,
+  deleteCustomAiProvider,
+} = require('../../db/queries/customAiProvider');
+const {
   getProviderRuntimeStatus,
   getTenantSsoConfig,
   normalizeSsoConfig,
@@ -1503,6 +1511,80 @@ router.put('/ai/custom', requireOwnerRole, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /api/settings/ai/custom-provider — BYOK provider config (masked)
+router.get('/ai/custom-provider', requireReadRole, async (req, res, next) => {
+  try {
+    const provider = await getCustomAiProvider(req.user.tenant_id);
+    res.json({ provider: provider || null, availableProviders: [...VALID_PROVIDERS], validModels: VALID_MODELS });
+  } catch (err) { next(err); }
+});
+
+// PUT /api/settings/ai/custom-provider — create/update BYOK config
+router.put('/ai/custom-provider', requireOwnerRole, async (req, res, next) => {
+  try {
+    const { provider, apiKey, model } = req.body || {};
+    if (!provider || !apiKey) return res.status(400).json({ error: 'provider and apiKey are required' });
+    const billing = req.billing;
+    const featureMap = Object.fromEntries((billing?.featureAccess || []).map((f) => [f.key, f]));
+    if (featureMap.custom_ai?.allowed === false) {
+      return res.status(403).json({ error: 'Custom AI BYOK requires an Enterprise plan.', code: 'FEATURE_NOT_AVAILABLE' });
+    }
+    const allowedProviders = featureMap.custom_ai?.metadata?.allowedProviders;
+    if (Array.isArray(allowedProviders) && allowedProviders.length && !allowedProviders.includes(provider)) {
+      return res.status(403).json({ error: `Provider "${provider}" is not in your plan's allowed providers: ${allowedProviders.join(', ')}.`, code: 'FEATURE_NOT_AVAILABLE' });
+    }
+    const saved = await upsertCustomAiProvider(req.user.tenant_id, { provider, apiKey, model });
+    await logAuditEvent({ tenantId: req.user.tenant_id, actorType: 'user', actorId: req.user.id, action: 'settings.ai.byok.updated', entityType: 'custom_ai_provider', entityId: req.user.tenant_id, metadata: { provider } }).catch(() => {});
+    res.json({ provider: saved });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/settings/ai/custom-provider — remove BYOK config
+router.delete('/ai/custom-provider', requireOwnerRole, async (req, res, next) => {
+  try {
+    await deleteCustomAiProvider(req.user.tenant_id);
+    await logAuditEvent({ tenantId: req.user.tenant_id, actorType: 'user', actorId: req.user.id, action: 'settings.ai.byok.deleted', entityType: 'custom_ai_provider', entityId: req.user.tenant_id, metadata: {} }).catch(() => {});
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// POST /api/settings/ai/custom-provider/test — validate key against provider
+router.post('/ai/custom-provider/test', requireOwnerRole, async (req, res, next) => {
+  try {
+    const { provider, apiKey } = req.body || {};
+    if (!provider || !apiKey) return res.status(400).json({ error: 'provider and apiKey are required' });
+    if (!VALID_PROVIDERS.has(provider)) return res.status(400).json({ error: `Invalid provider: ${provider}` });
+
+    let ok = false;
+    let errorMsg = null;
+    try {
+      if (provider === 'openai') {
+        const OpenAI = require('openai');
+        const client = new OpenAI({ apiKey });
+        await client.models.list();
+        ok = true;
+      } else if (provider === 'anthropic') {
+        const Anthropic = require('@anthropic-ai/sdk');
+        const client = new Anthropic({ apiKey });
+        await client.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] });
+        ok = true;
+      } else if (provider === 'gemini') {
+        let GoogleGenAI;
+        try { ({ GoogleGenAI } = require('@google/genai')); } catch { errorMsg = 'Gemini SDK not installed on this server'; }
+        if (GoogleGenAI) {
+          const client = new GoogleGenAI({ apiKey });
+          await client.models.generateContent({ model: 'gemini-1.5-flash', contents: 'ping' });
+          ok = true;
+        }
+      }
+    } catch (testErr) {
+      errorMsg = testErr.message;
+    }
+
+    res.json({ ok, error: errorMsg || null });
+  } catch (err) { next(err); }
+});
+
 // GET /api/settings/ai/prompts — list prompt versions for this tenant
 router.get('/ai/prompts', requireReadRole, async (req, res, next) => {
   try {
@@ -1589,7 +1671,7 @@ router.post('/ai/simulate', requireOwnerRole, async (req, res, next) => {
       return res.status(400).json({ error: 'channel is invalid' });
     }
 
-    const { completeText } = require('../../ai/completionClient');
+    const { completeTextForTenant } = require('../../ai/completionClient');
     const { assessTextSafety, buildSafeRefusal } = require('../../ai/safetyGuard');
     const { evaluateForbiddenActions, buildForbiddenRefusal } = require('../../ai/policyEngine');
     const { resolvePromptContent } = require('../../ai/promptRegistry');
@@ -1656,7 +1738,7 @@ Message: ${message}
 
 Write ONE reply only — ready to send on ${channel}. Max 3 lines.`;
 
-      simulatedReply = await completeText({
+      simulatedReply = await completeTextForTenant({
         tenantId: req.user.tenant_id,
         prompt,
         maxTokens: Number(aiConfig.maxTokens || 250),

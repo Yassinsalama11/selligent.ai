@@ -56,6 +56,7 @@ const FEATURE_GROUPS = [
     label: 'Advanced',
     features: [
       { key: 'customAi', label: 'Custom AI' },
+      { key: 'customAiByokEnabled', label: 'BYOK (Bring Your Own Key)' },
       { key: 'sso', label: 'SSO' },
       { key: 'prioritySupport', label: 'Priority Support' },
       { key: 'dedicatedSuccessManager', label: 'Dedicated Success Manager' },
@@ -70,25 +71,25 @@ const DEFAULT_FLAGS_BY_PLAN = {
     livechat: true, instagram: true, messenger: false, whatsapp: false,
     aiAutoReplies: true, aiScoringRouting: false, aiTriggers: false, aiSuggestions: true,
     dealPipeline: false, serviceDesk: false, catalogSync: false, exports: false, extraAgents: false,
-    customAi: false, sso: false, prioritySupport: false, supportSlaHours: 48, dedicatedSuccessManager: false,
+    customAi: false, customAiByokEnabled: false, sso: false, prioritySupport: false, supportSlaHours: 48, dedicatedSuccessManager: false,
   },
   growth: {
     livechat: true, instagram: true, messenger: true, whatsapp: false,
     aiAutoReplies: true, aiScoringRouting: true, aiTriggers: true, aiSuggestions: true,
     dealPipeline: true, serviceDesk: false, catalogSync: true, exports: true, extraAgents: true,
-    customAi: false, sso: false, prioritySupport: true, supportSlaHours: 12, dedicatedSuccessManager: false,
+    customAi: false, customAiByokEnabled: false, sso: false, prioritySupport: true, supportSlaHours: 12, dedicatedSuccessManager: false,
   },
   pro: {
     livechat: true, instagram: true, messenger: true, whatsapp: true,
     aiAutoReplies: true, aiScoringRouting: true, aiTriggers: true, aiSuggestions: true,
     dealPipeline: true, serviceDesk: true, catalogSync: true, exports: true, extraAgents: true,
-    customAi: false, sso: false, prioritySupport: true, supportSlaHours: 8, dedicatedSuccessManager: false,
+    customAi: false, customAiByokEnabled: false, sso: false, prioritySupport: true, supportSlaHours: 8, dedicatedSuccessManager: false,
   },
   enterprise: {
     livechat: true, instagram: true, messenger: true, whatsapp: true,
     aiAutoReplies: true, aiScoringRouting: true, aiTriggers: true, aiSuggestions: true,
     dealPipeline: true, serviceDesk: true, catalogSync: true, exports: true, extraAgents: true,
-    customAi: true, sso: true, prioritySupport: true, supportSlaHours: 4, dedicatedSuccessManager: true,
+    customAi: true, customAiByokEnabled: true, sso: true, prioritySupport: true, supportSlaHours: 4, dedicatedSuccessManager: true,
   },
 };
 

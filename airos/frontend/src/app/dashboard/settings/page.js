@@ -53,7 +53,8 @@ const STRUCTURE = [
     { id: 'ch_whatsapp',  label: 'WhatsApp',              icon: Smartphone },
   ]},
   { group: 'AI', items: [
-    { id: 'ai_config',    label: 'AI Configuration',      icon: Bot },
+    { id: 'ai_config',            label: 'AI Configuration',      icon: Bot },
+    { id: 'custom_ai_provider',   label: 'Custom AI Provider',    icon: Key },
   ]},
   { group: 'ENTERPRISE', items: [
     { id: 'sso',              label: 'Security / SSO',        icon: Shield },
@@ -495,6 +496,15 @@ export default function SettingsPage() {
   const [aiSimResult, setAiSimResult] = useState(null);
   const [aiSimulating, setAiSimulating] = useState(false);
 
+  /* Enterprise: Custom AI Provider (BYOK) */
+  const [byokProvider, setByokProvider] = useState(null);
+  const [byokLoading, setByokLoading] = useState(false);
+  const [byokSaving, setByokSaving] = useState(false);
+  const [byokTesting, setByokTesting] = useState(false);
+  const [byokTestResult, setByokTestResult] = useState(null);
+  const [byokDraft, setByokDraft] = useState({ provider: 'openai', apiKey: '', model: '' });
+  const [byokValidModels, setByokValidModels] = useState({});
+
   /* Enterprise: SSO + Priority Support */
   const [ssoConfig, setSsoConfig] = useState(null);
   const [ssoLoading, setSsoLoading] = useState(false);
@@ -753,6 +763,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (activeId === 'sso') loadSsoConfig();
     if (activeId === 'priority_support') loadPrioritySupport();
+    if (activeId === 'custom_ai_provider') loadByokProvider();
   }, [activeId]); // eslint-disable-line
 
   /* ── Settings helpers ─────────────────────────────────────────────────── */
@@ -1389,6 +1400,78 @@ export default function SettingsPage() {
       toast.error(err.message || 'Simulation failed');
     } finally {
       setAiSimulating(false);
+    }
+  }
+
+  /* ── BYOK Custom AI Provider helpers ─────────────────────────────────── */
+
+  async function loadByokProvider() {
+    setByokLoading(true);
+    setByokTestResult(null);
+    try {
+      const data = await api.get('/api/settings/ai/custom-provider');
+      setByokProvider(data.provider || null);
+      setByokValidModels(data.validModels || {});
+      if (data.provider) {
+        setByokDraft({ provider: data.provider.provider, apiKey: '', model: data.provider.model || '' });
+      }
+    } catch (err) {
+      toast.error(err.message || 'Failed to load provider');
+    } finally {
+      setByokLoading(false);
+    }
+  }
+
+  async function handleSaveByokProvider() {
+    if (!byokDraft.apiKey && !byokProvider) return toast.error('API key is required');
+    if (!byokDraft.apiKey && byokProvider) {
+      // Only updating model — re-fetch current key from server is not possible,
+      // so require a new key entry if changing model on existing provider.
+      // If nothing changed, silently succeed.
+      toast.success('No changes — key unchanged');
+      return;
+    }
+    setByokSaving(true);
+    try {
+      const payload = { provider: byokDraft.provider, apiKey: byokDraft.apiKey };
+      if (byokDraft.model) payload.model = byokDraft.model;
+      const data = await api.put('/api/settings/ai/custom-provider', payload);
+      setByokProvider(data.provider);
+      setByokDraft(d => ({ ...d, apiKey: '' }));
+      toast.success('Custom AI provider saved');
+    } catch (err) {
+      toast.error(err.message || 'Failed to save provider');
+    } finally {
+      setByokSaving(false);
+    }
+  }
+
+  async function handleDeleteByokProvider() {
+    if (!confirm('Remove custom AI provider? The platform default will be used for AI replies.')) return;
+    setByokSaving(true);
+    try {
+      await api.delete('/api/settings/ai/custom-provider');
+      setByokProvider(null);
+      setByokDraft({ provider: 'openai', apiKey: '', model: '' });
+      toast.success('Custom AI provider removed');
+    } catch (err) {
+      toast.error(err.message || 'Failed to remove provider');
+    } finally {
+      setByokSaving(false);
+    }
+  }
+
+  async function handleTestByokKey() {
+    if (!byokDraft.apiKey) return toast.error('Enter an API key to test');
+    setByokTesting(true);
+    setByokTestResult(null);
+    try {
+      const data = await api.post('/api/settings/ai/custom-provider/test', { provider: byokDraft.provider, apiKey: byokDraft.apiKey });
+      setByokTestResult(data);
+    } catch (err) {
+      setByokTestResult({ ok: false, error: err.message });
+    } finally {
+      setByokTesting(false);
     }
   }
 
@@ -4281,7 +4364,94 @@ export default function SettingsPage() {
               );
             })()}
 
-            {/* ── 20. TRIGGERS ──────────────────────────────────────────── */}
+            {/* ── 20. CUSTOM AI PROVIDER (BYOK) ────────────────────────── */}
+            {activeId === 'custom_ai_provider' && (() => {
+              const canEdit = viewerRole === 'owner' || viewerRole === 'admin';
+              const models = byokValidModels[byokDraft.provider] || [];
+              return (
+                <div className="space-y-6">
+                  <SectionHeader title="Custom AI Provider" description="Connect your own OpenAI, Anthropic, or Gemini API key. All auto-replies and AI suggestions for your workspace will use this key instead of the platform default.">
+                    <div className="flex gap-2">
+                      {byokProvider && (
+                        <Button variant="outline" size="sm" disabled={byokSaving || !canEdit} onClick={handleDeleteByokProvider}>Remove</Button>
+                      )}
+                      <Button size="sm" disabled={byokSaving || byokLoading || !canEdit} onClick={handleSaveByokProvider}>
+                        {byokSaving ? 'Saving…' : byokProvider ? 'Update Provider' : 'Save Provider'}
+                      </Button>
+                    </div>
+                  </SectionHeader>
+                  {!canEdit && <Card className="border"><CardContent className="p-4 text-sm text-muted-foreground">Read-only. Only owners and admins can change the AI provider.</CardContent></Card>}
+                  {byokLoading ? (
+                    <Card className="border"><CardContent className="p-8 flex justify-center"><RefreshCcw className="h-5 w-5 animate-spin text-muted-foreground/30" /></CardContent></Card>
+                  ) : (
+                    <div className="space-y-4">
+                      {byokProvider && (
+                        <Card className="border bg-emerald-50 dark:bg-emerald-950/20">
+                          <CardContent className="p-4 flex items-center gap-3">
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                            <div className="text-sm">
+                              <span className="font-medium capitalize">{byokProvider.provider}</span>
+                              {byokProvider.model && <span className="text-muted-foreground"> · {byokProvider.model}</span>}
+                              <span className="text-muted-foreground"> · Key: {byokProvider.maskedKey}</span>
+                              <span className="text-muted-foreground ml-2">· Updated {new Date(byokProvider.updatedAt).toLocaleDateString()}</span>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
+                      <Card className="border shadow-sm bg-card">
+                        <CardContent className="p-6 space-y-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div className="space-y-1.5">
+                              <Label>Provider</Label>
+                              <Select disabled={!canEdit || byokSaving} value={byokDraft.provider} onValueChange={v => setByokDraft(d => ({ ...d, provider: v, model: '' }))}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="openai">OpenAI</SelectItem>
+                                  <SelectItem value="anthropic">Anthropic</SelectItem>
+                                  <SelectItem value="gemini">Google Gemini</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label>API Key {byokProvider ? '(leave blank to keep current)' : ''}</Label>
+                              <Input type="password" disabled={!canEdit || byokSaving} value={byokDraft.apiKey} onChange={e => setByokDraft(d => ({ ...d, apiKey: e.target.value }))} placeholder={byokProvider ? '••••••••' : 'sk-...'} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label>Model (optional)</Label>
+                              {models.length > 0 ? (
+                                <Select disabled={!canEdit || byokSaving} value={byokDraft.model || '__default__'} onValueChange={v => setByokDraft(d => ({ ...d, model: v === '__default__' ? '' : v }))}>
+                                  <SelectTrigger><SelectValue placeholder="Platform default" /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="__default__">Platform default</SelectItem>
+                                    {models.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <Input disabled={!canEdit || byokSaving} value={byokDraft.model} onChange={e => setByokDraft(d => ({ ...d, model: e.target.value }))} placeholder="e.g. gpt-4o" />
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <Button variant="outline" size="sm" disabled={byokTesting || !byokDraft.apiKey} onClick={handleTestByokKey}>
+                              {byokTesting ? 'Testing…' : 'Test Key'}
+                            </Button>
+                            {byokTestResult && (
+                              <span className={cn('text-sm flex items-center gap-1', byokTestResult.ok ? 'text-emerald-600' : 'text-red-500')}>
+                                {byokTestResult.ok ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                                {byokTestResult.ok ? 'Key is valid' : (byokTestResult.error || 'Invalid key')}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">Keys are encrypted at rest with AES-256-GCM and never exposed in plaintext.</p>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── 21. TRIGGERS ──────────────────────────────────────────── */}
             {activeId === 'triggers' && (() => {
               const canManageTriggers = viewerRole === 'owner' || viewerRole === 'admin';
               return (

@@ -6,6 +6,7 @@ const { logAuditEvent } = require('../db/queries/audit');
 const { recordAiUsage } = require('../core/telemetry');
 const { assessTextSafety, buildSafeRefusal } = require('./safetyGuard');
 const { getPlatformAiConfig } = require('../db/queries/platform');
+const { getCustomAiProviderRaw } = require('../db/queries/customAiProvider');
 
 let anthropicClient;
 let openaiClient;
@@ -223,9 +224,83 @@ async function getPlatformAiStatus() {
   };
 }
 
+async function getTenantConfig(tenantId) {
+  if (!tenantId) return null;
+  try {
+    return await getCustomAiProviderRaw(tenantId);
+  } catch {
+    return null;
+  }
+}
+
+async function completeTextWithMetadataForTenant(options) {
+  const { tenantId } = options || {};
+  const tenantProvider = await getTenantConfig(tenantId);
+  if (!tenantProvider) return completeTextWithMetadata(options);
+
+  const { provider, apiKey, model } = tenantProvider;
+  const started = performance.now();
+  const config = await getPlatformConfig();
+  const safetyInput = options.safetyInput == null ? options.prompt : options.safetyInput;
+  const inputGuard = assessTextSafety(safetyInput);
+  if (!inputGuard.allowed) {
+    await logSafetyDenial({ tenantId, purpose: options.purpose, guard: inputGuard, phase: 'input' });
+    return { text: buildSafeRefusal(), provider: 'platform_guard', model: 'safety_guard', usage: {}, safetyDenied: true, safetyCategory: inputGuard.category };
+  }
+
+  let text;
+  let usedModel = model;
+  let usedProvider = provider;
+  let usage = {};
+
+  try {
+    if (provider === 'anthropic') {
+      const client = getAnthropicClient(apiKey);
+      usedModel = model || config.anthropicModel;
+      const response = await client.messages.create({ model: usedModel, max_tokens: options.maxTokens || 300, messages: [{ role: 'user', content: options.prompt }] });
+      text = (response.content?.[0]?.text || '').trim();
+      usage = response.usage || {};
+    } else if (provider === 'openai') {
+      const client = getOpenAIClient(apiKey);
+      usedModel = model || config.openaiModel;
+      const response = await client.chat.completions.create({ model: usedModel, messages: [{ role: 'user', content: options.prompt }], temperature: options.temperature || 0.3, max_tokens: options.maxTokens || 300 });
+      text = (response.choices?.[0]?.message?.content || '').trim();
+      usage = response.usage || {};
+    } else if (provider === 'gemini') {
+      let GoogleGenAI;
+      try { ({ GoogleGenAI } = require('@google/genai')); } catch { return completeTextWithMetadata(options); }
+      const client = new GoogleGenAI({ apiKey });
+      usedModel = model || 'gemini-1.5-flash';
+      const response = await client.models.generateContent({ model: usedModel, contents: options.prompt });
+      text = (response.text || '').trim();
+    } else {
+      return completeTextWithMetadata(options);
+    }
+  } catch {
+    return completeTextWithMetadata(options);
+  }
+
+  const outputGuard = assessTextSafety(text);
+  if (!outputGuard.allowed) {
+    await logSafetyDenial({ tenantId, purpose: options.purpose, guard: outputGuard, phase: 'output' });
+    text = buildSafeRefusal();
+  }
+
+  await recordAiUsage({ tenantId, provider: usedProvider, model: usedModel, purpose: options.purpose || 'tenant_reply', status: outputGuard.allowed ? 'success' : 'blocked', tokensIn: usage.input_tokens || usage.prompt_tokens || 0, tokensOut: usage.output_tokens || usage.completion_tokens || 0, latencyMs: Math.round(performance.now() - started) }).catch(() => {});
+
+  return { text, provider: usedProvider, model: usedModel, usage, safetyDenied: !outputGuard.allowed, safetyCategory: outputGuard.allowed ? null : outputGuard.category };
+}
+
+async function completeTextForTenant(options) {
+  const result = await completeTextWithMetadataForTenant(options || {});
+  return result.text;
+}
+
 module.exports = {
   completeText,
   completeTextWithMetadata,
+  completeTextForTenant,
+  completeTextWithMetadataForTenant,
   getPlatformConfig,
   getPlatformAiStatus,
 };

@@ -143,7 +143,10 @@ function inferMessageType(message = {}, mediaUrl = null, parsedContent = null) {
   if (type) return type;
   const mimeType = String(message.mime_type || message.mimeType || message.metadata?.mime_type || message.metadata?.mimeType || '').toLowerCase();
   if (mimeType.startsWith('image/')) return 'image';
-  if (mediaUrl) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('audio/')) return 'voice';
+  if (mimeType) return 'document';
+  if (mediaUrl) return 'document';
   return 'text';
 }
 

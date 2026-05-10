@@ -108,11 +108,27 @@ async function processWhatsAppMessage(rawMsg, contacts, metadata) {
     });
     const conv = await getOrCreateConversation(tenantId, dbCustomer.id, 'whatsapp');
 
+    let resolvedMediaUrl = message.media_url;
+    if (message.media_url?.startsWith('whatsapp_media:') && tenantMatch?.credentials?.access_token) {
+      const mediaId = message.media_url.slice('whatsapp_media:'.length);
+      try {
+        const { downloadWhatsAppMedia } = require('./mediaDownloader');
+        const downloaded = await downloadWhatsAppMedia({
+          tenantId,
+          mediaId,
+          accessToken: tenantMatch.credentials.access_token,
+        });
+        resolvedMediaUrl = downloaded.url;
+      } catch (dlErr) {
+        console.warn('[WhatsApp] Media download failed, keeping raw ref:', dlErr.message);
+      }
+    }
+
     const savedMsg = await saveMessage(tenantId, conv.id, {
       direction: 'inbound',
       type: message.type,
       content: message.content,
-      media_url: message.media_url,
+      media_url: resolvedMediaUrl,
       sent_by: 'customer',
       metadata: { wa_message_id: rawMsg.id, timestamp: message.timestamp },
     });

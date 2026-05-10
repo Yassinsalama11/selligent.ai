@@ -17,6 +17,11 @@ import {
   Loader2,
   PanelRightOpen,
   PanelRightClose,
+  FileText,
+  Download,
+  Volume2,
+  Video,
+  File,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -34,7 +39,68 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-export function MessageThread({ 
+function isWhatsAppMediaRef(url) {
+  return typeof url === 'string' && url.startsWith('whatsapp_media:');
+}
+
+function renderMediaAttachment(msg) {
+  const { mediaUrl, type, metadata } = msg;
+
+  if (isWhatsAppMediaRef(mediaUrl)) {
+    return (
+      <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-lg bg-muted/50 text-xs text-muted-foreground">
+        <File className="h-4 w-4 shrink-0" />
+        <span>Media unavailable (pending download)</span>
+      </div>
+    );
+  }
+
+  if (type === 'image') {
+    return (
+      <a href={mediaUrl} target="_blank" rel="noopener noreferrer" className="block mb-2">
+        <img
+          src={mediaUrl}
+          alt="Attachment"
+          className="rounded-lg max-w-full h-auto border bg-muted cursor-zoom-in"
+        />
+      </a>
+    );
+  }
+
+  if (type === 'video') {
+    return (
+      <video
+        src={mediaUrl}
+        controls
+        className="rounded-lg mb-2 max-w-full border bg-muted"
+      />
+    );
+  }
+
+  if (type === 'voice' || type === 'audio') {
+    return (
+      <audio src={mediaUrl} controls className="mb-2 w-full" />
+    );
+  }
+
+  const fileName = metadata?.file_name || metadata?.fileName || mediaUrl.split('/').pop() || 'attachment';
+  const fileIcon = type === 'document' ? <FileText className="h-5 w-5 text-primary" /> : <File className="h-5 w-5 text-muted-foreground" />;
+
+  return (
+    <a
+      href={mediaUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-3 mb-2 px-3 py-2 rounded-lg bg-muted/60 hover:bg-muted transition-colors text-sm no-underline"
+    >
+      {fileIcon}
+      <span className="flex-1 truncate text-foreground">{fileName}</span>
+      <Download className="h-4 w-4 text-muted-foreground shrink-0" />
+    </a>
+  );
+}
+
+export function MessageThread({
   conversation, 
   messages, 
   loading, 
@@ -246,13 +312,7 @@ export function MessageThread({
                       ? "bg-primary text-primary-foreground rounded-br-none" 
                       : "bg-card border text-foreground rounded-bl-none"
                   )}>
-                    {msg.type === 'image' && msg.mediaUrl && (
-                      <img 
-                        src={msg.mediaUrl} 
-                        alt="Attachment" 
-                        className="rounded-lg mb-2 max-w-full h-auto border bg-muted" 
-                      />
-                    )}
+                    {msg.mediaUrl && renderMediaAttachment(msg)}
                     {msg.content}
                   </div>
                   {showAvatar && (
