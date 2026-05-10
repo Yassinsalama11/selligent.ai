@@ -768,7 +768,15 @@ async function sendBillingEmail(template, tenant, variables = {}) {
   });
 }
 
+const _webhookAlertThrottle = new Map();
+const WEBHOOK_ALERT_COOLDOWN_MS = 10 * 60 * 1000; // 1 alert per source per 10 minutes
+
 async function sendWebhookFailureAlert({ tenantId, webhookSource, errorSummary }) {
+  const key = `${tenantId}:${webhookSource || 'unknown'}`;
+  const lastSent = _webhookAlertThrottle.get(key) || 0;
+  if (Date.now() - lastSent < WEBHOOK_ALERT_COOLDOWN_MS) return null;
+  _webhookAlertThrottle.set(key, Date.now());
+
   const tenant = await getTenantById(tenantId);
   if (!tenant) return null;
   const admins = await listTenantAdminRecipients(tenantId);

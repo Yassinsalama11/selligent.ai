@@ -62,6 +62,7 @@ const { runPerformanceMigrations } = require('./db/migrations');
 const { validateTenantStatsBackfill } = require('./db/validate_backfill');
 const { startWorker } = require('./core/queue');
 const { startMessageWorker } = require('./workers/messageProcessor');
+const { startFacebookStatusSync } = require('./core/facebookStatusSync');
 const { runLifecycleEmailSweep } = require('./services/email/emailService');
 
 const telemetry = initTelemetry();
@@ -331,6 +332,7 @@ async function bootstrap() {
   try {
     if (process.env.ENABLE_REPORT_SCHEDULER !== '0' && process.env.DATABASE_URL) {
       startReportScheduler();
+      startFacebookStatusSync();
       const EMAIL_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
       setTimeout(function fireEmailSweep() {
         runLifecycleEmailSweep()

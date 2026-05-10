@@ -257,8 +257,8 @@ async function processRoutedResult(result, jobId = 'inline') {
       offers,
     });
   } catch (err) {
-    console.error('[Worker] Intent detection failed:', err.message);
-    return;
+    console.error('[Worker] Intent detection failed (using fallback):', err.message);
+    analysis = { intent: 'general', sentiment: 'neutral', lead_score: 30, language: 'arabic', suggested_stage: null };
   }
 
   // 4. Adjust lead score with business rules

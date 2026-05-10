@@ -105,6 +105,13 @@ async function logSafetyDenial({ tenantId, purpose, guard, phase }) {
   }
 }
 
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`AI completion timed out after ${ms}ms (${label})`)), ms)),
+  ]);
+}
+
 async function completeTextWithMetadata({
   prompt,
   maxTokens = 300,
@@ -113,6 +120,7 @@ async function completeTextWithMetadata({
   temperature = 0.3,
   safetyInput = null,
   modelPreference = '',
+  timeoutMs = 30000,
 }) {
   const inputGuard = assessTextSafety(safetyInput == null ? prompt : safetyInput);
   if (!inputGuard.allowed) {
@@ -147,23 +155,27 @@ async function completeTextWithMetadata({
   if ((provider === 'anthropic' || !openai) && anthropic) {
     provider = 'anthropic';
     model = requestedModel && allowedModels.has(requestedModel) ? requestedModel : config.anthropicModel;
-    const response = await anthropic.messages.create({
-      model,
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    const response = await withTimeout(
+      anthropic.messages.create({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
+      timeoutMs,
+      `anthropic/${model}`,
+    );
     text = (response.content?.[0]?.text || '').trim();
     usage = response.usage || {};
   } else if (openai) {
     provider = 'openai';
     model = requestedModel && allowedModels.has(requestedModel) ? requestedModel : config.openaiModel;
-    const response = await openai.chat.completions.create({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: Number.isFinite(Number(config.temperature)) ? Number(config.temperature) : temperature,
-      max_tokens: maxTokens,
-      top_p: Number.isFinite(Number(config.topP)) ? Number(config.topP) : 1,
-    });
+    const response = await withTimeout(
+      openai.chat.completions.create({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: Number.isFinite(Number(config.temperature)) ? Number(config.temperature) : temperature,
+        max_tokens: maxTokens,
+        top_p: Number.isFinite(Number(config.topP)) ? Number(config.topP) : 1,
+      }),
+      timeoutMs,
+      `openai/${model}`,
+    );
     text = (response.choices?.[0]?.message?.content || '').trim();
     usage = response.usage || {};
   } else {

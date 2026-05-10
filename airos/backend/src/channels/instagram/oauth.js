@@ -272,7 +272,8 @@ function encryptCredentials(obj) {
 
 function decryptCredentials(encrypted) {
   const [ivHex, tagHex, encHex] = encrypted.split(':');
-  const key = Buffer.from(process.env.ENCRYPTION_KEY || '').slice(0, 32);
+  const raw = process.env.ENCRYPTION_KEY || '';
+  const key = raw ? crypto.createHash('sha256').update(raw).digest() : Buffer.alloc(32);
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
   decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
   const dec = Buffer.concat([decipher.update(Buffer.from(encHex, 'hex')), decipher.final()]);
