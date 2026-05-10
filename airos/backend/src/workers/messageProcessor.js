@@ -533,12 +533,26 @@ async function maybeSendAutoReply({
               customer,
             });
           } catch {}
+          return;
         }
       } catch (err) {
         console.warn('[Worker] Fallback reply send failed (non-fatal):', err.message);
       }
     }
     console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'empty_suggestion' }));
+    if (conversationAutoMode) {
+      try {
+        const reason = suggestion === null ? 'AI provider error — no reply generated. Check Admin → AI Control.' : 'AI generated an empty reply.';
+        const systemMsg = await saveMessage(tenantId, conversation.id, {
+          direction: 'outbound', type: 'system', content: `⚠️ AI could not reply: ${reason}`, sent_by: 'ai',
+          metadata: { ai_event: true, ai_skip_reason: 'empty_suggestion' },
+        });
+        const io = getIO();
+        io.to(`tenant:${tenantId}:conversations`).emit('message:new', {
+          message: systemMsg, conversation: { id: conversation.id, tenant_id: tenantId }, customer,
+        });
+      } catch {}
+    }
     return;
   }
 
@@ -587,49 +601,39 @@ async function maybeSendAutoReply({
       text,
     });
   } catch (err) {
+    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'send_failed', error: err.message }));
     try {
-      await saveMessage(tenantId, conversation.id, {
+      const failedMsg = await saveMessage(tenantId, conversation.id, {
         direction: 'outbound',
-        type: 'text',
-        content: text,
+        type: 'system',
+        content: `⚠️ AI reply failed to send: ${err.message}`,
         sent_by: 'ai',
-        metadata: {
-          ai_auto_reply: true,
-          send_status: 'failed',
-          send_error: err.message,
-          suggestion_id: suggestion?.id || null,
-        },
+        metadata: { ai_event: true, ai_skip_reason: 'send_failed', send_error: err.message, ai_reply_text: text, suggestion_id: suggestion?.id || null },
+      });
+      const io = getIO();
+      io.to(`tenant:${tenantId}:conversations`).emit('message:new', {
+        message: failedMsg, conversation: { id: conversation.id, tenant_id: tenantId }, customer,
       });
     } catch {}
-    console.log('AI_SKIPPED_REASON', JSON.stringify({
-      ...logContext,
-      reason: 'send_failed',
-      error: err.message,
-    }));
     return;
   }
 
   if (sendResult.status !== 'sent') {
-    if (sendResult.reason) {
-      try {
-        await saveMessage(tenantId, conversation.id, {
-          direction: 'outbound',
-          type: 'text',
-          content: text,
-          sent_by: 'ai',
-          metadata: {
-            ai_auto_reply: true,
-            send_status: 'skipped',
-            send_error: sendResult.reason,
-            suggestion_id: suggestion?.id || null,
-          },
-        });
-      } catch {}
-    }
-    console.log('AI_SKIPPED_REASON', JSON.stringify({
-      ...logContext,
-      reason: sendResult.reason || 'send_not_supported',
-    }));
+    const skipReason = sendResult.reason || 'send_not_supported';
+    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: skipReason }));
+    try {
+      const skippedMsg = await saveMessage(tenantId, conversation.id, {
+        direction: 'outbound',
+        type: 'system',
+        content: `⚠️ AI reply not sent: ${skipReason === 'missing_whatsapp_send_context' ? 'WhatsApp credentials missing or expired — reconnect channel in Settings.' : skipReason}`,
+        sent_by: 'ai',
+        metadata: { ai_event: true, ai_skip_reason: skipReason, ai_reply_text: text, suggestion_id: suggestion?.id || null },
+      });
+      const io = getIO();
+      io.to(`tenant:${tenantId}:conversations`).emit('message:new', {
+        message: skippedMsg, conversation: { id: conversation.id, tenant_id: tenantId }, customer,
+      });
+    } catch {}
     return;
   }
 

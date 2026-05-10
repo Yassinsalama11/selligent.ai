@@ -11,6 +11,7 @@ import {
   Bot,
   User,
   ShieldCheck,
+  AlertTriangle,
   MessageSquare,
   Sparkles,
   X,
@@ -260,6 +261,24 @@ export function MessageThread({
             const isAgent = ['agent', 'ai'].includes(msg.sent_by);
             const isInternal = msg.direction === 'internal';
             const showAvatar = idx === 0 || messages[idx-1].sent_by !== msg.sent_by;
+
+            if (msg.type === 'system') {
+              return (
+                <div key={msg.id} className="flex flex-col items-center py-2">
+                  <div className="max-w-[80%] flex items-start gap-3 bg-orange-500/5 border border-orange-500/15 rounded-xl p-3">
+                    <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0 mt-0.5" />
+                    <div className="flex flex-col gap-1">
+                      <p className="text-[13px] text-orange-900/80 dark:text-orange-200/80 leading-relaxed">
+                        {msg.content}
+                      </p>
+                      <span className="text-[9px] text-orange-500/60 font-semibold uppercase tracking-tighter">
+                        AI Event • {msg.timestamp}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
 
             if (isInternal) {
               return (
