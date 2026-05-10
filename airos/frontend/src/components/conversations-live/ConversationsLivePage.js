@@ -657,9 +657,13 @@ export default function ConversationsLivePage() {
         reader.readAsDataURL(file);
       });
       const uploaded = await api.post('/api/uploads', { file_name: file.name, mime_type: file.type, size: file.size, data });
-      await api.post(`/api/conversations/${encodeURIComponent(activeConversationId)}/messages`, {
-        content: file.name, type: uploaded.type || (file.type.startsWith('image/') ? 'image' : 'file'), media_url: uploaded.url
+      const msgType = uploaded.type || (file.type.startsWith('image/') ? 'image' : 'file');
+      const response = await api.post(`/api/conversations/${encodeURIComponent(activeConversationId)}/messages`, {
+        content: file.name, type: msgType, media_url: uploaded.url,
+        mime_type: file.type, size: file.size,
       });
+      const confirmed = normalizeMessage(response?.message || { content: file.name, type: msgType, media_url: uploaded.url, sent_by: 'agent', timestamp: new Date().toISOString() }, activeConversationId);
+      setMessages((current) => upsertMessage(current, confirmed));
       toast.success('File uploaded');
     } catch {
       toast.error('Upload failed');

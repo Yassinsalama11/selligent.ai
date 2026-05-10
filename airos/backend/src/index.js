@@ -61,6 +61,7 @@ const { ensureRuntimeSchema } = require('./db/runtimeSchema');
 const { runPerformanceMigrations } = require('./db/migrations');
 const { validateTenantStatsBackfill } = require('./db/validate_backfill');
 const { startWorker } = require('./core/queue');
+const { startMessageWorker } = require('./workers/messageProcessor');
 const { runLifecycleEmailSweep } = require('./services/email/emailService');
 
 const telemetry = initTelemetry();
@@ -309,6 +310,7 @@ async function bootstrap() {
   try {
     if (process.env.REDIS_URL) {
       startWorker().catch(err => logger.warn('[QUEUE WARNING] background worker error', { error: err.message }));
+      startMessageWorker();
       console.log('[QUEUE] worker start initiated');
     }
   } catch (err) {

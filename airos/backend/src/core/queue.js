@@ -164,13 +164,16 @@ async function startWorker() {
 
   if (IS_DEBUG) console.log('[QUEUE] Background worker started');
 
+  // Use non-blocking rpop + sleep instead of brpop to avoid Redis commandTimeout conflicts
   while (true) {
     try {
-      const result = await redis.brpop(QUEUE_KEY, 5);
+      const result = await redis.rpop(QUEUE_KEY);
       if (result) {
-        const job = JSON.parse(result[1]);
+        const job = JSON.parse(result);
         if (IS_DEBUG) console.log(`[QUEUE] Processing ${job.type}...`);
         await processJob(job);
+      } else {
+        await new Promise(r => setTimeout(r, 5000));
       }
     } catch (err) {
       console.error(`[QUEUE] Worker error: ${err.message}`);

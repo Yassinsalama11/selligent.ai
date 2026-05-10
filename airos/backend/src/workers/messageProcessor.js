@@ -841,4 +841,19 @@ if (require.main === module) {
   console.log('[Worker] Message processor running');
 }
 
-module.exports = { addToQueue, getMessageQueue, processMessage, processSavedInboundMessage };
+function startMessageWorker() {
+  if (!hasRedisConfig()) {
+    console.warn('[MessageWorker] REDIS_URL not configured, skipping');
+    return null;
+  }
+  const worker = new Worker('messages', async (job) => processQueuedPayload(job.data, job.id), {
+    connection: getQueueConnection(),
+    concurrency: 5,
+  });
+  worker.on('completed', (job) => console.log(`[MessageWorker] done:`, job.id));
+  worker.on('failed', (job, err) => console.error(`[MessageWorker] failed:`, job?.id, err.message));
+  console.log('[MessageWorker] BullMQ worker started');
+  return worker;
+}
+
+module.exports = { addToQueue, getMessageQueue, processMessage, processSavedInboundMessage, startMessageWorker };
