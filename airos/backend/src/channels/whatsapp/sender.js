@@ -100,4 +100,41 @@ function _post(url, token, body) {
   });
 }
 
-module.exports = { sendText, sendImage, sendTemplate, markRead };
+async function sendDocument(phoneNumberId, token, to, documentUrl, filename = 'attachment', caption = '') {
+  return _post(`${BASE_URL}/${phoneNumberId}/messages`, token, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'document',
+    document: {
+      link: documentUrl,
+      filename,
+      ...(caption ? { caption } : {}),
+    },
+  });
+}
+
+async function sendAudio(phoneNumberId, token, to, audioUrl) {
+  return _post(`${BASE_URL}/${phoneNumberId}/messages`, token, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'audio',
+    audio: { link: audioUrl },
+  });
+}
+
+async function sendVideo(phoneNumberId, token, to, videoUrl, caption = '') {
+  return _post(`${BASE_URL}/${phoneNumberId}/messages`, token, {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'video',
+    video: {
+      link: videoUrl,
+      ...(caption ? { caption } : {}),
+    },
+  });
+}
+
+module.exports = { sendText, sendImage, sendDocument, sendAudio, sendVideo, sendTemplate, markRead };

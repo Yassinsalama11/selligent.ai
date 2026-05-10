@@ -463,17 +463,20 @@ async function maybeSendAutoReply({
     return;
   }
 
-  // Global AI gate — check aiConfig.autoReply (false = suggest-only mode globally)
+  // Global AI gate — bypassed when conversation ai_mode is explicitly 'auto' (per-conversation override)
   const aiConfig = tenantSettings?.aiConfig || {};
-  if (aiConfig.autoReply === false) {
-    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_auto_reply_disabled' }));
-    return;
+  const conversationAutoMode = conversation?.ai_mode === 'auto';
+  if (!conversationAutoMode) {
+    if (aiConfig.autoReply === false) {
+      console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_auto_reply_disabled' }));
+      return;
+    }
+    if (aiConfig.suggestOnly === true) {
+      console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_suggest_only' }));
+      return;
+    }
   }
-  if (aiConfig.suggestOnly === true) {
-    console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_suggest_only' }));
-    return;
-  }
-  if (aiTimeBehavior === 'suggest') {
+  if (!conversationAutoMode && aiTimeBehavior === 'suggest') {
     console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'ai_time_behavior_suggest_only' }));
     return;
   }

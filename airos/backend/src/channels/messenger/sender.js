@@ -74,4 +74,18 @@ function _post(url, token, body) {
   });
 }
 
-module.exports = { sendText, sendImage, sendQuickReplies };
+async function sendFile(pageId, token, recipientId, fileUrl, type = 'file') {
+  const attachmentType = type === 'video' ? 'video' : type === 'voice' || type === 'audio' ? 'audio' : 'file';
+  return _post(`${BASE_URL}/${pageId}/messages`, token, {
+    recipient: { id: recipientId },
+    message: {
+      attachment: {
+        type: attachmentType,
+        payload: { url: fileUrl, is_reusable: true },
+      },
+    },
+    messaging_type: 'RESPONSE',
+  });
+}
+
+module.exports = { sendText, sendImage, sendFile, sendQuickReplies };
