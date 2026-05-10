@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { AlertTriangle, Bot, BrainCircuit, KeyRound, RefreshCcw, Save, ShieldCheck, Sparkles } from 'lucide-react';
+import { AlertTriangle, Bot, BrainCircuit, CheckCircle2, FlaskConical, KeyRound, RefreshCcw, Save, ShieldCheck, Sparkles } from 'lucide-react';
 
 import { adminApi } from '@/lib/adminApi';
 import { Badge } from '@/components/ui/badge';
@@ -33,6 +33,8 @@ function summarizeConfig(config) {
 export default function AdminAiPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
   const [config, setConfig] = useState(null);
   const [providerStatus, setProviderStatus] = useState(null);
   const [tenantUsage, setTenantUsage] = useState([]);
@@ -66,6 +68,21 @@ export default function AdminAiPage() {
 
   function setField(field, value) {
     setConfig((current) => ({ ...current, [field]: value }));
+  }
+
+  async function testProvider() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await adminApi.post('/api/admin/ai/test-provider', {});
+      setTestResult({ ok: true, provider: result.provider, model: result.model, reply: result.reply, latencyMs: result.latencyMs });
+      toast.success(`Provider OK — ${result.provider}/${result.model} (${result.latencyMs}ms)`);
+    } catch (err) {
+      setTestResult({ ok: false, error: err.message });
+      toast.error(`Provider test failed: ${err.message}`);
+    } finally {
+      setTesting(false);
+    }
   }
 
   async function save() {
@@ -133,10 +150,14 @@ export default function AdminAiPage() {
             Control provider routing, model defaults, and tenant isolation from a single platform surface.
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Button variant="outline" onClick={load} className="gap-2">
             <RefreshCcw className="h-4 w-4" />
             Refresh
+          </Button>
+          <Button variant="outline" onClick={testProvider} disabled={testing} className="gap-2">
+            <FlaskConical className="h-4 w-4" />
+            {testing ? 'Testing…' : 'Test provider'}
           </Button>
           <Button onClick={save} disabled={saving} className="gap-2">
             <Save className="h-4 w-4" />
@@ -155,6 +176,20 @@ export default function AdminAiPage() {
               Alternatively set <code className="rounded bg-red-500/10 px-1">PLATFORM_ANTHROPIC_API_KEY</code> or{' '}
               <code className="rounded bg-red-500/10 px-1">PLATFORM_OPENAI_API_KEY</code> in your environment variables.
             </p>
+          </div>
+        </div>
+      )}
+
+      {testResult && (
+        <div className={`flex items-start gap-3 rounded-xl border px-4 py-4 text-sm ${testResult.ok ? 'border-green-500/30 bg-green-500/5 text-green-700 dark:text-green-400' : 'border-red-500/30 bg-red-500/5 text-red-600 dark:text-red-400'}`}>
+          {testResult.ok
+            ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
+            : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />}
+          <div>
+            {testResult.ok
+              ? <p className="font-semibold">Provider OK — {testResult.provider} / {testResult.model} ({testResult.latencyMs}ms)</p>
+              : <p className="font-semibold">Provider test failed: {testResult.error}</p>}
+            {testResult.reply && <p className="mt-1 text-xs opacity-70 font-mono">{testResult.reply}</p>}
           </div>
         </div>
       )}

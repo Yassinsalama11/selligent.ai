@@ -889,6 +889,64 @@ router.patch('/ai-control', adminAuthMiddleware, async (req, res, next) => {
   }
 });
 
+router.get('/ai/diagnostics', adminAuthMiddleware, async (req, res, next) => {
+  try {
+    const config = await getPlatformConfig();
+    const { queryAdmin: q } = require('../../db/pool');
+
+    const [recentSkips, byokCount] = await Promise.all([
+      q(`SELECT metadata->>'ai_skip_reason' AS reason, COUNT(*)::int AS count
+         FROM messages
+         WHERE type = 'system' AND metadata->>'ai_event' = 'true'
+           AND created_at > NOW() - INTERVAL '24 hours'
+         GROUP BY reason ORDER BY count DESC LIMIT 10`).then((r) => r.rows),
+      q(`SELECT COUNT(*)::int AS count FROM custom_ai_providers WHERE is_active = TRUE`).then((r) => r.rows[0]?.count || 0),
+    ]);
+
+    return res.json({
+      platform: {
+        configured: Boolean(config.anthropicKey || config.openaiKey),
+        provider: config.provider,
+        model: config.provider === 'anthropic' ? config.anthropicModel : config.openaiModel,
+        anthropicConfigured: Boolean(config.anthropicKey),
+        openaiConfigured: Boolean(config.openaiKey),
+        source: config.source,
+      },
+      byok: { tenantCount: byokCount },
+      recentFailures: recentSkips,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/ai/test-provider', adminAuthMiddleware, async (req, res, next) => {
+  try {
+    const { completeTextWithMetadata } = require('../../ai/completionClient');
+    const started = Date.now();
+    let result;
+    try {
+      result = await completeTextWithMetadata({
+        prompt: 'Reply with exactly: AI provider test successful',
+        maxTokens: 30,
+        purpose: 'provider_test',
+        timeoutMs: 15000,
+      });
+    } catch (err) {
+      return res.status(502).json({ ok: false, error: err.message, latencyMs: Date.now() - started });
+    }
+    return res.json({
+      ok: !result.safetyDenied,
+      provider: result.provider,
+      model: result.model,
+      reply: result.text,
+      latencyMs: Date.now() - started,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.get('/team', adminAuthMiddleware, async (req, res, next) => {
   try {
     const members = await listPlatformTeamMembers();

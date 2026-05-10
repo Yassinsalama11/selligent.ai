@@ -66,14 +66,14 @@ const DEFAULT_PLANS = [
 
 const DEFAULT_AI_CONFIG = {
   provider: process.env.PLATFORM_AI_PROVIDER || 'openai',
-  activeModel: process.env.PLATFORM_OPENAI_MODEL || process.env.PLATFORM_ANTHROPIC_MODEL || 'gpt-5.4-mini',
+  activeModel: process.env.PLATFORM_OPENAI_MODEL || process.env.PLATFORM_ANTHROPIC_MODEL || 'gpt-4o-mini',
   fallbackModel: process.env.PLATFORM_OPENAI_FALLBACK_MODEL || process.env.PLATFORM_ANTHROPIC_FALLBACK_MODEL || '',
   enabledModels: [],
   defaultModelByPlan: {
-    starter: 'gpt-5.4-mini',
-    growth: 'gpt-5.4-mini',
-    pro: 'gpt-5.4',
-    enterprise: 'gpt-5.4',
+    starter: 'gpt-4o-mini',
+    growth: 'gpt-4o-mini',
+    pro: 'gpt-4o',
+    enterprise: 'gpt-4o',
   },
   safetyMode: 'strict',
   responseMode: 'balanced',
@@ -246,6 +246,14 @@ async function ensurePlatformControlSchema() {
     DEFAULT_AI_CONFIG.topP,
     JSON.stringify(DEFAULT_AI_CONFIG.chator),
   ]);
+
+  // Heal rows that have non-existent model names from a previous bad default.
+  await queryAdmin(`
+    UPDATE platform_ai_config
+    SET active_model = $1, updated_at = NOW()
+    WHERE singleton = TRUE
+      AND active_model IN ('gpt-5.4-mini', 'gpt-5.4', 'gpt-5', '')
+  `, [DEFAULT_AI_CONFIG.activeModel]);
 }
 
 function mapPlanRow(row) {
