@@ -49,8 +49,8 @@ function getAiTimeBehavior(responseControl = {}, globalSettings = {}, date = new
     ? isWithinWorkingHours(globalSettings, date)
     : true;
   const key = withinHours ? 'businessHoursAiBehavior' : 'afterHoursAiBehavior';
-  const value = responseControl?.[key] || (withinHours ? 'auto' : 'suggest');
-  return ['auto', 'suggest', 'off'].includes(value) ? value : (withinHours ? 'auto' : 'suggest');
+  const value = responseControl?.[key] || 'auto';
+  return ['auto', 'suggest', 'off'].includes(value) ? value : 'auto';
 }
 
 function parseSilentModeConditions(value = '') {

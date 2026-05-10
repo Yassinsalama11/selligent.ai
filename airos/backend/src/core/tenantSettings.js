@@ -44,7 +44,7 @@ const DEFAULT_AI_CONFIG = {
     escalationThreshold: 3,
     silentModeConditions: '',
     businessHoursAiBehavior: 'auto',
-    afterHoursAiBehavior: 'suggest',
+    afterHoursAiBehavior: 'auto',
   },
   forbiddenActions: [],
   handoffRules: [],
