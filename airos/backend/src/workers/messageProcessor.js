@@ -211,11 +211,13 @@ async function processRoutedResult(result, jobId = 'inline') {
     ).then(r => r.rows),
   ]);
 
-  const messageText = unified.message.content;
+  const messageText = String(unified.message.content || unified.message.media_url || '').trim();
   const tenantSettings = normalizeTenantSettings(tenantRow?.settings);
   const channelCfg = tenantSettings?.channels?.[conversation?.channel];
 
-  if (channelCfg?.aiEnabled === false) {
+  const conversationInAutoMode = conversation?.ai_mode === 'auto';
+
+  if (!conversationInAutoMode && channelCfg?.aiEnabled === false) {
     console.log('AI_SKIPPED_REASON', JSON.stringify({
       tenantId,
       conversationId: conversation?.id,
@@ -233,7 +235,7 @@ async function processRoutedResult(result, jobId = 'inline') {
     new Date(),
     isWithinWorkingHours,
   );
-  if (aiTimeBehavior === 'off') {
+  if (!conversationInAutoMode && aiTimeBehavior === 'off') {
     console.log('AI_SKIPPED_REASON', JSON.stringify({
       tenantId,
       conversationId: conversation?.id,
@@ -356,6 +358,7 @@ async function processRoutedResult(result, jobId = 'inline') {
     });
   } catch (err) {
     console.error('[Worker] Reply generation failed:', err.message);
+    suggestion = null;
   }
 
   await maybeSendAutoReply({
@@ -545,7 +548,7 @@ async function maybeSendAutoReply({
 
   const text = String(suggestion?.suggested_reply || '').trim();
   if (!text) {
-    const fallback = String(channelCfg?.fallbackReply || '').trim();
+    const fallback = String(channelCfg?.fallbackReply || tenantSettings?.aiConfig?.fallbackReply || '').trim();
     if (fallback) {
       try {
         const fallbackSend = await sendAutoReplyToChannel({ channel: conversation.channel, credentials, customer, text: fallback });
