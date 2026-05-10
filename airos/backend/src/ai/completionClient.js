@@ -189,16 +189,18 @@ async function completeTextWithMetadata({
     text = buildSafeRefusal();
   }
 
-  await recordAiUsage({
-    tenantId,
-    provider,
-    model,
-    purpose,
-    status: outputGuard.allowed ? 'success' : 'blocked',
-    tokensIn: usage.input_tokens || usage.prompt_tokens || 0,
-    tokensOut: usage.output_tokens || usage.completion_tokens || 0,
-    latencyMs: Math.round(performance.now() - started),
-  }).catch(() => {});
+  try {
+    recordAiUsage({
+      tenantId,
+      provider,
+      model,
+      purpose,
+      status: outputGuard.allowed ? 'success' : 'blocked',
+      tokensIn: usage.input_tokens || usage.prompt_tokens || 0,
+      tokensOut: usage.output_tokens || usage.completion_tokens || 0,
+      latencyMs: Math.round(performance.now() - started),
+    });
+  } catch {}
 
   return {
     text,
@@ -299,7 +301,7 @@ async function completeTextWithMetadataForTenant(options) {
     text = buildSafeRefusal();
   }
 
-  await recordAiUsage({ tenantId, provider: usedProvider, model: usedModel, purpose: options.purpose || 'tenant_reply', status: outputGuard.allowed ? 'success' : 'blocked', tokensIn: usage.input_tokens || usage.prompt_tokens || 0, tokensOut: usage.output_tokens || usage.completion_tokens || 0, latencyMs: Math.round(performance.now() - started) }).catch(() => {});
+  try { recordAiUsage({ tenantId, provider: usedProvider, model: usedModel, purpose: options.purpose || 'tenant_reply', status: outputGuard.allowed ? 'success' : 'blocked', tokensIn: usage.input_tokens || usage.prompt_tokens || 0, tokensOut: usage.output_tokens || usage.completion_tokens || 0, latencyMs: Math.round(performance.now() - started) }); } catch {}
 
   return { text, provider: usedProvider, model: usedModel, usage, safetyDenied: !outputGuard.allowed, safetyCategory: outputGuard.allowed ? null : outputGuard.category };
 }
