@@ -11,8 +11,11 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://chatorai.com',
+  'https://www.chatorai.com',
   'http://localhost:3010',
+  'http://localhost:3011',
   'http://127.0.0.1:3010',
+  'http://127.0.0.1:3011',
 ];
 
 function loadRedisAdapter() {
@@ -53,6 +56,14 @@ function isAllowedOrigin(origin, allowedOrigins = getAllowedOrigins()) {
     parsed = new URL(origin);
   } catch {
     return false;
+  }
+
+  // Any HTTPS subdomain of chatorai.com is always allowed
+  if (
+    parsed.protocol === 'https:' &&
+    (parsed.hostname === 'chatorai.com' || parsed.hostname.endsWith('.chatorai.com'))
+  ) {
+    return true;
   }
 
   return allowedOrigins.includes(parsed.origin);
