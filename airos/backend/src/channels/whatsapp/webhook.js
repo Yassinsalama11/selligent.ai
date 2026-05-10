@@ -14,6 +14,7 @@ const { addToQueue } = require('../../workers/messageProcessor');
 const { verifyMetaSignature } = require('../verify');
 const { markRead } = require('./sender');
 const { sendWebhookFailureAlert } = require('../../services/email/emailService');
+const { logMetaWebhookEvent, markMetaWebhookEventProcessed } = require('../../core/metaWebhookLogger');
 
 /* ── GET /webhooks/whatsapp — Meta verification ────────────────────────────── */
 router.get('/whatsapp', (req, res) => {
@@ -99,6 +100,23 @@ async function processWhatsAppMessage(rawMsg, contacts, metadata) {
 
     console.log(`[WhatsApp] Message from ${custInfo.name} (${custInfo.phone}): ${message.content}`);
 
+    logMetaWebhookEvent({
+      tenantId,
+      channel: 'whatsapp',
+      assetType: 'whatsapp_number',
+      assetId: metadata?.phone_number_id,
+      assetName: tenantMatch?.credentials?.display_name || tenantMatch?.credentials?.phone || metadata?.phone_number_id,
+      eventType: 'message',
+      providerEventId: rawMsg.id,
+      summary: `Inbound ${message.type} from ${custInfo.name || custInfo.phone}`,
+      rawPayloadRedacted: {
+        phone_number_id: metadata?.phone_number_id,
+        waba_id: tenantMatch?.credentials?.waba_id,
+        type: message.type,
+        has_text: Boolean(message.content),
+      },
+    });
+
     const dbCustomer = await getOrCreateCustomer(tenantId, {
       channel: 'whatsapp',
       channelCustomerId: custInfo.phone || custInfo.id,
@@ -157,6 +175,8 @@ async function processWhatsAppMessage(rawMsg, contacts, metadata) {
     } catch (e) {
       console.warn('[WhatsApp] Socket emit failed:', e.message);
     }
+
+    markMetaWebhookEventProcessed(rawMsg.id);
 
     if (message.content && message.type === 'text') {
       addToQueue({

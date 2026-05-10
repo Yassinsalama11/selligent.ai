@@ -10,6 +10,7 @@ const { addToQueue } = require('../../workers/messageProcessor');
 const { verifyMetaSignature } = require('../verify');
 const { normalizeInstagram } = require('./normalizer');
 const { sendWebhookFailureAlert } = require('../../services/email/emailService');
+const { logMetaWebhookEvent, markMetaWebhookEventProcessed } = require('../../core/metaWebhookLogger');
 
 /* ── Fetch real customer name from Meta Graph API ───────────────────────────── */
 async function fetchIgName(userId, token) {
@@ -147,6 +148,20 @@ async function processInstagramMessage(msg, entryId) {
 
     console.log(`[Instagram] Message from ${displayName} (${senderId}) page=${pageId}: ${text}`);
 
+    logMetaWebhookEvent({
+      tenantId,
+      channel: 'instagram',
+      assetType: 'ig_account',
+      assetId: pageId,
+      assetName: tenantMatch?.credentials?.instagram_business_account_username
+        || tenantMatch?.credentials?.page_name
+        || pageId,
+      eventType: 'message',
+      providerEventId: msgId,
+      summary: `Inbound ${normalized.message.type} from ${displayName}`,
+      rawPayloadRedacted: { sender_id: senderId, page_id: pageId, type: normalized.message.type, has_text: Boolean(text) },
+    });
+
     const dbCustomer = await getOrCreateCustomer(tenantId, {
       channel: 'instagram',
       channelCustomerId: senderId,
@@ -171,6 +186,8 @@ async function processInstagramMessage(msg, entryId) {
         channel: 'instagram',
       });
     } catch {}
+
+    markMetaWebhookEventProcessed(msgId);
 
     if (text) {
       addToQueue({

@@ -39,6 +39,7 @@ const uploadRoutes = require('./api/routes/uploads');
 const demoRoutes = require('./api/routes/demo');
 const billingRoutes = require('./api/routes/billing');
 const supportRoutes = require('./api/routes/support');
+const metaReviewRoutes = require('./api/routes/metaReview');
 const { getUploadRoot } = require('./api/routes/uploads');
 
 // Boot action registry (must require before routes)
@@ -234,6 +235,7 @@ app.use('/api/channels', channelsRoutes);
 app.use('/api', authMiddleware, tenantMiddleware, subscriptionAccessMiddleware);
 app.use('/api/billing', billingRoutes);
 app.use('/api/support', supportRoutes);
+app.use('/api/meta-review', authMiddleware, tenantMiddleware, metaReviewRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/deals', dealsRoutes);
 app.use('/api/conversations', conversationsRoutes);

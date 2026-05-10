@@ -29,6 +29,7 @@ import {
   Lock,
   Clock,
   AlertTriangle,
+  ShieldCheck,
 } from 'lucide-react';
 import { api, API_BASE, clearToken, isDemo } from '@/lib/api';
 import Logo from '@/components/Logo';
@@ -53,6 +54,7 @@ const NAV = [
   { href: '/dashboard/business-profile', icon: Store,         label: 'Business Profile'          },
   { href: '/dashboard/migrations',    icon: ArrowLeftRight,  label: 'Migrations'                  },
   { href: '/dashboard/settings',      icon: Settings,        label: 'Settings'                    },
+  { href: '/dashboard/meta-review',   icon: ShieldCheck,     label: 'Meta Review'                 },
 ];
 
 function NavItems({ collapsed = false, onNavigate }) {

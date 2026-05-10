@@ -10,6 +10,7 @@ const { addToQueue } = require('../../workers/messageProcessor');
 const { verifyMetaSignature } = require('../verify');
 const { normalizeMessenger } = require('./normalizer');
 const { sendWebhookFailureAlert } = require('../../services/email/emailService');
+const { logMetaWebhookEvent, markMetaWebhookEventProcessed } = require('../../core/metaWebhookLogger');
 
 /* ── Fetch real customer name from Meta Graph API ───────────────────────────── */
 async function fetchFbName(userId, token) {
@@ -102,6 +103,18 @@ async function processMessengerMessage(msg, pageId) {
 
     console.log(`[Messenger] Message from ${displayName} (${senderId}): ${text}`);
 
+    logMetaWebhookEvent({
+      tenantId,
+      channel: 'messenger',
+      assetType: 'page',
+      assetId: pageId,
+      assetName: tenantMatch?.credentials?.page_name || pageId,
+      eventType: 'message',
+      providerEventId: msgId,
+      summary: `Inbound ${normalized.message.type} from ${displayName}`,
+      rawPayloadRedacted: { sender_id: senderId, page_id: pageId, type: normalized.message.type, has_text: Boolean(text) },
+    });
+
     const dbCustomer = await getOrCreateCustomer(tenantId, {
       channel: 'messenger',
       channelCustomerId: senderId,
@@ -126,6 +139,8 @@ async function processMessengerMessage(msg, pageId) {
         channel: 'messenger',
       });
     } catch {}
+
+    markMetaWebhookEventProcessed(msgId);
 
     if (text) {
       addToQueue({
