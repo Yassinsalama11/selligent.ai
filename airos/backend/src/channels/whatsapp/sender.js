@@ -86,12 +86,22 @@ function _post(url, token, body) {
       res.on('end', () => {
         try {
           const parsed = JSON.parse(raw);
-          if (res.statusCode >= 400) reject(new Error(parsed.error?.message || `HTTP ${res.statusCode}`));
-          else resolve(parsed);
+          if (res.statusCode >= 400) {
+            console.error('[WhatsApp API Error]', res.statusCode, raw);
+            reject(new Error(parsed.error?.message || `HTTP ${res.statusCode}`));
+          } else {
+            resolve(parsed);
+          }
         } catch {
+          console.error('[WhatsApp API Error] Invalid JSON:', raw.slice(0, 200));
           reject(new Error('Invalid JSON response from WhatsApp API'));
         }
       });
+    });
+
+    req.setTimeout(30000, () => {
+      req.destroy();
+      reject(new Error('WhatsApp API request timed out after 30s'));
     });
 
     req.on('error', reject);
