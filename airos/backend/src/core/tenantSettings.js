@@ -26,8 +26,8 @@ const DEFAULT_AI_CONFIG = {
   escalationRules: '',
   knowledgeSourcePriority: ['companyProfile', 'knowledgeBase', 'productCatalog', 'policies', 'faq'],
   modelPreference: '',
-  autoReply: false,
-  suggestOnly: true,
+  autoReply: true,
+  suggestOnly: false,
   identity: {
     persona: '',
     defaultLanguage: 'ar',

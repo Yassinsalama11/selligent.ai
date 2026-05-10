@@ -450,15 +450,6 @@ async function maybeSendAutoReply({
     return;
   }
 
-  if (conversation?.ai_mode !== 'auto') {
-    console.log('AI_SKIPPED_REASON', JSON.stringify({
-      ...logContext,
-      reason: 'ai_mode_not_auto',
-      aiMode: conversation?.ai_mode || 'manual',
-    }));
-    return;
-  }
-
   const globalSettings = tenantSettings?.global || {};
   const aiConfig = tenantSettings?.aiConfig || {};
   const conversationAutoMode = conversation?.ai_mode === 'auto';
