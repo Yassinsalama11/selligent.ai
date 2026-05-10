@@ -482,7 +482,9 @@ async function maybeSendAutoReply({
   }
 
   // Global human-approval gate — every AI reply must be approved before sending
-  if (globalSettings.humanApprovalRequired === true) {
+  // When the agent explicitly set ai_mode=auto on this conversation, bypass all suggest/approval gates.
+  // Only the hard master kill switches (aiEnabled=false, humanApprovalRequired) still apply.
+  if (!conversationAutoMode && globalSettings.humanApprovalRequired === true) {
     console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'global_human_approval_required' }));
     return;
   }
@@ -493,11 +495,11 @@ async function maybeSendAutoReply({
     console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'channel_ai_disabled' }));
     return;
   }
-  if (channelCfg?.requireApproval === true) {
+  if (!conversationAutoMode && channelCfg?.requireApproval === true) {
     console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'channel_requires_approval' }));
     return;
   }
-  if (channelCfg?.suggestOnly === true) {
+  if (!conversationAutoMode && channelCfg?.suggestOnly === true) {
     console.log('AI_SKIPPED_REASON', JSON.stringify({ ...logContext, reason: 'channel_suggest_only' }));
     return;
   }
@@ -569,19 +571,21 @@ async function maybeSendAutoReply({
     return;
   }
 
-  // Confidence threshold gate — per-channel override takes precedence over global responseControl setting
-  const confidenceThreshold = channelCfg?.confidenceThreshold != null
-    ? Number(channelCfg.confidenceThreshold)
-    : Number(tenantSettings?.aiConfig?.responseControl?.confidenceThreshold ?? 50);
-  const suggestionConfidence = suggestion?.confidence != null ? Number(suggestion.confidence) * 100 : null;
-  if (suggestionConfidence !== null && suggestionConfidence < confidenceThreshold) {
-    console.log('AI_SKIPPED_REASON', JSON.stringify({
-      ...logContext,
-      reason: 'below_confidence_threshold',
-      confidence: suggestionConfidence,
-      threshold: confidenceThreshold,
-    }));
-    return;
+  // Confidence threshold gate — bypassed when agent explicitly enabled auto mode
+  if (!conversationAutoMode) {
+    const confidenceThreshold = channelCfg?.confidenceThreshold != null
+      ? Number(channelCfg.confidenceThreshold)
+      : Number(tenantSettings?.aiConfig?.responseControl?.confidenceThreshold ?? 50);
+    const suggestionConfidence = suggestion?.confidence != null ? Number(suggestion.confidence) * 100 : null;
+    if (suggestionConfidence !== null && suggestionConfidence < confidenceThreshold) {
+      console.log('AI_SKIPPED_REASON', JSON.stringify({
+        ...logContext,
+        reason: 'below_confidence_threshold',
+        confidence: suggestionConfidence,
+        threshold: confidenceThreshold,
+      }));
+      return;
+    }
   }
 
   // Escalation threshold — high-value leads (score >= threshold) are routed to human, not AI
