@@ -37,19 +37,26 @@ export default function AdminAiPage() {
   const [testResult, setTestResult] = useState(null);
   const [config, setConfig] = useState(null);
   const [providerStatus, setProviderStatus] = useState(null);
+  const [diagnostics, setDiagnostics] = useState(null);
   const [tenantUsage, setTenantUsage] = useState([]);
   const [availableModels, setAvailableModels] = useState([]);
 
   async function load() {
     try {
       setLoading(true);
-      const data = await adminApi.get('/api/admin/ai-control');
-      setConfig(data?.config ? summarizeConfig(data.config) : null);
-      setProviderStatus(data?.providerStatus || null);
-      setTenantUsage(Array.isArray(data?.tenantUsage) ? data.tenantUsage : []);
-      setAvailableModels(Array.isArray(data?.availableModels) ? data.availableModels : []);
-    } catch (err) {
-      toast.error(err.message || 'Could not load AI control plane');
+      const [data, diag] = await Promise.allSettled([
+        adminApi.get('/api/admin/ai-control'),
+        adminApi.get('/api/admin/ai/diagnostics'),
+      ]);
+      if (data.status === 'fulfilled') {
+        setConfig(data.value?.config ? summarizeConfig(data.value.config) : null);
+        setProviderStatus(data.value?.providerStatus || null);
+        setTenantUsage(Array.isArray(data.value?.tenantUsage) ? data.value.tenantUsage : []);
+        setAvailableModels(Array.isArray(data.value?.availableModels) ? data.value.availableModels : []);
+      } else {
+        toast.error(data.reason?.message || 'Could not load AI control plane');
+      }
+      if (diag.status === 'fulfilled') setDiagnostics(diag.value);
     } finally {
       setLoading(false);
     }
@@ -194,9 +201,47 @@ export default function AdminAiPage() {
         </div>
       )}
 
+      {diagnostics && (
+        <div className="rounded-xl border bg-muted/30 p-4 text-sm">
+          <p className="mb-3 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Provider diagnostics</p>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Configured</span>
+              <span className={`font-semibold ${diagnostics.platform?.configured ? 'text-green-600' : 'text-red-500'}`}>
+                {diagnostics.platform?.configured ? 'Yes' : 'No — key missing'}
+              </span>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Provider</span>
+              <span className="font-medium capitalize">{diagnostics.platform?.provider || '—'}</span>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Active model</span>
+              <span className="font-mono text-xs">{diagnostics.platform?.model || '—'}</span>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">BYOK tenants</span>
+              <span className="font-medium">{diagnostics.byok?.tenantCount ?? '—'}</span>
+            </div>
+          </div>
+          {Array.isArray(diagnostics.recentFailures) && diagnostics.recentFailures.length > 0 && (
+            <div className="mt-4 border-t pt-3">
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-orange-600">Recent AI failures (24h)</p>
+              <div className="flex flex-wrap gap-2">
+                {diagnostics.recentFailures.map((f) => (
+                  <span key={f.reason} className="rounded-full border border-orange-500/20 bg-orange-500/5 px-2.5 py-0.5 text-[11px] font-mono text-orange-700 dark:text-orange-400">
+                    {f.reason} × {f.count}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Provider" value={providerStatus?.provider || config.provider || 'Unknown'} icon={Sparkles} />
-        <MetricCard label="Managed tenants" value={totals.tenants} icon={BrainCircuit} />
+        <MetricCard label="Provider" value={diagnostics?.platform?.provider || providerStatus?.provider || config.provider || 'Unknown'} icon={Sparkles} />
+        <MetricCard label="Active model" value={diagnostics?.platform?.model || config.activeModel || '—'} icon={BrainCircuit} />
         <MetricCard label="Observed messages" value={totals.messages.toLocaleString()} icon={ShieldCheck} />
         <MetricCard label="Allocated seats" value={totals.seats.toLocaleString()} icon={KeyRound} />
       </div>
