@@ -11,6 +11,19 @@ const { enqueueJob } = require('../../core/queue');
 const { sendChannelConnectedEmail } = require('../../services/email/emailService');
 const { normalizeTenantSettings, isPlainObject } = require('../../core/tenantSettings');
 const { updateTenantSettings } = require('../../db/queries/tenants');
+const { sendText: waSendText, sendTemplate: waSendTemplate } = require('../../channels/whatsapp/sender');
+const { sendText: msgrSendText } = require('../../channels/messenger/sender');
+const { sendText: igSendText } = require('../../channels/instagram/sender');
+
+const META_GRAPH = 'https://graph.facebook.com/v19.0';
+
+async function graphGet(path, token) {
+  const url = `${META_GRAPH}${path}${path.includes('?') ? '&' : '?'}access_token=${token}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || `Graph API error ${res.status}`);
+  return data;
+}
 
 const router = express.Router();
 
@@ -472,6 +485,219 @@ router.get('/:channel/health', requireReadRole, async (req, res, next) => {
       failedSends7d: failedSends,
       messagesToday: totalToday,
       totalConversations,
+    });
+  } catch (err) { next(err); }
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+   META APP REVIEW EVIDENCE ROUTES
+   All routes are tenant-scoped (auth + tenant middleware on parent router)
+   and require owner/admin role. No raw tokens returned.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* GET /api/channels/:channel/webhook-events
+   Returns latest 30 sanitised webhook events for this channel + tenant.
+   If table doesn't exist yet (migration pending) returns empty array. */
+router.get('/:channel/webhook-events', requireOwnerRole, async (req, res, next) => {
+  const { channel } = req.params;
+  const allowed = ['messenger', 'instagram', 'whatsapp'];
+  if (!allowed.includes(channel)) return res.status(400).json({ error: 'Invalid channel' });
+
+  try {
+    // Gracefully handle missing table (migration may not have run yet)
+    const tableCheck = await queryAdmin(
+      `SELECT EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_name = 'meta_webhook_events'
+      ) AS exists`
+    );
+    if (!tableCheck.rows[0]?.exists) {
+      return res.json({ events: [], migrationPending: true });
+    }
+
+    const { rows } = await queryAdmin(
+      `SELECT id, channel, asset_type, asset_id, asset_name,
+              event_type, provider_event_id, summary,
+              raw_payload_redacted, processed_status, received_at, processed_at
+         FROM meta_webhook_events
+        WHERE tenant_id = $1 AND channel = $2
+        ORDER BY received_at DESC
+        LIMIT 30`,
+      [req.tenant.id, channel]
+    );
+    res.json({ events: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* POST /api/channels/messenger/fetch-page-posts
+   Fetches live FB Page posts via Graph API passthrough (not persisted). */
+router.post('/messenger/fetch-page-posts', requireOwnerRole, async (req, res, next) => {
+  try {
+    const { rows } = await queryAdmin(
+      `SELECT credentials FROM channel_connections WHERE tenant_id = $1 AND channel = 'messenger' LIMIT 1`,
+      [req.tenant.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'No Messenger / Facebook Page connected' });
+
+    const creds = decryptCredentials(rows[0].credentials);
+    const { page_id: pageId, access_token: token, page_name: pageName } = creds;
+    if (!pageId || !token) return res.status(400).json({ error: 'Missing page credentials — reconnect your Facebook Page.' });
+
+    const data = await graphGet(
+      `/${pageId}/feed?fields=id,message,story,type,created_time,permalink_url,status_type&limit=20`,
+      token
+    );
+    const posts = (data.data || []).map(p => ({
+      postId: p.id,
+      message: p.message || p.story || '',
+      type: p.type || 'status',
+      statusType: p.status_type || '',
+      createdTime: p.created_time,
+      permalinkUrl: p.permalink_url || '',
+    }));
+    res.json({ pageId, pageName, posts });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* POST /api/channels/messenger/send-test
+   Body: { recipientId, message } */
+router.post('/messenger/send-test', requireOwnerRole, async (req, res, next) => {
+  try {
+    const { recipientId, message } = req.body || {};
+    if (!recipientId || typeof recipientId !== 'string') return res.status(400).json({ error: 'recipientId is required' });
+    if (!message || typeof message !== 'string' || message.length > 2000) return res.status(400).json({ error: 'message required (max 2000 chars)' });
+
+    const { rows } = await queryAdmin(
+      `SELECT credentials FROM channel_connections WHERE tenant_id = $1 AND channel = 'messenger' LIMIT 1`,
+      [req.tenant.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'No Messenger Page connected' });
+    const creds = decryptCredentials(rows[0].credentials);
+
+    const result = await msgrSendText(creds.page_id, creds.access_token, recipientId, message);
+    res.json({
+      sent: true,
+      pageId: creds.page_id,
+      pageName: creds.page_name,
+      recipientId,
+      providerMessageId: result?.message_id || null,
+    });
+  } catch (err) { next(err); }
+});
+
+/* POST /api/channels/instagram/send-test
+   Body: { recipientId, message } */
+router.post('/instagram/send-test', requireOwnerRole, async (req, res, next) => {
+  try {
+    const { recipientId, message } = req.body || {};
+    if (!recipientId || typeof recipientId !== 'string') return res.status(400).json({ error: 'recipientId is required' });
+    if (!message || typeof message !== 'string' || message.length > 1000) return res.status(400).json({ error: 'message required (max 1000 chars)' });
+
+    const { rows } = await queryAdmin(
+      `SELECT credentials FROM channel_connections WHERE tenant_id = $1 AND channel = 'instagram' LIMIT 1`,
+      [req.tenant.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'No Instagram account connected' });
+    const creds = decryptCredentials(rows[0].credentials);
+
+    const result = await igSendText(creds.page_id, creds.access_token, recipientId, message);
+    res.json({
+      sent: true,
+      igAccountId: creds.instagram_business_account_id,
+      igUsername: creds.instagram_business_account_username,
+      recipientId,
+      providerMessageId: result?.message_id || null,
+    });
+  } catch (err) { next(err); }
+});
+
+/* POST /api/channels/whatsapp/send-test
+   Body: { to, message } */
+router.post('/whatsapp/send-test', requireOwnerRole, async (req, res, next) => {
+  try {
+    const { to, message } = req.body || {};
+    if (!to || typeof to !== 'string') return res.status(400).json({ error: 'to (E.164 phone) is required' });
+    if (!message || typeof message !== 'string' || message.length > 4096) return res.status(400).json({ error: 'message required (max 4096 chars)' });
+
+    const { rows } = await queryAdmin(
+      `SELECT credentials FROM channel_connections WHERE tenant_id = $1 AND channel = 'whatsapp' LIMIT 1`,
+      [req.tenant.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'No WhatsApp account connected' });
+    const creds = decryptCredentials(rows[0].credentials);
+
+    const result = await waSendText(creds.phone_number_id, creds.access_token, to, message);
+    res.json({
+      sent: true,
+      phoneNumberId: creds.phone_number_id,
+      displayName: creds.display_name || creds.verified_name,
+      to,
+      providerMessageId: result?.messages?.[0]?.id || null,
+    });
+  } catch (err) { next(err); }
+});
+
+/* GET /api/channels/whatsapp/templates
+   Fetches live template list from the WABA via Graph API. */
+router.get('/whatsapp/templates', requireOwnerRole, async (req, res, next) => {
+  try {
+    const { rows } = await queryAdmin(
+      `SELECT credentials FROM channel_connections WHERE tenant_id = $1 AND channel = 'whatsapp' LIMIT 1`,
+      [req.tenant.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'No WhatsApp account connected' });
+    const creds = decryptCredentials(rows[0].credentials);
+    const { waba_id: wabaId, access_token: token } = creds;
+    if (!wabaId || !token) return res.status(400).json({ error: 'Missing WABA credentials — reconnect your WhatsApp account.' });
+
+    const data = await graphGet(
+      `/${wabaId}/message_templates?fields=id,name,category,language,status,components,rejected_reason&limit=50`,
+      token
+    );
+    const templates = (data.data || []).map(t => ({
+      templateId: t.id,
+      name: t.name,
+      category: t.category,
+      language: t.language,
+      status: t.status,
+      rejectedReason: t.rejected_reason || null,
+      components: (t.components || []).map(c => ({
+        type: c.type,
+        text: c.text || null,
+        format: c.format || null,
+      })),
+    }));
+    res.json({ wabaId, templates });
+  } catch (err) { next(err); }
+});
+
+/* POST /api/channels/whatsapp/send-template-test
+   Body: { to, templateName, languageCode, components } */
+router.post('/whatsapp/send-template-test', requireOwnerRole, async (req, res, next) => {
+  try {
+    const { to, templateName, languageCode = 'ar', components = [] } = req.body || {};
+    if (!to || !templateName) return res.status(400).json({ error: 'to and templateName are required' });
+
+    const { rows } = await queryAdmin(
+      `SELECT credentials FROM channel_connections WHERE tenant_id = $1 AND channel = 'whatsapp' LIMIT 1`,
+      [req.tenant.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'No WhatsApp account connected' });
+    const creds = decryptCredentials(rows[0].credentials);
+
+    const result = await waSendTemplate(creds.phone_number_id, creds.access_token, to, templateName, languageCode, components);
+    res.json({
+      sent: true,
+      phoneNumberId: creds.phone_number_id,
+      wabaId: creds.waba_id,
+      to,
+      templateName,
+      languageCode,
+      providerMessageId: result?.messages?.[0]?.id || null,
     });
   } catch (err) { next(err); }
 });

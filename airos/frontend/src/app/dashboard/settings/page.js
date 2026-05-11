@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 
 import { api } from '@/lib/api';
+import { ChannelReviewEvidence } from '@/components/ChannelReviewEvidence';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -3627,6 +3628,15 @@ export default function SettingsPage() {
                               </div>
                             </CardContent>
                           </Card>
+                        )}
+
+                        {/* 6 · Meta App Review Evidence */}
+                        {['messenger', 'instagram', 'whatsapp'].includes(channelKey) && (
+                          <ChannelReviewEvidence
+                            channelKey={channelKey}
+                            chDetails={chDetails}
+                            isConnected={isConnected}
+                          />
                         )}
                       </>
                     )}
